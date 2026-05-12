@@ -891,11 +891,32 @@ function clearIntuneError() { $('intuneError').innerHTML = ''; }
 // --- App list ---
 async function loadApps() {
   clearIntuneError();
-  $('appList').innerHTML = '<div class="loading">Loading apps…</div>';
+  $('appList').innerHTML = '<div class="loading">Loading apps with failures…</div>';
   try {
-    // Page through mobileApps; limit to reasonable batch
-    const data = await graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher&$top=200");
-    intuneApps = (data.value || []).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    // Fetch app catalog + per-app failure counts in parallel
+    const [appsData, summary] = await Promise.all([
+      graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher&$top=500"),
+      graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', {
+        select: ['ApplicationId', 'DisplayName', 'Publisher', 'FailedDeviceCount', 'FailedUserCount'],
+        skip: 0,
+        top: 500
+      })
+    ]);
+
+    // Build failure count map from summary report (ApplicationId -> FailedDeviceCount)
+    const failCounts = new Map();
+    const summaryRows = parseReport(summary);
+    summaryRows.forEach(r => {
+      const count = parseInt(r.FailedDeviceCount, 10) || 0;
+      if (count > 0) failCounts.set(r.ApplicationId, count);
+    });
+
+    // Filter apps to those with failures, attach count, sort by count desc
+    intuneApps = (appsData.value || [])
+      .filter(a => failCounts.has(a.id))
+      .map(a => ({ ...a, _failedCount: failCounts.get(a.id) }))
+      .sort((a, b) => b._failedCount - a._failedCount);
+
     intuneAppsFiltered = intuneApps;
     renderAppList();
   } catch (e) {
@@ -906,16 +927,16 @@ async function loadApps() {
 
 function renderAppList() {
   if (!intuneAppsFiltered.length) {
-    $('appList').innerHTML = '<div class="loading">No apps found.</div>';
+    $('appList').innerHTML = '<div class="loading">No apps with failed installs.</div>';
     return;
   }
   $('appList').innerHTML = intuneAppsFiltered.map(a => `
     <div class="app-row" data-id="${esc(a.id)}">
       <div>
         <div class="name">${esc(a.displayName)}</div>
-        <div class="meta">${esc(a['@odata.type'] || '').replace('#microsoft.graph.', '')}</div>
+        <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
-      <div class="pub-small">${esc(a.publisher) || '—'}</div>
+      <div class="err-code">${a._failedCount} failed</div>
     </div>
   `).join('');
 }
@@ -943,7 +964,7 @@ function selectApp(app) {
   $('appPicker').style.display = 'none';
   $('failedView').style.display = '';
   $('selAppName').textContent = app.displayName;
-  $('selAppMeta').textContent = (app.publisher || '—') + ' · ' + (app['@odata.type'] || '').replace('#microsoft.graph.', '');
+  $('selAppMeta').textContent = (app.publisher || '—') + ' · ' + app._failedCount + ' failed';
   loadFailed();
 }
 
