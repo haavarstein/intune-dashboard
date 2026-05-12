@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Intune Dashboard v5</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf7f2;
+    --card: #ffffff;
+    --ink: #0f0f10;
+    --ink-2: #4a4a4f;
+    --muted: #9a9a9f;
+    --line: #ece8e1;
+    --accent: #e8743b;
+    --accent-soft: #f5e3d6;
+    --dark: #0f0f10;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1400px; margin: 0 auto; padding: 40px 32px; }
+
+  .eyebrow {
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::after { content: ''; width: 80px; height: 1px; background: var(--accent); opacity: .4; }
+  h1 { font-size: 44px; font-weight: 800; margin: 12px 0 8px; letter-spacing: -0.02em; }
+  .subtitle { color: var(--ink-2); margin: 0 0 32px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
+  .tile {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.04); }
+  .tile-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .tile-value { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .tile-value.accent { color: var(--accent); }
+  .tile-sub { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+  .hero {
+    background: var(--dark);
+    color: white;
+    border: none;
+    padding: 28px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    margin-bottom: 32px;
+    min-height: 160px;
+  }
+  .hero .tile-label { color: rgba(255,255,255,.5); }
+  .hero-left { flex: 0 0 auto; }
+  .hero-value { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-top: 14px; }
+  .hero-caption { color: rgba(255,255,255,.55); font-size: 13px; margin-top: 8px; }
+  .hero-right { flex: 1; display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+  .breakdown-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+  .breakdown-row .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 10px; }
+  .breakdown-row .label { color: rgba(255,255,255,.85); }
+  .breakdown-row .val { font-weight: 700; }
+
+  .table-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--line);
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .table-toolbar h2 { font-size: 16px; font-weight: 700; margin: 0; }
+  .table-toolbar .controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .search {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    width: 260px;
+    background: var(--bg);
+    outline: none;
+    transition: border-color .15s;
+  }
+  .search:focus { border-color: var(--accent); }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+  .toggle input { accent-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left;
+    padding: 14px 24px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  thead th:hover { color: var(--ink); }
+  thead th .arrow { opacity: 0; margin-left: 6px; font-size: 9px; }
+  thead th.sort-asc .arrow, thead th.sort-desc .arrow { opacity: 1; color: var(--accent); }
+  tbody td {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  tbody tr { cursor: pointer; transition: background .1s; }
+  tbody tr:hover { background: #fcf9f4; }
+  tbody tr:last-child td { border-bottom: none; }
+  .app-name { font-weight: 600; color: var(--ink); }
+  .pub { color: var(--ink-2); }
+  .version, .date { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; }
+  .badge-32 { background: var(--accent-soft); color: var(--accent); }
+  .badge-64 { background: #e8eef5; color: #3a5a85; }
+  .badge-both { background: #e8f5e9; color: #2f7d3a; }
+  .badge-hklm { background: #eef0f3; color: #4a5568; }
+  .badge-hkcu { background: #fdf1e3; color: #b86b2f; }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .footer-count { padding: 14px 24px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); background: var(--bg); }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(15,15,16,.5); z-index: 100;
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 14px; max-width: 720px; width: 100%;
+    max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  .modal-header { padding: 24px 28px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+  .modal-header h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .panel-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .close-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); padding: 0; line-height: 1; }
+  .close-btn:hover { color: var(--ink); }
+  .modal-body { padding: 24px 28px; }
+  .field { display: grid; grid-template-columns: 140px 1fr; gap: 16px; padding: 10px 0; font-size: 13px; border-bottom: 1px solid var(--line); }
+  .field:last-child { border-bottom: none; }
+  .field-label { color: var(--muted); font-weight: 500; }
+  .field-value { color: var(--ink); word-break: break-all; }
+  .field-value.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
+  .cmd-section { margin-top: 20px; }
+  .cmd-section h4 { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .cmd { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; word-break: break-all; margin-bottom: 8px; }
+  .cmd-row { display: flex; gap: 8px; align-items: start; }
+  .cmd-row .cmd { flex: 1; margin-bottom: 0; }
+  .copy-btn {
+    background: var(--ink); color: white; border: none; border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: inherit; white-space: nowrap;
+  }
+  .copy-btn:hover { background: #2a2a2e; }
+  .cmd-label { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; font-weight: 600; }
+  .dedup-note {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #e8f5e9;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #2f7d3a;
+  }
+
+  .upload-prompt {
+    background: var(--card);
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .upload-prompt input { display: none; }
+  .upload-prompt label {
+    display: inline-block;
+    background: var(--ink);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .upload-prompt label:hover { background: #2a2a2e; }
+
+  @media (max-width: 1024px) {
+    .tiles { grid-template-columns: repeat(3, 1fr); }
+    .hero { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <span class="eyebrow">Workspace</span>
+  <h1>Installed Applications</h1>
+  <p class="subtitle">Uninstall registry inventory — versions, publishers, and removal commands.</p>
+
+  <div id="dashboard" style="display:none;">
+    <div class="tiles">
+      <div class="tile">
+        <div class="tile-label">Total</div>
+        <div class="tile-value" id="kTotal">0</div>
+        <div class="tile-sub">unique applications</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">64-bit only</div>
+        <div class="tile-value" id="k64">0</div>
+        <div class="tile-sub"><span id="k64Pct">0%</span> · native</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">32-bit only</div>
+        <div class="tile-value accent" id="k32">0</div>
+        <div class="tile-sub"><span id="k32Pct">0%</span> · WOW6432Node</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Both arch</div>
+        <div class="tile-value" id="kBoth">0</div>
+        <div class="tile-sub">registered twice</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">System</div>
+        <div class="tile-value" id="kSys">0</div>
+        <div class="tile-sub">hidden components</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Per-user</div>
+        <div class="tile-value" id="kHkcu">0</div>
+        <div class="tile-sub">HKCU installs</div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-left">
+        <div class="tile-label">Architecture Breakdown</div>
+        <div class="hero-value" id="heroTotal">0</div>
+        <div class="hero-caption">unique applications detected</div>
+      </div>
+      <div class="hero-right">
+        <div class="breakdown-row">
+          <div><span class="dot" style="background:#5a8ec4;"></span><span class="label">64-bit only</span></div>
+          <div><span class="val" id="heroX64">0</span></div>
+        </div>
+        <div class="breakdown-row">
+          <div><span class="dot" style="background:var(--accent);"></span><span class="label">32-bit only (WOW6432Node)</span></div>
+          <div><span class="val" id="heroX86">0</span></div>
+        </div>
+        <div class="breakdown-row">
+          <div><span class="dot" style="background:#4caf50;"></span><span class="label">Registered as both</span></div>
+          <div><span class="val" id="heroBoth">0</span></div>
+        </div>
+        <div class="breakdown-row">
+          <div><span class="dot" style="background:#6b6b70;"></span><span class="label">System components</span></div>
+          <div><span class="val" id="heroSys">0</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-toolbar">
+        <h2>Applications</h2>
+        <div class="controls">
+          <input type="text" class="search" id="filter" placeholder="Search by name or publisher…">
+          <label class="toggle"><input type="checkbox" id="hideSystem" checked> Hide system</label>
+          <label class="toggle"><input type="checkbox" id="dedupe" checked> Collapse 32/64-bit duplicates</label>
+          <label class="toggle"><input type="file" id="csvFile2" accept=".csv" style="display:none;"><span style="cursor:pointer; color:var(--accent); font-weight:600;" onclick="document.getElementById('csvFile2').click()">↻ Replace CSV</span></label>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="DisplayName">Application <span class="arrow">▼</span></th>
+            <th data-sort="DisplayVersion">Version <span class="arrow">▼</span></th>
+            <th data-sort="Publisher">Publisher <span class="arrow">▼</span></th>
+            <th data-sort="InstallDate">Installed On <span class="arrow">▼</span></th>
+            <th data-sort="Location">Location <span class="arrow">▼</span></th>
+            <th data-sort="Arch">Arch <span class="arrow">▼</span></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="footer-count"><span id="count">0</span> applications shown</div>
+    </div>
+  </div>
+
+  <div id="uploadPrompt" class="upload-prompt">
+    <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
+    <div>Drop your PMPC-Uninstall-Hive-Export.csv to get started</div>
+    <input type="file" id="csvFile" accept=".csv">
+    <label for="csvFile">Select CSV</label>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="mTitle"></h3>
+        <div class="panel-sub" id="mPub" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="mBody"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+let rawRows = [];      // raw CSV rows
+let displayRows = [];  // after filter/dedupe transforms, used by table
+let sortKey = 'DisplayName';
+let sortDir = 'asc';
+
+const $ = id => document.getElementById(id);
+const esc = s => s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate = d => (!d || d.length !== 8) ? '—' : `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+const isX86 = r => (r.RegistryPath || '').includes('WOW6432Node');
+const isHKCU = r => (r.RegistryPath || '').toUpperCase().startsWith('HKEY_CURRENT_USER') || (r.RegistryPath || '').toUpperCase().startsWith('HKCU');
+const locationOf = r => isHKCU(r) ? 'HKCU' : 'HKLM';
+
+// Build dedupe-aware list. Group by DisplayName+DisplayVersion.
+// If a name appears as both 32 and 64, keep the 64-bit row and mark _arch='both'.
+function buildDisplayRows() {
+  const hideSys = $('hideSystem').checked;
+  const dedupe = $('dedupe').checked;
+
+  let rows = rawRows.filter(r => !hideSys || r.SystemComponent !== '1');
+
+  if (!dedupe) {
+    return rows.map(r => ({ ...r, _arch: isX86(r) ? '32' : '64', _twin: null }));
+  }
+
+  const groups = new Map();
+  rows.forEach(r => {
+    const key = `${r.DisplayName}|${r.DisplayVersion || ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+
+  const result = [];
+  groups.forEach(group => {
+    if (group.length === 1) {
+      const r = group[0];
+      result.push({ ...r, _arch: isX86(r) ? '32' : '64', _twin: null });
+    } else {
+      // Prefer 64-bit row; merge fields from twin if missing
+      const x64 = group.find(r => !isX86(r));
+      const x86 = group.find(r => isX86(r));
+      const primary = x64 || group[0];
+      const twin = x64 ? x86 : group[1];
+      // Backfill missing fields from twin
+      const merged = { ...primary };
+      ['InstallDate', 'UninstallString', 'QuietUninstallString', 'Publisher'].forEach(f => {
+        if (!merged[f] && twin && twin[f]) merged[f] = twin[f];
+      });
+      result.push({ ...merged, _arch: (x64 && x86) ? 'both' : (isX86(primary) ? '32' : '64'), _twin: twin });
+    }
+  });
+  return result;
+}
+
+function computeKPIs() {
+  const visible = rawRows.filter(r => r.SystemComponent !== '1');
+  const sys = rawRows.length - visible.length;
+  const hkcu = visible.filter(isHKCU).length;
+
+  // Build unique-app counts via the same grouping logic
+  const groups = new Map();
+  visible.forEach(r => {
+    const key = `${r.DisplayName}|${r.DisplayVersion || ''}`;
+    if (!groups.has(key)) groups.set(key, { has32: false, has64: false });
+    const g = groups.get(key);
+    if (isX86(r)) g.has32 = true; else g.has64 = true;
+  });
+  let only32 = 0, only64 = 0, both = 0;
+  groups.forEach(g => {
+    if (g.has32 && g.has64) both++;
+    else if (g.has32) only32++;
+    else only64++;
+  });
+  const totalUnique = only32 + only64 + both;
+
+  $('kTotal').textContent = totalUnique;
+  $('k64').textContent = only64;
+  $('k32').textContent = only32;
+  $('kBoth').textContent = both;
+  $('kSys').textContent = sys;
+  $('kHkcu').textContent = hkcu;
+  $('k64Pct').textContent = totalUnique ? Math.round(only64/totalUnique*100) + '%' : '0%';
+  $('k32Pct').textContent = totalUnique ? Math.round(only32/totalUnique*100) + '%' : '0%';
+
+  $('heroTotal').textContent = totalUnique;
+  $('heroX64').textContent = only64;
+  $('heroX86').textContent = only32;
+  $('heroBoth').textContent = both;
+  $('heroSys').textContent = sys;
+}
+
+function sortRows(rows) {
+  return rows.slice().sort((a, b) => {
+    let va, vb;
+    if (sortKey === 'Arch') {
+      va = a._arch; vb = b._arch;
+    } else if (sortKey === 'Location') {
+      va = locationOf(a); vb = locationOf(b);
+    } else if (sortKey === 'InstallDate') {
+      // Empty dates sort last regardless of direction
+      va = a.InstallDate || ''; vb = b.InstallDate || '';
+      if (!va && vb) return 1;
+      if (va && !vb) return -1;
+    } else {
+      va = (a[sortKey] || '').toString().toLowerCase();
+      vb = (b[sortKey] || '').toString().toLowerCase();
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function archBadge(arch) {
+  if (arch === 'both') return '<span class="badge badge-both">32 + 64</span>';
+  if (arch === '32') return '<span class="badge badge-32">32-bit</span>';
+  return '<span class="badge badge-64">64-bit</span>';
+}
+
+function renderTable() {
+  displayRows = buildDisplayRows();
+  const q = $('filter').value.toLowerCase();
+
+  let filtered = displayRows.filter(r => {
+    if (!q) return true;
+    return (r.DisplayName || '').toLowerCase().includes(q)
+        || (r.Publisher || '').toLowerCase().includes(q);
+  });
+  filtered = sortRows(filtered);
+
+  const tbody = $('rows');
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">No applications found.</td></tr>`;
+  } else {
+    tbody.innerHTML = filtered.map((r, i) => `
+      <tr data-idx="${displayRows.indexOf(r)}">
+        <td class="app-name">${esc(r.DisplayName)}</td>
+        <td class="version">${esc(r.DisplayVersion) || '—'}</td>
+        <td class="pub">${esc(r.Publisher) || '—'}</td>
+        <td class="date">${esc(fmtDate(r.InstallDate))}</td>
+        <td><span class="badge badge-${locationOf(r).toLowerCase()}">${locationOf(r)}</span></td>
+        <td>${archBadge(r._arch)}</td>
+      </tr>`).join('');
+  }
+  $('count').textContent = filtered.length;
+
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    const arrow = th.querySelector('.arrow');
+    if (th.dataset.sort === sortKey) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      arrow.textContent = sortDir === 'asc' ? '▲' : '▼';
+    }
+  });
+}
+
+function showDetail(row) {
+  $('mTitle').textContent = row.DisplayName || 'Unknown';
+  $('mPub').textContent = row.Publisher || '';
+
+  const field = (label, val) => val ? `<div class="field"><div class="field-label">${label}</div><div class="field-value">${esc(val)}</div></div>` : '';
+  const fieldMono = (label, val) => val ? `<div class="field"><div class="field-label">${label}</div><div class="field-value mono">${esc(val)}</div></div>` : '';
+
+  let archLabel = row._arch === 'both' ? '32-bit + 64-bit (registered in both registry views)'
+                : row._arch === '32' ? '32-bit (WOW6432Node)' : '64-bit';
+
+  let html = `
+    ${field('Version', row.DisplayVersion)}
+    ${field('Install date', row.InstallDate ? fmtDate(row.InstallDate) : '— (not in registry)')}
+    ${field('Architecture', archLabel)}
+    ${field('Location', locationOf(row) + (isHKCU(row) ? ' (per-user install)' : ' (machine-wide install)'))}
+    ${fieldMono('Registry key', row.PSChildName)}
+    ${fieldMono('Full path', row.RegistryPath)}
+  `;
+
+  if (row._twin) {
+    html += `<div class="dedup-note">ℹ️ This app is also registered under <code>${esc(row._twin.RegistryPath)}</code>. Mirroring is normal for installers that target both 32-bit and 64-bit consumers.</div>`;
+  }
+
+  if (row.UninstallString || row.QuietUninstallString) {
+    html += '<div class="cmd-section"><h4>Uninstall commands</h4>';
+    if (row.UninstallString) {
+      html += `<div class="cmd-label">Standard</div><div class="cmd-row"><div class="cmd">${esc(row.UninstallString)}</div><button class="copy-btn" data-cmd="std">Copy</button></div>`;
+    }
+    if (row.QuietUninstallString) {
+      html += `<div class="cmd-label" style="margin-top:12px;">Silent</div><div class="cmd-row"><div class="cmd">${esc(row.QuietUninstallString)}</div><button class="copy-btn" data-cmd="quiet">Copy</button></div>`;
+    }
+    html += '</div>';
+  }
+
+  $('mBody').innerHTML = html;
+
+  $('mBody').querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.dataset.cmd === 'std' ? row.UninstallString : row.QuietUninstallString;
+      navigator.clipboard.writeText(text);
+      btn.textContent = '✓ Copied';
+      setTimeout(() => btn.textContent = 'Copy', 1500);
+    });
+  });
+
+  $('modal').classList.add('show');
+}
+
+function closeModal() { $('modal').classList.remove('show'); }
+
+function handleCSV(file) {
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      rawRows = results.data.filter(r => r.DisplayName && r.DisplayName.trim());
+      $('uploadPrompt').style.display = 'none';
+      $('dashboard').style.display = 'block';
+      computeKPIs();
+      renderTable();
+    }
+  });
+}
+
+$('csvFile').addEventListener('change', e => e.target.files[0] && handleCSV(e.target.files[0]));
+$('csvFile2').addEventListener('change', e => e.target.files[0] && handleCSV(e.target.files[0]));
+$('filter').addEventListener('input', renderTable);
+$('hideSystem').addEventListener('change', () => { computeKPIs(); renderTable(); });
+$('dedupe').addEventListener('change', renderTable);
+
+document.querySelectorAll('thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortKey = key; sortDir = 'asc'; }
+    renderTable();
+  });
+});
+
+$('rows').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-idx]');
+  if (tr) showDetail(displayRows[+tr.dataset.idx]);
+});
+
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+</script>
+</body>
+</html>
