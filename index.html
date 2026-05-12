@@ -440,7 +440,7 @@
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -800,7 +800,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'User.Read'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'User.Read'];
 
 let msalApp = null;
 let intuneInit = false;
