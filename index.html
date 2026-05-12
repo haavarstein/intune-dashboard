@@ -218,6 +218,109 @@
   }
   .upload-prompt label:hover { background: #2a2a2e; }
 
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin: 0 0 32px;
+  }
+  .tab {
+    background: none;
+    border: none;
+    padding: 12px 18px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--ink-2); }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  .auth-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .auth-user { font-size: 13px; color: var(--ink-2); }
+  .auth-user strong { color: var(--ink); font-weight: 600; }
+  .btn {
+    background: var(--ink); color: white; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: #2a2a2e; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--ink-2);
+    border: 1px solid var(--line);
+  }
+  .btn-ghost:hover { background: var(--bg); color: var(--ink); }
+
+  .signin-prompt {
+    background: var(--card);
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .signin-prompt .btn { margin-top: 16px; }
+
+  .app-picker { margin-bottom: 24px; }
+  .app-picker-bar {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .app-picker-bar .search { flex: 1; min-width: 260px; }
+  .app-list {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .app-row {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  }
+  .app-row:last-child { border-bottom: none; }
+  .app-row:hover { background: #fcf9f4; }
+  .app-row.selected { background: var(--accent-soft); }
+  .app-row .name { font-weight: 600; font-size: 13px; }
+  .app-row .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .app-row .pub-small { font-size: 12px; color: var(--ink-2); }
+
+  .selected-app {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  }
+  .selected-app .name { font-weight: 700; font-size: 15px; }
+  .selected-app .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .err-code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .platform-badge { background: #eef0f3; color: #4a5568; }
+
+  .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
+  .error-banner {
+    background: #fdecec; border: 1px solid #f5b5b5; color: #8a2020;
+    padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px;
+  }
+
   @media (max-width: 1024px) {
     .tiles { grid-template-columns: repeat(3, 1fr); }
     .hero { flex-direction: column; align-items: flex-start; }
@@ -228,9 +331,15 @@
 
 <div class="container">
   <span class="eyebrow">Workspace</span>
-  <h1>Installed Applications</h1>
-  <p class="subtitle">Uninstall registry inventory — versions, publishers, and removal commands.</p>
+  <h1>Intune Dashboard</h1>
+  <p class="subtitle">Local registry inventory and Intune app install reporting.</p>
 
+  <div class="tabs">
+    <button class="tab active" data-tab="local">Local</button>
+    <button class="tab" data-tab="intune">Intune</button>
+  </div>
+
+  <div id="viewLocal">
   <div id="dashboard" style="display:none;">
     <div class="tiles">
       <div class="tile">
@@ -324,6 +433,89 @@
     <input type="file" id="csvFile" accept=".csv">
     <label for="csvFile">Select CSV</label>
   </div>
+  </div><!-- /viewLocal -->
+
+  <div id="viewIntune" style="display:none;">
+    <div id="intuneSignedOut" class="signin-prompt">
+      <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
+      <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
+      <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · User.Read</div>
+    </div>
+
+    <div id="intuneSignedIn" style="display:none;">
+      <div class="auth-bar">
+        <div class="auth-user">Signed in as <strong id="userName">—</strong> · <span id="userUpn"></span></div>
+        <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
+      </div>
+
+      <div id="intuneError"></div>
+
+      <!-- App picker (shown when no app selected) -->
+      <div id="appPicker" class="app-picker">
+        <div class="app-picker-bar">
+          <input type="text" class="search" id="appFilter" placeholder="Search apps by name or publisher…">
+          <button class="btn btn-ghost" id="btnReloadApps">↻ Reload apps</button>
+        </div>
+        <div class="app-list" id="appList">
+          <div class="loading">Loading apps…</div>
+        </div>
+      </div>
+
+      <!-- Failed installs view (shown when app selected) -->
+      <div id="failedView" style="display:none;">
+        <div class="selected-app">
+          <div>
+            <div class="name" id="selAppName">—</div>
+            <div class="meta" id="selAppMeta">—</div>
+          </div>
+          <button class="btn btn-ghost" id="btnChangeApp">← Change app</button>
+        </div>
+
+        <div class="tiles" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="tile">
+            <div class="tile-label">Failed</div>
+            <div class="tile-value accent" id="kFailed">0</div>
+            <div class="tile-sub">devices with install failures</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Unique error codes</div>
+            <div class="tile-value" id="kErrCodes">0</div>
+            <div class="tile-sub">distinct failure reasons</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Platforms affected</div>
+            <div class="tile-value" id="kPlatforms">0</div>
+            <div class="tile-sub">OS variants</div>
+          </div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Failed installs</h2>
+            <div class="controls">
+              <input type="text" class="search" id="failedFilter" placeholder="Search device, user, error…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th data-sort="DeviceName">Device <span class="arrow">▼</span></th>
+                <th data-sort="UserPrincipalName">User <span class="arrow">▼</span></th>
+                <th data-sort="Platform">Platform <span class="arrow">▼</span></th>
+                <th data-sort="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
+                <th data-sort="ErrorCode">Error code <span class="arrow">▼</span></th>
+                <th data-sort="HexErrorCode">Hex <span class="arrow">▼</span></th>
+              </tr>
+            </thead>
+            <tbody id="failedRows"></tbody>
+          </table>
+          <div class="footer-count"><span id="failedCount">0</span> failed installs</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /viewIntune -->
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -339,6 +531,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script>
 let rawRows = [];      // raw CSV rows
@@ -581,6 +774,286 @@ $('rows').addEventListener('click', e => {
 });
 
 $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+
+// ============================================================
+// Intune tab
+// ============================================================
+const TAB_LOCAL = 'local', TAB_INTUNE = 'intune';
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $('viewLocal').style.display = tab === TAB_LOCAL ? '' : 'none';
+  $('viewIntune').style.display = tab === TAB_INTUNE ? '' : 'none';
+  if (tab === TAB_INTUNE) initIntune();
+}
+
+// --- MSAL ---
+const MSAL_CONFIG = {
+  auth: {
+    clientId: '10c9e900-db54-4aa1-979e-1351338a8c9b',
+    authority: 'https://login.microsoftonline.com/common',
+    redirectUri: window.location.origin + window.location.pathname
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+};
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'User.Read'];
+
+let msalApp = null;
+let intuneInit = false;
+let intuneApps = [];
+let intuneAppsFiltered = [];
+let selectedApp = null;
+let failedRows = [];
+let failedSortKey = 'DeviceName';
+let failedSortDir = 'asc';
+
+async function initIntune() {
+  if (intuneInit) return;
+  intuneInit = true;
+  if (typeof msal === 'undefined') {
+    showIntuneError('MSAL library failed to load. Check your network or CDN access.');
+    return;
+  }
+  msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
+  await msalApp.initialize();
+  const accounts = msalApp.getAllAccounts();
+  if (accounts.length) {
+    msalApp.setActiveAccount(accounts[0]);
+    onSignedIn(accounts[0]);
+  }
+}
+
+$('btnSignIn').addEventListener('click', async () => {
+  try {
+    if (!msalApp) throw new Error('MSAL not initialized');
+    const result = await msalApp.loginPopup({ scopes: SCOPES });
+    msalApp.setActiveAccount(result.account);
+    onSignedIn(result.account);
+  } catch (e) {
+    console.error('Sign-in failed', e);
+    showIntuneError('Sign-in failed: ' + (e.message || e));
+  }
+});
+
+$('btnSignOut').addEventListener('click', async () => {
+  await msalApp.logoutPopup();
+  $('intuneSignedIn').style.display = 'none';
+  $('intuneSignedOut').style.display = '';
+});
+
+function onSignedIn(account) {
+  $('intuneSignedOut').style.display = 'none';
+  $('intuneSignedIn').style.display = '';
+  $('userName').textContent = account.name || account.username;
+  $('userUpn').textContent = account.username;
+  loadApps();
+}
+
+async function getToken() {
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: SCOPES, account: msalApp.getActiveAccount() });
+    return r.accessToken;
+  } catch (e) {
+    const r = await msalApp.acquireTokenPopup({ scopes: SCOPES });
+    return r.accessToken;
+  }
+}
+
+async function graphGet(path) {
+  const token = await getToken();
+  const res = await fetch('https://graph.microsoft.com/' + path, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
+  return res.json();
+}
+
+async function graphPost(path, body) {
+  const token = await getToken();
+  const res = await fetch('https://graph.microsoft.com/' + path, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
+  return res.json();
+}
+
+function showIntuneError(msg) {
+  $('intuneError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+}
+function clearIntuneError() { $('intuneError').innerHTML = ''; }
+
+// --- App list ---
+async function loadApps() {
+  clearIntuneError();
+  $('appList').innerHTML = '<div class="loading">Loading apps…</div>';
+  try {
+    // Page through mobileApps; limit to reasonable batch
+    const data = await graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,@odata.type&$top=200");
+    intuneApps = (data.value || []).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    intuneAppsFiltered = intuneApps;
+    renderAppList();
+  } catch (e) {
+    showIntuneError(e.message);
+    $('appList').innerHTML = '';
+  }
+}
+
+function renderAppList() {
+  if (!intuneAppsFiltered.length) {
+    $('appList').innerHTML = '<div class="loading">No apps found.</div>';
+    return;
+  }
+  $('appList').innerHTML = intuneAppsFiltered.map(a => `
+    <div class="app-row" data-id="${esc(a.id)}">
+      <div>
+        <div class="name">${esc(a.displayName)}</div>
+        <div class="meta">${esc(a['@odata.type'] || '').replace('#microsoft.graph.', '')}</div>
+      </div>
+      <div class="pub-small">${esc(a.publisher) || '—'}</div>
+    </div>
+  `).join('');
+}
+
+$('appList').addEventListener('click', e => {
+  const row = e.target.closest('.app-row');
+  if (!row) return;
+  const app = intuneApps.find(a => a.id === row.dataset.id);
+  if (app) selectApp(app);
+});
+
+$('appFilter').addEventListener('input', () => {
+  const q = $('appFilter').value.toLowerCase();
+  intuneAppsFiltered = !q ? intuneApps : intuneApps.filter(a =>
+    (a.displayName || '').toLowerCase().includes(q) ||
+    (a.publisher || '').toLowerCase().includes(q)
+  );
+  renderAppList();
+});
+
+$('btnReloadApps').addEventListener('click', loadApps);
+
+function selectApp(app) {
+  selectedApp = app;
+  $('appPicker').style.display = 'none';
+  $('failedView').style.display = '';
+  $('selAppName').textContent = app.displayName;
+  $('selAppMeta').textContent = (app.publisher || '—') + ' · ' + (app['@odata.type'] || '').replace('#microsoft.graph.', '');
+  loadFailed();
+}
+
+$('btnChangeApp').addEventListener('click', () => {
+  selectedApp = null;
+  failedRows = [];
+  $('appPicker').style.display = '';
+  $('failedView').style.display = 'none';
+});
+
+$('btnRefresh').addEventListener('click', () => selectedApp && loadFailed());
+
+// --- Failed installs report ---
+async function loadFailed() {
+  clearIntuneError();
+  $('failedRows').innerHTML = '<tr><td colspan="6" class="loading">Loading report…</td></tr>';
+  try {
+    const body = {
+      select: ['DeviceName', 'UserPrincipalName', 'Platform', 'LastModifiedDateTime', 'ErrorCode', 'HexErrorCode', 'AppVersion'],
+      filter: `(ApplicationId eq '${selectedApp.id}') and (InstallState eq 'failed')`,
+      skip: 0,
+      top: 500
+    };
+    const data = await graphPost('beta/deviceManagement/reports/getDeviceInstallStatusReport', body);
+    failedRows = parseReport(data);
+    renderFailedKPIs();
+    renderFailed();
+  } catch (e) {
+    showIntuneError(e.message);
+    $('failedRows').innerHTML = '';
+    $('failedCount').textContent = '0';
+  }
+}
+
+// Report response shape: { Schema: [{Column, PropertyType}], Values: [[v1, v2, ...]], TotalRowCount }
+function parseReport(data) {
+  const schema = (data.Schema || []).map(s => s.Column);
+  return (data.Values || []).map(row => {
+    const obj = {};
+    schema.forEach((col, i) => obj[col] = row[i]);
+    return obj;
+  });
+}
+
+function renderFailedKPIs() {
+  $('kFailed').textContent = failedRows.length;
+  $('kErrCodes').textContent = new Set(failedRows.map(r => r.ErrorCode).filter(Boolean)).size;
+  $('kPlatforms').textContent = new Set(failedRows.map(r => r.Platform).filter(Boolean)).size;
+}
+
+function renderFailed() {
+  const q = $('failedFilter').value.toLowerCase();
+  let filtered = failedRows.filter(r => {
+    if (!q) return true;
+    return (r.DeviceName || '').toLowerCase().includes(q)
+        || (r.UserPrincipalName || '').toLowerCase().includes(q)
+        || String(r.ErrorCode || '').includes(q)
+        || String(r.HexErrorCode || '').toLowerCase().includes(q);
+  });
+  filtered.sort((a, b) => {
+    const va = (a[failedSortKey] ?? '').toString().toLowerCase();
+    const vb = (b[failedSortKey] ?? '').toString().toLowerCase();
+    if (va < vb) return failedSortDir === 'asc' ? -1 : 1;
+    if (va > vb) return failedSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = $('failedRows');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No failed installs.</td></tr>';
+  } else {
+    tbody.innerHTML = filtered.map(r => `
+      <tr>
+        <td class="app-name">${esc(r.DeviceName) || '—'}</td>
+        <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
+        <td><span class="badge platform-badge">${esc(r.Platform) || '—'}</span></td>
+        <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
+        <td class="err-code">${esc(r.ErrorCode) || '—'}</td>
+        <td class="version">${esc(r.HexErrorCode) || '—'}</td>
+      </tr>`).join('');
+  }
+  $('failedCount').textContent = filtered.length;
+
+  document.querySelectorAll('#failedView thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    const arrow = th.querySelector('.arrow');
+    if (th.dataset.sort === failedSortKey) {
+      th.classList.add(failedSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      arrow.textContent = failedSortDir === 'asc' ? '▲' : '▼';
+    }
+  });
+}
+
+function fmtIntuneDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toISOString().slice(0, 16).replace('T', ' ');
+}
+
+$('failedFilter').addEventListener('input', renderFailed);
+
+document.querySelectorAll('#failedView thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (failedSortKey === key) failedSortDir = failedSortDir === 'asc' ? 'desc' : 'asc';
+    else { failedSortKey = key; failedSortDir = 'asc'; }
+    renderFailed();
+  });
+});
 </script>
 </body>
 </html>
