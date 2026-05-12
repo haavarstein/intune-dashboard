@@ -17,7 +17,7 @@ A clean, client-side dashboard for visualizing Microsoft Intune uninstall regist
 
 1. Export the uninstall hive on a target machine (see snippet below)
 2. Open the [dashboard](https://haavarstein.github.io/intune-dashboard/)
-3. Drop or select the `PMPC-Uninstall-Hive-Export.csv` file
+3. Drop or select the `Uninstall-Export.csv` file
 4. Click any row for full details and uninstall commands
 
 Everything runs in the browser. No data leaves your machine.
@@ -33,12 +33,13 @@ $paths = @(
   'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
 
+$desktop = [Environment]::GetFolderPath("Desktop")
 Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   Where-Object { $_.DisplayName } |
   Select-Object DisplayName, DisplayVersion, Publisher, InstallDate,
                 UninstallString, QuietUninstallString, SystemComponent,
                 PSChildName, @{n='RegistryPath';e={$_.PSPath -replace 'Microsoft.PowerShell.Core\\Registry::',''}} |
-  Export-Csv -Path "$env:USERPROFILE\Desktop\PMPC-Uninstall-Hive-Export.csv" -NoTypeInformation -Encoding UTF8
+  Export-Csv -Path "$desktop\Uninstall-Export.csv" -NoTypeInformation -Encoding UTF8
 ```
 
 ## Tech
