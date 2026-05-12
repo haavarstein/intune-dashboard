@@ -894,7 +894,7 @@ async function loadApps() {
   $('appList').innerHTML = '<div class="loading">Loading apps…</div>';
   try {
     // Page through mobileApps; limit to reasonable batch
-    const data = await graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,@odata.type&$top=200");
+    const data = await graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher&$top=200");
     intuneApps = (data.value || []).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
     intuneAppsFiltered = intuneApps;
     renderAppList();
