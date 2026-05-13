@@ -501,17 +501,19 @@
           <table>
             <thead>
               <tr>
+                <th data-sort="AppVersion">Application <span class="arrow">▼</span></th>
+                <th data-sort="AppVersion">Version <span class="arrow">▼</span></th>
+                <th data-sort="Platform">Platform <span class="arrow">▼</span></th>
                 <th data-sort="DeviceName">Device <span class="arrow">▼</span></th>
                 <th data-sort="UserPrincipalName">User <span class="arrow">▼</span></th>
-                <th data-sort="Platform">Platform <span class="arrow">▼</span></th>
+                <th data-sort="InstallState">State <span class="arrow">▼</span></th>
+                <th data-sort="ErrorCode">Error <span class="arrow">▼</span></th>
                 <th data-sort="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
-                <th data-sort="ErrorCode">Error code <span class="arrow">▼</span></th>
-                <th data-sort="HexErrorCode">Hex <span class="arrow">▼</span></th>
               </tr>
             </thead>
             <tbody id="failedRows"></tbody>
           </table>
-          <div class="footer-count"><span id="failedCount">0</span> failed installs</div>
+          <div class="footer-count"><span id="failedCount">0</span> devices</div>
         </div>
       </div>
     </div>
@@ -991,7 +993,7 @@ $('btnRefresh').addEventListener('click', () => selectedApp && loadFailed());
 // --- Failed installs: exact endpoint + body shape from Intune portal network trace ---
 async function loadFailed() {
   clearIntuneError();
-  $('failedRows').innerHTML = '<tr><td colspan="6" class="loading">Loading report…</td></tr>';
+  $('failedRows').innerHTML = '<tr><td colspan="8" class="loading">Loading report…</td></tr>';
   try {
     const body = {
       top: 50,
@@ -1005,9 +1007,7 @@ async function loadFailed() {
       filter: `(ApplicationId eq '${selectedApp.id}')`
     };
     const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
-    const allRows = parseReport(data);
-    // Server returns all install states; filter to failed client-side (matches portal behavior)
-    failedRows = allRows.filter(r => String(r.InstallState ?? '').toLowerCase() === 'failed');
+    failedRows = parseReport(data);
     renderFailedKPIs();
     renderFailed();
   } catch (e) {
@@ -1052,16 +1052,18 @@ function renderFailed() {
 
   const tbody = $('failedRows');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">No failed installs.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No devices found.</td></tr>';
   } else {
     tbody.innerHTML = filtered.map(r => `
       <tr>
-        <td class="app-name">${esc(r.DeviceName) || '—'}</td>
-        <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
+        <td class="app-name">${esc(selectedApp.displayName) || '—'}</td>
+        <td class="version">${esc(r.AppVersion) || '—'}</td>
         <td><span class="badge platform-badge">${esc(r.Platform) || '—'}</span></td>
-        <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
+        <td>${esc(r.DeviceName) || '—'}</td>
+        <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
+        <td>${esc(r.InstallState) || '—'}</td>
         <td class="err-code">${esc(r.ErrorCode) || '—'}</td>
-        <td class="version">${esc(r.HexErrorCode) || '—'}</td>
+        <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
       </tr>`).join('');
   }
   $('failedCount').textContent = filtered.length;
