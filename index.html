@@ -780,6 +780,19 @@ $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeMo
 // ============================================================
 const TAB_LOCAL = 'local', TAB_INTUNE = 'intune';
 
+// Windows app @odata.type discriminators
+const WIN_TYPES = new Set([
+  '#microsoft.graph.win32LobApp',
+  '#microsoft.graph.win32CatalogApp',
+  '#microsoft.graph.windowsMobileMSI',
+  '#microsoft.graph.microsoftStoreForBusinessApp',
+  '#microsoft.graph.winGetApp',
+  '#microsoft.graph.officeSuiteApp',
+  '#microsoft.graph.windowsUniversalAppX',
+  '#microsoft.graph.windowsAppX',
+  '#microsoft.graph.microsoftEdgeApp'
+]);
+
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
@@ -894,8 +907,9 @@ async function loadApps() {
   $('appList').innerHTML = '<div class="loading">Loading apps with failures…</div>';
   try {
     // Fetch app catalog + per-app failure counts in parallel
+    // Note: not using $select so @odata.type is reliably returned
     const [appsData, summary] = await Promise.all([
-      graphGet("beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher&$top=500"),
+      graphGet("beta/deviceAppManagement/mobileApps?$top=500"),
       graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', {
         select: ['ApplicationId', 'DisplayName', 'Publisher', 'FailedDeviceCount', 'FailedUserCount'],
         skip: 0,
@@ -911,9 +925,9 @@ async function loadApps() {
       if (count > 0) failCounts.set(r.ApplicationId, count);
     });
 
-    // Filter apps to those with failures, attach count, sort by count desc
+    // Filter to Windows apps with failures, attach count, sort by count desc
     intuneApps = (appsData.value || [])
-      .filter(a => failCounts.has(a.id))
+      .filter(a => failCounts.has(a.id) && WIN_TYPES.has(a['@odata.type']))
       .map(a => ({ ...a, _failedCount: failCounts.get(a.id) }))
       .sort((a, b) => b._failedCount - a._failedCount);
 
@@ -927,7 +941,7 @@ async function loadApps() {
 
 function renderAppList() {
   if (!intuneAppsFiltered.length) {
-    $('appList').innerHTML = '<div class="loading">No apps with failed installs.</div>';
+    $('appList').innerHTML = '<div class="loading">No Windows apps with failed installs.</div>';
     return;
   }
   $('appList').innerHTML = intuneAppsFiltered.map(a => `
@@ -977,25 +991,43 @@ $('btnChangeApp').addEventListener('click', () => {
 
 $('btnRefresh').addEventListener('click', () => selectedApp && loadFailed());
 
-// --- Failed installs report ---
+// --- Failed installs: try deviceStatuses first, fall back to reports endpoint ---
 async function loadFailed() {
   clearIntuneError();
   $('failedRows').innerHTML = '<tr><td colspan="6" class="loading">Loading report…</td></tr>';
   try {
-    const body = {
-      select: ['DeviceName', 'UserPrincipalName', 'Platform', 'LastModifiedDateTime', 'ErrorCode', 'HexErrorCode', 'AppVersion'],
-      filter: `(ApplicationId eq '${selectedApp.id}') and (InstallState eq 'failed')`,
-      skip: 0,
-      top: 500
-    };
-    const data = await graphPost('beta/deviceManagement/reports/getDeviceInstallStatusReport', body);
-    failedRows = parseReport(data);
+    // Primary: simple GET on the app's deviceStatuses
+    const data = await graphGet(`beta/deviceAppManagement/mobileApps/${selectedApp.id}/deviceStatuses`);
+    failedRows = (data.value || [])
+      .filter(d => d.installState === 'failed')
+      .map(d => ({
+        DeviceName: d.deviceName || d.deviceDisplayName,
+        UserPrincipalName: d.userPrincipalName,
+        Platform: d.osVersion ? `Windows ${d.osVersion}` : 'Windows',
+        LastModifiedDateTime: d.lastSyncDateTime,
+        ErrorCode: d.errorCode,
+        HexErrorCode: d.errorCode != null ? '0x' + (d.errorCode >>> 0).toString(16).toUpperCase() : ''
+      }));
     renderFailedKPIs();
     renderFailed();
-  } catch (e) {
-    showIntuneError(e.message);
-    $('failedRows').innerHTML = '';
-    $('failedCount').textContent = '0';
+  } catch (e1) {
+    // Fallback: reports endpoint
+    try {
+      const body = {
+        select: ['DeviceName', 'UserPrincipalName', 'Platform', 'LastModifiedDateTime', 'ErrorCode', 'HexErrorCode', 'AppVersion'],
+        filter: `(ApplicationId eq '${selectedApp.id}') and (InstallState eq 'failed')`,
+        skip: 0,
+        top: 500
+      };
+      const data = await graphPost('beta/deviceManagement/reports/getDeviceInstallStatusReport', body);
+      failedRows = parseReport(data);
+      renderFailedKPIs();
+      renderFailed();
+    } catch (e2) {
+      showIntuneError('Primary: ' + e1.message + ' | Fallback: ' + e2.message);
+      $('failedRows').innerHTML = '';
+      $('failedCount').textContent = '0';
+    }
   }
 }
 
