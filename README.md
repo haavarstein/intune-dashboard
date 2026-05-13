@@ -19,9 +19,9 @@ A clean, client-side dashboard for two things:
 
 ### Intune tab (Graph API)
 - **Live sign-in** to your Microsoft tenant via MSAL (popup)
-- **Failed-apps overview** — lists Windows apps with `FailedDeviceCount > 0`, sorted by failure count, with Platform column
+- **Failed-apps overview** — lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count, with Platform badge and failure count per app
 - **Per-app drill-in** — click an app to see every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified)
-- **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude
+- **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 
 ## Usage
 
@@ -37,7 +37,7 @@ A clean, client-side dashboard for two things:
 1. Click the **Intune** tab and **Sign in with Microsoft**
 2. A popup opens to `login.microsoftonline.com` — sign in with an account that has Intune read permissions
 3. Consent to the three scopes (see below)
-4. The dashboard loads all Windows apps with install failures
+4. The dashboard loads all apps with install failures
 5. Click an app to see device-level install status
 
 Everything runs in your browser. CSV data never leaves your machine. Intune data is fetched directly from `graph.microsoft.com` to your browser — it does not pass through any server.
@@ -67,13 +67,17 @@ These are the same endpoints the Intune admin center uses for its "Apps install 
 
 If you add a Claude API key under the **Settings** tab, error-code cells in the device table become clickable. Clicking sends the app + device + error context to the Claude API and shows a structured diagnosis (what the error means, likely cause, remediation steps) in a modal.
 
+Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the same error code renders instantly from cache with a **Cached** badge — no API call, no tokens spent. Click **↻ Re-analyze** in the modal header to force a fresh response (useful if you change models or want to retry).
+
 **Models available:**
 
 | Model | Price (per MTok) | Approx. cost per click | Good for |
 | --- | --- | --- | --- |
-| Haiku 4.5 *(default)* | $1 / $5 | ~$0.0025 | Fast lookups, recommended |
-| Sonnet 4.6 | $3 / $15 | ~$0.0075 | Deeper remediation guidance |
-| Opus 4.7 | $5 / $25 | ~$0.0125 | Usually overkill for error codes |
+| Sonnet 4.6 *(default)* | $3 / $15 | ~$0.0075 | Recommended for most triage |
+| Haiku 4.5 | $1 / $5 | ~$0.0025 | Fastest, lighter analysis |
+| Opus 4.7 | $5 / $25 | ~$0.0125 | Reserve for stuck cases |
+
+**A note on model choice for log analysis.** Error-code lookup is small and deterministic — Haiku is fine. Log file analysis (IME logs, MSI verbose logs) is different: it needs real reasoning to correlate timestamps and isolate the actual failure from noise across thousands of lines. Sonnet 4.6 is the right default there. Opus 4.7 is worth escalating to only when Sonnet gives up — and note its new tokenizer uses up to 35% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. The biggest cost lever is **preprocessing logs before sending** (grep error/return-value lines plus surrounding context), which typically cuts input tokens 80%+ with no quality loss.
 
 **Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com`. The request uses the `anthropic-dangerous-direct-browser-access` header, which means **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 
