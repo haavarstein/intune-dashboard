@@ -339,6 +339,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="local">Local</button>
     <button class="tab" data-tab="intune">Intune</button>
+    <button class="tab" data-tab="required">Required</button>
     <button class="tab" data-tab="analyze">Analyze</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
@@ -522,6 +523,35 @@
       </div>
     </div>
   </div><!-- /viewIntune -->
+
+  <div id="viewRequired" style="display:none;">
+    <div id="requiredSignedOut" class="signin-prompt">
+      <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
+      <div>Sign in to your Microsoft tenant to load required apps.</div>
+      <button class="btn" id="btnSignInRequired">Sign in with Microsoft</button>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementApps.Read.All · User.Read</div>
+    </div>
+
+    <div id="requiredSignedIn" style="display:none;">
+      <div class="auth-bar">
+        <div class="auth-user">Signed in as <strong id="userNameReq">—</strong> · <span id="userUpnReq"></span></div>
+        <button class="btn btn-ghost" id="btnSignOutReq">Sign out</button>
+      </div>
+
+      <div id="requiredError"></div>
+
+      <div class="app-picker">
+        <div class="app-picker-bar">
+          <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
+          <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
+        </div>
+        <div class="app-list" id="requiredList">
+          <div class="loading">Loading required apps…</div>
+        </div>
+        <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
+      </div>
+    </div>
+  </div><!-- /viewRequired -->
 
   <div id="viewAnalyze" style="display:none;">
     <div class="auth-bar" style="flex-direction:column; align-items:stretch; gap:16px;">
@@ -855,7 +885,7 @@ $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeMo
 // ============================================================
 // Intune tab
 // ============================================================
-const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_ANALYZE = 'analyze', TAB_SETTINGS = 'settings';
+const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_REQUIRED = 'required', TAB_ANALYZE = 'analyze', TAB_SETTINGS = 'settings';
 
 // Windows app @odata.type discriminators
 const WIN_TYPES = new Set([
@@ -878,9 +908,11 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('viewLocal').style.display = tab === TAB_LOCAL ? '' : 'none';
   $('viewIntune').style.display = tab === TAB_INTUNE ? '' : 'none';
+  $('viewRequired').style.display = tab === TAB_REQUIRED ? '' : 'none';
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
+  if (tab === TAB_REQUIRED) initRequired();
 }
 
 // --- MSAL ---
@@ -979,6 +1011,118 @@ function showIntuneError(msg) {
   $('intuneError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
 }
 function clearIntuneError() { $('intuneError').innerHTML = ''; }
+
+// ============================================================
+// Required tab
+// ============================================================
+const ALL_DEVICES_GROUP_ID = '00000000-0000-0000-0000-000000000002';
+let requiredInit = false;
+let requiredApps = [];
+
+async function initRequired() {
+  if (!requiredInit) {
+    requiredInit = true;
+    if (typeof msal === 'undefined') {
+      showRequiredError('MSAL library failed to load. Check your network or CDN access.');
+      return;
+    }
+    if (!msalApp) {
+      msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
+      await msalApp.initialize();
+    }
+  }
+  const account = msalApp.getAllAccounts()[0];
+  if (account) {
+    msalApp.setActiveAccount(account);
+    onRequiredSignedIn(account);
+  } else {
+    $('requiredSignedOut').style.display = '';
+    $('requiredSignedIn').style.display = 'none';
+  }
+}
+
+$('btnSignInRequired').addEventListener('click', async () => {
+  try {
+    if (!msalApp) throw new Error('MSAL not initialized');
+    const result = await msalApp.loginPopup({ scopes: SCOPES });
+    msalApp.setActiveAccount(result.account);
+    onRequiredSignedIn(result.account);
+  } catch (e) {
+    console.error('Sign-in failed', e);
+    showRequiredError('Sign-in failed: ' + (e.message || e));
+  }
+});
+
+$('btnSignOutReq').addEventListener('click', async () => {
+  await msalApp.logoutPopup();
+  $('requiredSignedIn').style.display = 'none';
+  $('requiredSignedOut').style.display = '';
+});
+
+$('btnReloadRequired').addEventListener('click', loadRequiredApps);
+
+$('requiredFilter').addEventListener('input', renderRequiredList);
+
+function onRequiredSignedIn(account) {
+  $('requiredSignedOut').style.display = 'none';
+  $('requiredSignedIn').style.display = '';
+  $('userNameReq').textContent = account.name || account.username;
+  $('userUpnReq').textContent = account.username;
+  loadRequiredApps();
+}
+
+async function loadRequiredApps() {
+  clearRequiredError();
+  $('requiredList').innerHTML = '<div class="loading">Loading required apps…</div>';
+  try {
+    const filter = "(isof('microsoft.graph.win32LobApp')) and (isAssigned eq true)";
+    let path = "beta/deviceAppManagement/mobileApps?$filter=" + encodeURIComponent(filter) + "&$expand=assignments";
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
+    const names = new Set();
+    for (const app of all) {
+      if (!app.displayName || /^update for/i.test(app.displayName)) continue;
+      const assignments = app.assignments || [];
+      for (const a of assignments) {
+        if (a.intent === 'required' &&
+            a.target && a.target['@odata.type'] === '#microsoft.graph.allDevicesAssignmentTarget') {
+          names.add(app.displayName);
+          break;
+        }
+      }
+    }
+    requiredApps = [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    renderRequiredList();
+  } catch (e) {
+    console.error(e);
+    showRequiredError('Failed to load required apps: ' + (e.message || e));
+    $('requiredList').innerHTML = '';
+  }
+}
+
+function renderRequiredList() {
+  const q = $('requiredFilter').value.trim().toLowerCase();
+  const filtered = q ? requiredApps.filter(n => n.toLowerCase().includes(q)) : requiredApps;
+  $('requiredCount').textContent = filtered.length;
+  if (!filtered.length) {
+    $('requiredList').innerHTML = '<div class="loading">No required apps found.</div>';
+    return;
+  }
+  $('requiredList').innerHTML = filtered
+    .map(n => `<div class="app-row" style="cursor:default;"><div class="name">${esc(n)}</div></div>`)
+    .join('');
+}
+
+function showRequiredError(msg) {
+  $('requiredError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+}
+function clearRequiredError() { $('requiredError').innerHTML = ''; }
+
 
 // --- App list: apps with install failures (matches Intune portal "Apps install status" view) ---
 async function loadApps() {
