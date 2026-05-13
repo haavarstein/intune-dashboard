@@ -27,7 +27,7 @@ A clean, client-side dashboard for two things:
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
 - **Sonnet 4.6 by default** — the right tier for log reasoning. Switch in Settings if needed.
-- **Token usage shown** after each analysis (input/output) so you can track cost.
+- **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
 
 ## Usage
 

@@ -1323,7 +1323,18 @@ Be specific to Intune. No preamble.`;
 
 // --- Analyze tab: log file analysis ---
 const IME_LOG_PATH = 'C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs';
-let uploadedLogs = []; // [{name, size, content}]
+const MODEL_PRICING = {
+  'claude-sonnet-4-6':         { in: 3, out: 15 },
+  'claude-haiku-4-5-20251001': { in: 1, out: 5 },
+  'claude-opus-4-7':           { in: 5, out: 25 }
+};
+function estimateCost(model, inTok, outTok) {
+  const p = MODEL_PRICING[model];
+  if (!p || inTok == null || outTok == null) return '$?';
+  const cost = (inTok * p.in + outTok * p.out) / 1_000_000;
+  return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(3)}`;
+}
+let uploadedLogs = [];
 
 $('copyLogPath').addEventListener('click', async () => {
   try {
@@ -1481,7 +1492,7 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
     $('logAnalysisResult').innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--line);">
         <div style="font-weight:600; font-size:13px;">Analysis · ${esc(activeModel)}</div>
-        <div style="font-size:11px; color:var(--muted);">${usage.input_tokens || '?'} in · ${usage.output_tokens || '?'} out</div>
+        <div style="font-size:11px; color:var(--muted);">${usage.input_tokens || '?'} in · ${usage.output_tokens || '?'} out · ${estimateCost(activeModel, usage.input_tokens, usage.output_tokens)}</div>
       </div>
       <div style="line-height:1.6; font-size:13px;">${html}</div>`;
     $('logStatus').textContent = '';
