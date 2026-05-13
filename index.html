@@ -901,16 +901,30 @@ function showIntuneError(msg) {
 }
 function clearIntuneError() { $('intuneError').innerHTML = ''; }
 
-// --- App list: all Windows apps (failure counts removed until summary endpoint is known) ---
+// --- App list: apps with install failures (matches Intune portal "Apps install status" view) ---
 async function loadApps() {
   clearIntuneError();
-  $('appList').innerHTML = '<div class="loading">Loading Windows apps…</div>';
+  $('appList').innerHTML = '<div class="loading">Loading apps with failures…</div>';
   try {
-    const appsData = await graphGet("beta/deviceAppManagement/mobileApps?$top=500");
+    const body = {
+      top: 50,
+      skip: 0,
+      filter: "(FailedDeviceCount gt '0')",
+      orderBy: ['FailedDeviceCount desc'],
+      search: '',
+      select: ['DisplayName', 'Publisher', 'Platform', 'AppVersion',
+               'FailedDevicePercentage', 'FailedDeviceCount', 'ApplicationId']
+    };
+    const data = await graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body);
+    const rows = parseReport(data);
 
-    intuneApps = (appsData.value || [])
-      .filter(a => WIN_TYPES.has(a['@odata.type']))
-      .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    // Normalize to the shape the rest of the UI expects (id, displayName, publisher)
+    intuneApps = rows.map(r => ({
+      id: r.ApplicationId,
+      displayName: r.DisplayName,
+      publisher: r.Publisher,
+      failedDeviceCount: r.FailedDeviceCount
+    }));
 
     intuneAppsFiltered = intuneApps;
     renderAppList();
@@ -991,7 +1005,7 @@ async function loadFailed() {
     const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
     const allRows = parseReport(data);
     // Server returns all install states; filter to failed client-side (matches portal behavior)
-    failedRows = allRows.filter(r => (r.InstallState || '').toLowerCase() === 'failed');
+    failedRows = allRows.filter(r => String(r.InstallState ?? '').toLowerCase() === 'failed');
     renderFailedKPIs();
     renderFailed();
   } catch (e) {
