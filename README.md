@@ -19,9 +19,15 @@ A clean, client-side dashboard for two things:
 
 ### Intune tab (Graph API)
 - **Live sign-in** to your Microsoft tenant via MSAL (popup)
-- **Failed-apps overview** — lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count, with Platform badge and failure count per app
+- **Failed-apps overview** — lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count
 - **Per-app drill-in** — click an app to see every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified)
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
+
+### Analyze tab (log files)
+- **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
+- **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
+- **Sonnet 4.6 by default** — the right tier for log reasoning. Switch in Settings if needed.
+- **Token usage shown** after each analysis (input/output) so you can track cost.
 
 ## Usage
 
