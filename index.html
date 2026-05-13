@@ -901,36 +901,16 @@ function showIntuneError(msg) {
 }
 function clearIntuneError() { $('intuneError').innerHTML = ''; }
 
-// --- App list ---
+// --- App list: all Windows apps (failure counts removed until summary endpoint is known) ---
 async function loadApps() {
   clearIntuneError();
-  $('appList').innerHTML = '<div class="loading">Loading apps with failures…</div>';
+  $('appList').innerHTML = '<div class="loading">Loading Windows apps…</div>';
   try {
-    // Fetch app catalog + per-app failure counts in parallel
-    // Note: not using $select so @odata.type is reliably returned
-    const [appsData, summary] = await Promise.all([
-      graphGet("beta/deviceAppManagement/mobileApps?$top=500"),
-      graphPost('beta/deviceManagement/reports/getFailedMobileAppsReport', {
-        select: ['ApplicationId', 'DisplayName', 'Publisher', 'Platform', 'FailedDevicePercentage', 'FailedDeviceCount'],
-        skip: 0,
-        top: 500,
-        orderBy: []
-      })
-    ]);
+    const appsData = await graphGet("beta/deviceAppManagement/mobileApps?$top=500");
 
-    // Build failure count map from report (ApplicationId -> FailedDeviceCount)
-    const failCounts = new Map();
-    const summaryRows = parseReport(summary);
-    summaryRows.forEach(r => {
-      const count = parseInt(r.FailedDeviceCount, 10) || 0;
-      if (count > 0) failCounts.set(r.ApplicationId, count);
-    });
-
-    // Filter to Windows apps with failures, attach count, sort by count desc
     intuneApps = (appsData.value || [])
-      .filter(a => failCounts.has(a.id) && WIN_TYPES.has(a['@odata.type']))
-      .map(a => ({ ...a, _failedCount: failCounts.get(a.id) }))
-      .sort((a, b) => b._failedCount - a._failedCount);
+      .filter(a => WIN_TYPES.has(a['@odata.type']))
+      .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
 
     intuneAppsFiltered = intuneApps;
     renderAppList();
@@ -942,7 +922,7 @@ async function loadApps() {
 
 function renderAppList() {
   if (!intuneAppsFiltered.length) {
-    $('appList').innerHTML = '<div class="loading">No Windows apps with failed installs.</div>';
+    $('appList').innerHTML = '<div class="loading">No Windows apps found.</div>';
     return;
   }
   $('appList').innerHTML = intuneAppsFiltered.map(a => `
@@ -951,7 +931,7 @@ function renderAppList() {
         <div class="name">${esc(a.displayName)}</div>
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
-      <div class="err-code">${a._failedCount} failed</div>
+      <div class="pub-small">→</div>
     </div>
   `).join('');
 }
@@ -979,7 +959,7 @@ function selectApp(app) {
   $('appPicker').style.display = 'none';
   $('failedView').style.display = '';
   $('selAppName').textContent = app.displayName;
-  $('selAppMeta').textContent = (app.publisher || '—') + ' · ' + app._failedCount + ' failed';
+  $('selAppMeta').textContent = app.publisher || '—';
   loadFailed();
 }
 
@@ -992,20 +972,26 @@ $('btnChangeApp').addEventListener('click', () => {
 
 $('btnRefresh').addEventListener('click', () => selectedApp && loadFailed());
 
-// --- Failed installs: v1.0 reports endpoint (action syntax) ---
+// --- Failed installs: exact endpoint + body shape from Intune portal network trace ---
 async function loadFailed() {
   clearIntuneError();
   $('failedRows').innerHTML = '<tr><td colspan="6" class="loading">Loading report…</td></tr>';
   try {
     const body = {
-      select: ['DeviceName', 'UserPrincipalName', 'Platform', 'AppVersion', 'LastModifiedDateTime', 'DeviceId', 'ErrorCode', 'HexErrorCode', 'InstallState', 'InstallStateDetail'],
-      filter: `(ApplicationId eq '${selectedApp.id}') and (InstallState eq 'failed')`,
+      top: 50,
       skip: 0,
-      top: 500,
-      orderBy: []
+      select: ['AppInstallState', 'AppInstallStateDetails', 'ApplicationId', 'AppVersion',
+               'AssignmentFilterIdsExist', 'AssignmentFilterIdsList', 'DeviceId', 'DeviceName',
+               'ErrorCode', 'HexErrorCode', 'InstallState', 'InstallStateDetail',
+               'LastModifiedDateTime', 'Platform', 'UserName', 'UserId', 'UserPrincipalName'],
+      orderBy: [],
+      search: '',
+      filter: `(ApplicationId eq '${selectedApp.id}')`
     };
-    const data = await graphPost('v1.0/deviceManagement/reports/microsoft.graph.retrieveDeviceAppInstallationStatusReport', body);
-    failedRows = parseReport(data);
+    const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
+    const allRows = parseReport(data);
+    // Server returns all install states; filter to failed client-side (matches portal behavior)
+    failedRows = allRows.filter(r => (r.InstallState || '').toLowerCase() === 'failed');
     renderFailedKPIs();
     renderFailed();
   } catch (e) {
