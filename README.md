@@ -33,7 +33,7 @@ A clean, client-side dashboard for three things:
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
-- **Sonnet 4.6 by default** — the right tier for log reasoning. Switch in Settings if needed.
+- **Haiku 4.5 by default** — cheapest, fastest, separate rate-limit bucket. Switch to Sonnet 4.6 in Settings for tougher logs.
 - **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
 - **Session cost pill** — a small counter in the bottom-right shows total spend and call count for the current browser session across both error-code and log analyses. Click to reset. Resets automatically when the tab closes.
 
@@ -88,11 +88,11 @@ Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the s
 
 | Model | Price (per MTok) | Approx. cost per click | Good for |
 | --- | --- | --- | --- |
-| Sonnet 4.6 *(default)* | $3 / $15 | ~$0.0075 | Recommended for most triage |
-| Haiku 4.5 | $1 / $5 | ~$0.0025 | Fastest, lighter analysis |
+| Haiku 4.5 *(default)* | $1 / $5 | ~$0.0025 | Most triage; cheapest, separate rate-limit bucket |
+| Sonnet 4.6 | $3 / $15 | ~$0.0075 | Escalate for longer logs or harder root-cause work |
 | Opus 4.7 | $5 / $25 | ~$0.0125 | Reserve for stuck cases |
 
-**A note on model choice for log analysis.** Error-code lookup is small and deterministic — Haiku is fine. Log file analysis (IME logs, MSI verbose logs) is different: it needs real reasoning to correlate timestamps and isolate the actual failure from noise across thousands of lines. Sonnet 4.6 is the right default there. Opus 4.7 is worth escalating to only when Sonnet gives up — and note its new tokenizer uses up to 35% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. The biggest cost lever is **preprocessing logs before sending** (grep error/return-value lines plus surrounding context), which typically cuts input tokens 80%+ with no quality loss.
+**A note on model choice.** Haiku 4.5 is the default for everything — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 4.6** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise. Reserve **Opus 4.7** for cases where Sonnet gives up; its new tokenizer uses up to 35% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
 
 **Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com`. The request uses the `anthropic-dangerous-direct-browser-access` header, which means **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 
