@@ -534,10 +534,23 @@
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Model</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a model based on cost vs. depth of analysis. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
         <select id="claudeModel" class="search" style="width:100%; cursor:pointer;">
-          <option value="claude-haiku-4-5-20251001">Haiku 4.5 — $1/$5 per MTok — ~$0.0025/click — fast, recommended for error lookup</option>
-          <option value="claude-sonnet-4-6">Sonnet 4.6 — $3/$15 per MTok — ~$0.0075/click — deeper remediation guidance</option>
-          <option value="claude-opus-4-7">Opus 4.7 — $5/$25 per MTok — ~$0.0125/click — highest reasoning, usually overkill</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6 — $3/$15 per MTok — ~$0.0075/click — recommended default</option>
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5 — $1/$5 per MTok — ~$0.0025/click — fastest, lighter analysis</option>
+          <option value="claude-opus-4-7">Opus 4.7 — $5/$25 per MTok — ~$0.0125/click — reserve for stuck cases</option>
         </select>
+      </div>
+
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:#fcf9f4;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Model selection for log analysis</div>
+        <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
+          Error-code lookup is a small, deterministic task — Haiku is sufficient. <strong>Log file analysis is different.</strong> IME logs (5–50K lines) and MSI verbose logs (10–100K+ lines) need real reasoning to correlate timestamps and isolate the actual failure from noise.
+          <ul style="margin:8px 0 0; padding-left:18px;">
+            <li><strong>Sonnet 4.6</strong> — default for log triage. 1M context at flat rate, adaptive thinking, ~$0.10–0.15 per typical MSI log.</li>
+            <li><strong>Haiku 4.5</strong> — only for short IME logs where the failure is a single obvious stack trace.</li>
+            <li><strong>Opus 4.7</strong> — escalation for cases where Sonnet gives up. New tokenizer uses up to 35% more tokens, so effective cost gap is wider than headline pricing.</li>
+          </ul>
+          <div style="margin-top:8px;">Biggest cost lever: <strong>preprocess logs before sending</strong> — grep for error/return-value lines + surrounding context cuts input tokens 80%+ with no quality loss.</div>
+        </div>
       </div>
 
       <div style="display:flex; gap:12px; align-items:center;">
@@ -966,9 +979,19 @@ async function loadApps() {
   }
 }
 
+function platformLabel(p) {
+  if (!p) return '—';
+  const s = String(p).toLowerCase();
+  if (s.includes('windows')) return 'Windows';
+  if (s.includes('mac') || s.includes('osx') || s === 'macos') return 'macOS';
+  if (s.includes('ios')) return 'iOS';
+  if (s.includes('android')) return 'Android';
+  return p;
+}
+
 function renderAppList() {
   if (!intuneAppsFiltered.length) {
-    $('appList').innerHTML = '<div class="loading">No Windows apps found.</div>';
+    $('appList').innerHTML = '<div class="loading">No apps with failed installs found.</div>';
     return;
   }
   $('appList').innerHTML = intuneAppsFiltered.map(a => `
@@ -977,7 +1000,8 @@ function renderAppList() {
         <div class="name">${esc(a.displayName)}</div>
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
-      <div class="pub-small" style="min-width:80px; text-align:right;">${esc(a.platform) || '—'}</div>
+      <div style="min-width:90px; text-align:center;"><span class="platform-badge" style="font-size:11px; padding:3px 10px; border-radius:4px; font-weight:600;">${esc(platformLabel(a.platform))}</span></div>
+      <div class="pub-small" style="min-width:40px; text-align:right;">${a.failedDeviceCount ?? ''}</div>
       <div class="pub-small">→</div>
     </div>
   `).join('');
@@ -1194,7 +1218,7 @@ function renderAnalysis(text, opts) {
 
 async function analyzeError(row, forceFresh = false) {
   const { apiKey, model } = getSettings();
-  const activeModel = model || 'claude-haiku-4-5-20251001';
+  const activeModel = model || 'claude-sonnet-4-6';
   if (!apiKey) {
     $('mTitle').textContent = 'Claude API key required';
     $('mPub').textContent = '';
