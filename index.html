@@ -1163,8 +1163,38 @@ $('failedRows').addEventListener('click', e => {
   if (row) analyzeError(row);
 });
 
-async function analyzeError(row) {
+// --- Error analysis cache (localStorage) ---
+const CACHE_KEY = 'errorAnalysisCache';
+function cacheKey(errCode, model) { return `${errCode}::${model}`; }
+function getCachedAnalysis(errCode, model) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    return all[cacheKey(errCode, model)] || null;
+  } catch { return null; }
+}
+function setCachedAnalysis(errCode, model, text) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    all[cacheKey(errCode, model)] = { text, model, cachedAt: Date.now() };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(all));
+  } catch {}
+}
+function renderAnalysis(text, opts) {
+  const html = esc(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+  const badge = opts.cached
+    ? `<span style="display:inline-block; font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); border:1px solid var(--line); padding:3px 8px; border-radius:4px;">Cached · ${new Date(opts.cachedAt).toLocaleDateString()}</span>`
+    : `<span style="display:inline-block; font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--accent); border:1px solid var(--line); padding:3px 8px; border-radius:4px;">Fresh</span>`;
+  const reanalyzeBtn = `<button id="reanalyzeBtn" style="font-size:12px; padding:4px 10px; border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:4px; cursor:pointer;">↻ Re-analyze</button>`;
+  $('mBody').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">${badge}${reanalyzeBtn}</div>
+    <div style="padding:0; line-height:1.6;">${html}</div>`;
+}
+
+async function analyzeError(row, forceFresh = false) {
   const { apiKey, model } = getSettings();
+  const activeModel = model || 'claude-haiku-4-5-20251001';
   if (!apiKey) {
     $('mTitle').textContent = 'Claude API key required';
     $('mPub').textContent = '';
@@ -1176,8 +1206,19 @@ async function analyzeError(row) {
   const hexCode = row.HexErrorCode;
   $('mTitle').textContent = `Error ${errCode}`;
   $('mPub').textContent = `${selectedApp.displayName} on ${row.DeviceName}`;
-  $('mBody').innerHTML = '<div style="padding:20px 0; color:var(--muted);">Analyzing with Claude…</div>';
   $('modal').classList.add('show');
+
+  // Cache check
+  if (!forceFresh) {
+    const cached = getCachedAnalysis(errCode, activeModel);
+    if (cached) {
+      renderAnalysis(cached.text, { cached: true, cachedAt: cached.cachedAt });
+      $('reanalyzeBtn').onclick = () => analyzeError(row, true);
+      return;
+    }
+  }
+
+  $('mBody').innerHTML = '<div style="padding:20px 0; color:var(--muted);">Analyzing with Claude…</div>';
 
   const prompt = `You are an Intune/MEM expert. Analyze this Windows app install failure and give a concise diagnosis plus remediation steps.
 
@@ -1206,7 +1247,7 @@ Be specific to Intune. No preamble.`;
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: model || 'claude-haiku-4-5-20251001',
+        model: activeModel,
         max_tokens: 1024,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -1214,11 +1255,9 @@ Be specific to Intune. No preamble.`;
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
-    // Lightweight markdown: bold + line breaks
-    const html = esc(text)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
-    $('mBody').innerHTML = `<div style="padding:8px 0; line-height:1.6;">${html}</div>`;
+    setCachedAnalysis(errCode, activeModel, text);
+    renderAnalysis(text, { cached: false });
+    $('reanalyzeBtn').onclick = () => analyzeError(row, true);
   } catch (e) {
     $('mBody').innerHTML = `<div style="padding:20px 0; color:var(--accent);">Analysis failed: ${esc(e.message)}</div>`;
   }
