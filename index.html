@@ -313,6 +313,8 @@
   .selected-app .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
   .err-code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .err-clickable { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+  .err-clickable:hover { background: var(--accent-soft); }
   .platform-badge { background: #eef0f3; color: #4a5568; }
 
   .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
@@ -337,6 +339,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="local">Local</button>
     <button class="tab" data-tab="intune">Intune</button>
+    <button class="tab" data-tab="settings">Settings</button>
   </div>
 
   <div id="viewLocal">
@@ -518,6 +521,31 @@
       </div>
     </div>
   </div><!-- /viewIntune -->
+
+  <div id="viewSettings" style="display:none;">
+    <div class="auth-bar" style="flex-direction:column; align-items:stretch; gap:20px;">
+      <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used to analyze Intune error codes with AI. Stored in your browser's localStorage — never sent to any server other than api.anthropic.com.</div>
+        <input type="password" class="search" id="claudeApiKey" placeholder="sk-ant-api03-…" style="width:100%; font-family:ui-monospace, monospace;">
+      </div>
+
+      <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Model</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a model based on cost vs. depth of analysis. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
+        <select id="claudeModel" class="search" style="width:100%; cursor:pointer;">
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5 — $1/$5 per MTok — ~$0.0025/click — fast, recommended for error lookup</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6 — $3/$15 per MTok — ~$0.0075/click — deeper remediation guidance</option>
+          <option value="claude-opus-4-7">Opus 4.7 — $5/$25 per MTok — ~$0.0125/click — highest reasoning, usually overkill</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="btn" id="btnSaveSettings">Save</button>
+        <span id="settingsStatus" style="font-size:12px; color:var(--muted);"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -780,7 +808,7 @@ $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeMo
 // ============================================================
 // Intune tab
 // ============================================================
-const TAB_LOCAL = 'local', TAB_INTUNE = 'intune';
+const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_SETTINGS = 'settings';
 
 // Windows app @odata.type discriminators
 const WIN_TYPES = new Set([
@@ -803,6 +831,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('viewLocal').style.display = tab === TAB_LOCAL ? '' : 'none';
   $('viewIntune').style.display = tab === TAB_INTUNE ? '' : 'none';
+  $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
 }
 
@@ -1054,7 +1083,12 @@ function renderFailed() {
   if (!filtered.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty">No devices found.</td></tr>';
   } else {
-    tbody.innerHTML = filtered.map(r => `
+    tbody.innerHTML = filtered.map((r, i) => {
+      const hasErr = r.ErrorCode && String(r.ErrorCode) !== '0';
+      const errCell = hasErr
+        ? `<td class="err-code err-clickable" data-row-idx="${i}" title="Click to analyze with AI">${esc(r.ErrorCode)}</td>`
+        : `<td class="err-code">${esc(r.ErrorCode) || '—'}</td>`;
+      return `
       <tr>
         <td class="app-name">${esc(selectedApp.displayName) || '—'}</td>
         <td class="version">${esc(r.AppVersion) || '—'}</td>
@@ -1062,9 +1096,12 @@ function renderFailed() {
         <td>${esc(r.DeviceName) || '—'}</td>
         <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
         <td>${esc(r.InstallState) || '—'}</td>
-        <td class="err-code">${esc(r.ErrorCode) || '—'}</td>
+        ${errCell}
         <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
+    // Stash filtered rows so click handler can find the right record
+    window.__failedFiltered = filtered;
   }
   $('failedCount').textContent = filtered.length;
 
@@ -1095,6 +1132,97 @@ document.querySelectorAll('#failedView thead th').forEach(th => {
     renderFailed();
   });
 });
+
+// --- Settings: API key + model ---
+const SETTINGS_KEY = 'intuneDash.claude';
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (s.apiKey) $('claudeApiKey').value = s.apiKey;
+    if (s.model) $('claudeModel').value = s.model;
+  } catch {}
+}
+function saveSettings() {
+  const s = { apiKey: $('claudeApiKey').value.trim(), model: $('claudeModel').value };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  $('settingsStatus').textContent = 'Saved.';
+  setTimeout(() => $('settingsStatus').textContent = '', 2000);
+}
+function getSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+loadSettings();
+$('btnSaveSettings').addEventListener('click', saveSettings);
+
+// --- Click error code -> analyze with Claude ---
+$('failedRows').addEventListener('click', e => {
+  const cell = e.target.closest('.err-clickable');
+  if (!cell) return;
+  const idx = Number(cell.dataset.rowIdx);
+  const row = (window.__failedFiltered || [])[idx];
+  if (row) analyzeError(row);
+});
+
+async function analyzeError(row) {
+  const { apiKey, model } = getSettings();
+  if (!apiKey) {
+    $('mTitle').textContent = 'Claude API key required';
+    $('mPub').textContent = '';
+    $('mBody').innerHTML = '<div style="padding:20px 0;">Add your Claude API key in the <strong>Settings</strong> tab to enable AI analysis.</div>';
+    $('modal').classList.add('show');
+    return;
+  }
+  const errCode = row.ErrorCode;
+  const hexCode = row.HexErrorCode;
+  $('mTitle').textContent = `Error ${errCode}`;
+  $('mPub').textContent = `${selectedApp.displayName} on ${row.DeviceName}`;
+  $('mBody').innerHTML = '<div style="padding:20px 0; color:var(--muted);">Analyzing with Claude…</div>';
+  $('modal').classList.add('show');
+
+  const prompt = `You are an Intune/MEM expert. Analyze this Windows app install failure and give a concise diagnosis plus remediation steps.
+
+App: ${selectedApp.displayName} (version ${row.AppVersion || 'unknown'})
+Device: ${row.DeviceName}
+Platform: ${row.Platform}
+Install state: ${row.InstallState}
+Error code (decimal): ${errCode}
+Error code (hex): ${hexCode || 'n/a'}
+Install state detail: ${row.InstallStateDetail || 'n/a'}
+
+Respond in this format:
+1. **What this error means** (1-2 sentences)
+2. **Most likely cause** (1-2 sentences)
+3. **Remediation steps** (numbered list, 3-5 steps max)
+
+Be specific to Intune. No preamble.`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: model || 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    // Lightweight markdown: bold + line breaks
+    const html = esc(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+    $('mBody').innerHTML = `<div style="padding:8px 0; line-height:1.6;">${html}</div>`;
+  } catch (e) {
+    $('mBody').innerHTML = `<div style="padding:20px 0; color:var(--accent);">Analysis failed: ${esc(e.message)}</div>`;
+  }
+}
 </script>
 </body>
 </html>
