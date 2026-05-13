@@ -484,9 +484,9 @@
             <div class="tile-sub">distinct failure reasons</div>
           </div>
           <div class="tile">
-            <div class="tile-label">Platforms affected</div>
-            <div class="tile-value" id="kPlatforms">0</div>
-            <div class="tile-sub">OS variants</div>
+            <div class="tile-label">User failures</div>
+            <div class="tile-value" id="kUsers">0</div>
+            <div class="tile-sub">distinct affected users</div>
           </div>
         </div>
 
@@ -923,6 +923,7 @@ async function loadApps() {
       id: r.ApplicationId,
       displayName: r.DisplayName,
       publisher: r.Publisher,
+      platform: r.Platform,
       failedDeviceCount: r.FailedDeviceCount
     }));
 
@@ -941,10 +942,11 @@ function renderAppList() {
   }
   $('appList').innerHTML = intuneAppsFiltered.map(a => `
     <div class="app-row" data-id="${esc(a.id)}">
-      <div>
+      <div style="flex:1; min-width:0;">
         <div class="name">${esc(a.displayName)}</div>
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
+      <div class="pub-small" style="min-width:80px; text-align:right;">${esc(a.platform) || '—'}</div>
       <div class="pub-small">→</div>
     </div>
   `).join('');
@@ -1028,7 +1030,7 @@ function parseReport(data) {
 function renderFailedKPIs() {
   $('kFailed').textContent = failedRows.length;
   $('kErrCodes').textContent = new Set(failedRows.map(r => r.ErrorCode).filter(Boolean)).size;
-  $('kPlatforms').textContent = new Set(failedRows.map(r => r.Platform).filter(Boolean)).size;
+  $('kUsers').textContent = new Set(failedRows.map(r => r.UserPrincipalName).filter(Boolean)).size;
 }
 
 function renderFailed() {
