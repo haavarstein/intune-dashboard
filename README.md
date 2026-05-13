@@ -1,9 +1,10 @@
 # Intune Dashboard
 
-A clean, client-side dashboard for two things:
+A clean, client-side dashboard for three things:
 
 1. **Local view** — visualize Microsoft Intune uninstall registry exports from a CSV.
 2. **Intune view** — sign in with your Microsoft account and inspect Intune app-install failures live, with optional AI-powered error-code analysis.
+3. **Required view** — list all Win32 apps assigned as *Required* to *All Devices* in your tenant.
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)
 
@@ -22,6 +23,12 @@ A clean, client-side dashboard for two things:
 - **Failed-apps overview** — lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count
 - **Per-app drill-in** — click an app to see every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified)
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
+
+### Required tab (Graph API)
+- **Win32 apps assigned as Required to All Devices** — alphabetical list of `displayName`s
+- **Shared sign-in** — uses the same MSAL session as the Intune tab
+- **Filter** — type to narrow the list
+- **"Update for*" excluded** — filters out driver/firmware update apps for a cleaner audit view
 
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
@@ -66,6 +73,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 
 - `POST /beta/deviceManagement/reports/getAppsInstallSummaryReport` — the failed-apps overview
 - `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status
+- `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — Win32 apps with assignments (for the Required tab)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 
