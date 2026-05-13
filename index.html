@@ -339,6 +339,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="local">Local</button>
     <button class="tab" data-tab="intune">Intune</button>
+    <button class="tab" data-tab="analyze">Analyze</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
 
@@ -521,6 +522,39 @@
       </div>
     </div>
   </div><!-- /viewIntune -->
+
+  <div id="viewAnalyze" style="display:none;">
+    <div class="auth-bar" style="flex-direction:column; align-items:stretch; gap:16px;">
+      <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Log file analysis</div>
+        <div style="font-size:12px; color:var(--muted); line-height:1.55;">
+          Drop one or more Intune log files below. Default location on Windows:
+          <code style="background:var(--accent-soft); padding:2px 6px; border-radius:3px; font-family:ui-monospace,monospace; font-size:11px;">C:\ProgramData\Microsoft\IntuneManagementExtension\Logs</code>
+          <button id="copyLogPath" class="btn btn-ghost" style="font-size:11px; padding:2px 8px; margin-left:6px;">Copy path</button>
+        </div>
+      </div>
+
+      <div id="logDropZone" style="border:2px dashed var(--line); border-radius:12px; padding:32px 20px; text-align:center; cursor:pointer; transition:border-color 0.15s, background 0.15s;">
+        <div style="font-size:28px; margin-bottom:8px;">📄</div>
+        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Drop log files here or click to select</div>
+        <div style="font-size:11px; color:var(--muted);">IntuneManagementExtension.log, AgentExecutor.log, MSI verbose logs (*.log)</div>
+        <input type="file" id="logFiles" accept=".log,.txt" multiple style="display:none;">
+      </div>
+
+      <div id="logFileList" style="display:none;"></div>
+
+      <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+          <input type="checkbox" id="logAutoTrim" checked>
+          <span>Auto-trim to error-adjacent lines <span style="color:var(--muted); font-size:11px;">(recommended — cuts tokens ~80%)</span></span>
+        </label>
+        <button class="btn" id="btnAnalyzeLogs" disabled>Analyze with Claude</button>
+        <span id="logStatus" style="font-size:12px; color:var(--muted);"></span>
+      </div>
+
+      <div id="logAnalysisResult" style="display:none; border:1px solid var(--line); border-radius:12px; padding:20px 24px; background:var(--card);"></div>
+    </div>
+  </div>
 
   <div id="viewSettings" style="display:none;">
     <div class="auth-bar" style="flex-direction:column; align-items:stretch; gap:20px;">
@@ -821,7 +855,7 @@ $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeMo
 // ============================================================
 // Intune tab
 // ============================================================
-const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_SETTINGS = 'settings';
+const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_ANALYZE = 'analyze', TAB_SETTINGS = 'settings';
 
 // Windows app @odata.type discriminators
 const WIN_TYPES = new Set([
@@ -844,6 +878,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('viewLocal').style.display = tab === TAB_LOCAL ? '' : 'none';
   $('viewIntune').style.display = tab === TAB_INTUNE ? '' : 'none';
+  $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
 }
@@ -1000,8 +1035,7 @@ function renderAppList() {
         <div class="name">${esc(a.displayName)}</div>
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
-      <div style="min-width:90px; text-align:center;"><span class="platform-badge" style="font-size:11px; padding:3px 10px; border-radius:4px; font-weight:600;">${esc(platformLabel(a.platform))}</span></div>
-      <div class="pub-small" style="min-width:40px; text-align:right;">${a.failedDeviceCount ?? ''}</div>
+      <div class="pub-small" style="min-width:90px; text-align:right;">${a.failedDeviceCount ?? ''} failed</div>
       <div class="pub-small">→</div>
     </div>
   `).join('');
@@ -1284,6 +1318,178 @@ Be specific to Intune. No preamble.`;
     $('reanalyzeBtn').onclick = () => analyzeError(row, true);
   } catch (e) {
     $('mBody').innerHTML = `<div style="padding:20px 0; color:var(--accent);">Analysis failed: ${esc(e.message)}</div>`;
+  }
+}
+
+// --- Analyze tab: log file analysis ---
+const IME_LOG_PATH = 'C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs';
+let uploadedLogs = []; // [{name, size, content}]
+
+$('copyLogPath').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(IME_LOG_PATH);
+    $('copyLogPath').textContent = 'Copied!';
+    setTimeout(() => $('copyLogPath').textContent = 'Copy path', 1500);
+  } catch {}
+});
+
+$('logDropZone').addEventListener('click', () => $('logFiles').click());
+$('logDropZone').addEventListener('dragover', e => {
+  e.preventDefault();
+  $('logDropZone').style.borderColor = 'var(--accent)';
+  $('logDropZone').style.background = 'var(--accent-soft)';
+});
+$('logDropZone').addEventListener('dragleave', () => {
+  $('logDropZone').style.borderColor = '';
+  $('logDropZone').style.background = '';
+});
+$('logDropZone').addEventListener('drop', e => {
+  e.preventDefault();
+  $('logDropZone').style.borderColor = '';
+  $('logDropZone').style.background = '';
+  handleLogFiles(e.dataTransfer.files);
+});
+$('logFiles').addEventListener('change', e => handleLogFiles(e.target.files));
+
+async function handleLogFiles(fileList) {
+  const files = Array.from(fileList);
+  if (!files.length) return;
+  uploadedLogs = [];
+  for (const f of files) {
+    const content = await f.text();
+    uploadedLogs.push({ name: f.name, size: f.size, content });
+  }
+  renderLogFileList();
+  $('btnAnalyzeLogs').disabled = false;
+  $('logStatus').textContent = '';
+}
+
+function renderLogFileList() {
+  if (!uploadedLogs.length) {
+    $('logFileList').style.display = 'none';
+    return;
+  }
+  $('logFileList').style.display = '';
+  $('logFileList').innerHTML = uploadedLogs.map((f, i) => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-bottom:6px;">
+      <div style="font-family:ui-monospace,monospace; font-size:12px;">${esc(f.name)}</div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <span style="font-size:11px; color:var(--muted);">${(f.size / 1024).toFixed(1)} KB</span>
+        <button class="btn btn-ghost" style="font-size:11px; padding:2px 8px;" onclick="removeLog(${i})">Remove</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.removeLog = function(i) {
+  uploadedLogs.splice(i, 1);
+  renderLogFileList();
+  $('btnAnalyzeLogs').disabled = uploadedLogs.length === 0;
+};
+
+// Trim log to error-adjacent lines: grep for error/fail/return-value patterns,
+// keep ±15 lines of context around each match. Deduplicate overlapping windows.
+function trimLog(content) {
+  const lines = content.split(/\r?\n/);
+  const pattern = /\b(error|fail(ed|ure)?|exception|return value [^0-3]|0x[0-9a-f]{8}|-?\d{7,10}|cannot|denied|timeout|abort)\b/i;
+  const context = 15;
+  const keep = new Set();
+  lines.forEach((line, i) => {
+    if (pattern.test(line)) {
+      for (let j = Math.max(0, i - context); j <= Math.min(lines.length - 1, i + context); j++) {
+        keep.add(j);
+      }
+    }
+  });
+  if (keep.size === 0) {
+    // No matches — keep last 200 lines as fallback
+    const start = Math.max(0, lines.length - 200);
+    return lines.slice(start).join('\n');
+  }
+  const sorted = [...keep].sort((a, b) => a - b);
+  const out = [];
+  let prev = -2;
+  for (const idx of sorted) {
+    if (idx > prev + 1) out.push(`... [${idx - prev - 1} lines skipped] ...`);
+    out.push(lines[idx]);
+    prev = idx;
+  }
+  return out.join('\n');
+}
+
+$('btnAnalyzeLogs').addEventListener('click', analyzeLogs);
+
+async function analyzeLogs() {
+  const { apiKey, model } = getSettings();
+  if (!apiKey) {
+    $('logStatus').textContent = 'Add your Claude API key in Settings first.';
+    return;
+  }
+  if (!uploadedLogs.length) return;
+
+  const activeModel = model || 'claude-sonnet-4-6';
+  const autoTrim = $('logAutoTrim').checked;
+
+  // Build prompt content
+  const processed = uploadedLogs.map(f => {
+    const body = autoTrim ? trimLog(f.content) : f.content;
+    return `=== ${f.name} (${autoTrim ? 'trimmed' : 'full'}, ${body.length} chars) ===\n${body}`;
+  }).join('\n\n');
+
+  const approxTokens = Math.ceil(processed.length / 4);
+  $('btnAnalyzeLogs').disabled = true;
+  $('logStatus').textContent = `Sending ${(processed.length / 1024).toFixed(1)} KB (~${approxTokens.toLocaleString()} tokens) to ${activeModel}…`;
+  $('logAnalysisResult').style.display = '';
+  $('logAnalysisResult').innerHTML = '<div style="color:var(--muted); font-size:13px;">Analyzing with Claude…</div>';
+
+  const prompt = `You are an Intune/MEM expert analyzing log files from a Windows endpoint. The user is an experienced Intune administrator troubleshooting an app install failure.
+
+Log files provided:
+${processed}
+
+Analyze the logs and produce a focused diagnosis. Format:
+
+1. **Failure summary** — what failed, when, on which component (IME, AgentExecutor, MSI, etc.)
+2. **Root cause** — the actual underlying cause based on log evidence (cite specific log lines/timestamps)
+3. **Remediation** — concrete steps the admin should take, in priority order
+4. **Additional signals** — secondary issues or warnings worth noting (optional, skip if none)
+
+Be technical and specific. Assume the reader knows Intune internals. No preamble, no generic advice.`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: activeModel,
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const usage = data.usage || {};
+    const html = esc(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+    $('logAnalysisResult').innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--line);">
+        <div style="font-weight:600; font-size:13px;">Analysis · ${esc(activeModel)}</div>
+        <div style="font-size:11px; color:var(--muted);">${usage.input_tokens || '?'} in · ${usage.output_tokens || '?'} out</div>
+      </div>
+      <div style="line-height:1.6; font-size:13px;">${html}</div>`;
+    $('logStatus').textContent = '';
+  } catch (e) {
+    $('logAnalysisResult').innerHTML = `<div style="color:var(--accent);">Analysis failed: ${esc(e.message)}</div>`;
+    $('logStatus').textContent = '';
+  } finally {
+    $('btnAnalyzeLogs').disabled = false;
   }
 }
 </script>
