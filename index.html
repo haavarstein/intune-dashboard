@@ -218,6 +218,36 @@
   }
   .upload-prompt label:hover { background: #2a2a2e; }
 
+  .ps-helper {
+    margin-top: 32px;
+    text-align: left;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .ps-helper-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .ps-helper pre {
+    background: #f5f1ea;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--ink);
+    overflow-x: auto;
+    white-space: pre;
+    text-align: left;
+  }
+
   .tabs {
     display: flex;
     gap: 4px;
@@ -288,6 +318,7 @@
     max-height: 320px;
     overflow-y: auto;
   }
+  .app-list.no-scroll { max-height: none; overflow-y: visible; }
   .app-row {
     padding: 12px 20px;
     border-bottom: 1px solid var(--line);
@@ -327,6 +358,28 @@
     .tiles { grid-template-columns: repeat(3, 1fr); }
     .hero { flex-direction: column; align-items: flex-start; }
   }
+
+  .session-pill {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--ink-2);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+    z-index: 100;
+  }
+  .session-pill:hover { color: var(--ink); }
+  .session-pill strong { color: var(--ink); font-weight: 700; }
+  .session-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 </style>
 </head>
 <body>
@@ -437,6 +490,25 @@
     <div>Drop your Uninstall-Export.csv to get started</div>
     <input type="file" id="csvFile" accept=".csv">
     <label for="csvFile">Select CSV</label>
+
+    <div class="ps-helper">
+      <div class="ps-helper-head">
+        <span>Need a CSV? Run this PowerShell on a target machine:</span>
+        <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px;">Copy</button>
+      </div>
+<pre id="psSnippet">$paths = @(
+  'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+  'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+  'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+$desktop = [Environment]::GetFolderPath("Desktop")
+Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName } |
+  Select-Object DisplayName, DisplayVersion, Publisher, InstallDate,
+                UninstallString, QuietUninstallString, SystemComponent,
+                PSChildName, @{n='RegistryPath';e={$_.PSPath -replace 'Microsoft.PowerShell.Core\\Registry::',''}} |
+  Export-Csv -Path "$desktop\Uninstall-Export.csv" -NoTypeInformation -Encoding UTF8</pre>
+    </div>
   </div>
   </div><!-- /viewLocal -->
 
@@ -545,7 +617,7 @@
           <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
           <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
         </div>
-        <div class="app-list" id="requiredList">
+        <div class="app-list no-scroll" id="requiredList">
           <div class="loading">Loading required apps…</div>
         </div>
         <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
@@ -1457,6 +1529,8 @@ Be specific to Intune. No preamble.`;
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const usage = data.usage || {};
+    trackUsage(activeModel, usage.input_tokens, usage.output_tokens);
     setCachedAnalysis(errCode, activeModel, text);
     renderAnalysis(text, { cached: false });
     $('reanalyzeBtn').onclick = () => analyzeError(row, true);
@@ -1478,6 +1552,33 @@ function estimateCost(model, inTok, outTok) {
   const cost = (inTok * p.in + outTok * p.out) / 1_000_000;
   return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(3)}`;
 }
+
+function trackUsage(model, inTok, outTok) {
+  const p = MODEL_PRICING[model];
+  if (!p || inTok == null || outTok == null) return;
+  const cost = (inTok * p.in + outTok * p.out) / 1_000_000;
+  const prev = JSON.parse(sessionStorage.getItem('apiSession') || '{"cost":0,"calls":0}');
+  const next = { cost: prev.cost + cost, calls: prev.calls + 1 };
+  sessionStorage.setItem('apiSession', JSON.stringify(next));
+  renderSessionPill();
+}
+
+function renderSessionPill() {
+  const s = JSON.parse(sessionStorage.getItem('apiSession') || '{"cost":0,"calls":0}');
+  const pill = $('sessionPill');
+  if (s.calls === 0) { pill.style.display = 'none'; return; }
+  pill.style.display = 'inline-flex';
+  $('sessionCost').textContent = '$' + s.cost.toFixed(s.cost < 0.01 ? 4 : s.cost < 1 ? 3 : 2);
+  $('sessionCalls').textContent = s.calls;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderSessionPill();
+  $('sessionPill').addEventListener('click', () => {
+    sessionStorage.removeItem('apiSession');
+    renderSessionPill();
+  });
+});
 let uploadedLogs = [];
 
 $('copyLogPath').addEventListener('click', async () => {
@@ -1485,6 +1586,14 @@ $('copyLogPath').addEventListener('click', async () => {
     await navigator.clipboard.writeText(IME_LOG_PATH);
     $('copyLogPath').textContent = 'Copied!';
     setTimeout(() => $('copyLogPath').textContent = 'Copy path', 1500);
+  } catch {}
+});
+
+$('copyPs').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('psSnippet').textContent);
+    $('copyPs').textContent = 'Copied!';
+    setTimeout(() => $('copyPs').textContent = 'Copy', 1500);
   } catch {}
 });
 
@@ -1630,6 +1739,7 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
     const data = await res.json();
     const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
     const usage = data.usage || {};
+    trackUsage(activeModel, usage.input_tokens, usage.output_tokens);
     const html = esc(text)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br>');
@@ -1648,5 +1758,9 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
   }
 }
 </script>
+<div class="session-pill" id="sessionPill" title="Click to reset">
+  <span class="dot"></span>
+  <span><strong id="sessionCost">$0.00</strong> · <span id="sessionCalls">0</span> calls</span>
+</div>
 </body>
 </html>

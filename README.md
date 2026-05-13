@@ -35,6 +35,7 @@ A clean, client-side dashboard for three things:
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
 - **Sonnet 4.6 by default** — the right tier for log reasoning. Switch in Settings if needed.
 - **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
+- **Session cost pill** — a small counter in the bottom-right shows total spend and call count for the current browser session across both error-code and log analyses. Click to reset. Resets automatically when the tab closes.
 
 ## Usage
 
