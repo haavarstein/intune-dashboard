@@ -786,6 +786,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             </div>
             <div class="filter-bar">
               <div class="filter-group">
+                <span class="filter-group-label">Platform</span>
+                <select class="filter-select" id="hwPlatformFilter">
+                  <option value="">All</option>
+                </select>
+              </div>
+              <div class="filter-group">
                 <span class="filter-group-label">RAM</span>
                 <select class="filter-select" id="hwRamFilter">
                   <option value="">All</option>
@@ -1851,7 +1857,7 @@ async function loadHardware() {
   $('hwError').innerHTML = '';
   try {
     const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
-                   'freeStorageSpaceInBytes,osVersion,lastSyncDateTime,' +
+                   'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime,' +
                    'userPrincipalName,complianceState';
     let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
     const all = [];
@@ -1870,6 +1876,7 @@ async function loadHardware() {
       totalGB: Math.round(toGB(d.totalStorageSpaceInBytes)),
       freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
       osVersion: d.osVersion || '—',
+      os: d.operatingSystem || 'Unknown',
       lastSync: d.lastSyncDateTime || '',
       userPrincipalName: d.userPrincipalName || '—',
       complianceState: d.complianceState || 'unknown'
@@ -1906,10 +1913,15 @@ function isRecycle(d) {
 function populateHwFilterOptions() {
   const comp = [...new Set(hwDevices.map(d => d.complianceState).filter(Boolean))].sort();
   const mfr = [...new Set(hwDevices.map(d => d.manufacturer).filter(Boolean))].sort();
+  const plat = [...new Set(hwDevices.map(d => d.os).filter(Boolean))].sort();
   $('hwComplianceFilter').innerHTML = '<option value="">All</option>' +
     comp.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   $('hwManufacturerFilter').innerHTML = '<option value="">All</option>' +
     mfr.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  $('hwPlatformFilter').innerHTML = '<option value="">All</option>' +
+    plat.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  // Default to Windows when available
+  if (plat.includes('Windows')) $('hwPlatformFilter').value = 'Windows';
 }
 
 function ramBucket(gb) {
@@ -1933,7 +1945,9 @@ function filterHw() {
   const storF = $('hwStorageFilter').value;
   const compF = $('hwComplianceFilter').value;
   const mfrF = $('hwManufacturerFilter').value;
+  const platF = $('hwPlatformFilter').value;
   return hwDevices.filter(d => {
+    if (platF && d.os !== platF) return false;
     if (hwTileFilter) {
       const [kind, val] = hwTileFilter.split(':');
       if (kind === 'ram' && ramBucket(d.ramGB) !== val) return false;
@@ -1954,10 +1968,12 @@ function filterHw() {
 }
 
 function renderHardware() {
-  // KPIs always reflect full dataset
+  // KPIs and donut reflect the current platform filter (but not other filters)
+  const platF = $('hwPlatformFilter').value;
+  const platScope = platF ? hwDevices.filter(d => d.os === platF) : hwDevices;
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
-  hwDevices.forEach(d => {
+  platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
   });
@@ -2024,6 +2040,8 @@ function renderHardware() {
 
 function renderHwDonut() {
   // RAM distribution donut — inline SVG, theme-consistent colors
+  const platF = $('hwPlatformFilter').value;
+  const scope = platF ? hwDevices.filter(d => d.os === platF) : hwDevices;
   const buckets = [
     { label: '≤ 4 GB', key: 'le4', color: 'var(--accent)' },
     { label: '8 GB', key: '8', color: '#5a8ec4' },
@@ -2031,7 +2049,7 @@ function renderHwDonut() {
     { label: '32+ GB', key: 'ge32', color: '#6b6b70' },
     { label: 'Other', key: 'other', color: '#cfc8bd' }
   ];
-  const counts = buckets.map(b => hwDevices.filter(d => ramBucket(d.ramGB) === b.key).length);
+  const counts = buckets.map(b => scope.filter(d => ramBucket(d.ramGB) === b.key).length);
   const total = counts.reduce((a, b) => a + b, 0) || 1;
   const cx = 70, cy = 70, r = 50, stroke = 18;
   const circ = 2 * Math.PI * r;
@@ -2046,7 +2064,7 @@ function renderHwDonut() {
   $('hwDonut').innerHTML = `
     <svg width="140" height="140" viewBox="0 0 140 140">
       ${segments}
-      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)" font-family="Inter, sans-serif">${hwDevices.length}</text>
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)" font-family="Inter, sans-serif">${scope.length}</text>
       <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="var(--muted)" font-family="Inter, sans-serif" letter-spacing="1.4">DEVICES</text>
     </svg>`;
   $('hwDonutLegend').innerHTML = buckets.map((b, i) => `
@@ -2061,6 +2079,7 @@ $('hwRamFilter').addEventListener('change', renderHardware);
 $('hwStorageFilter').addEventListener('change', renderHardware);
 $('hwComplianceFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
+$('hwPlatformFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
 const hwTileMap = {
   hwRam4Tile: 'ram:le4',
