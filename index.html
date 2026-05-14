@@ -341,8 +341,8 @@
   }
   .hw-tiles {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
   }
   .donut-card {
     background: var(--card);
@@ -729,25 +729,45 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
             <div class="hw-tiles">
-              <div class="tile clickable" id="hwTotalTile" title="Click to clear filters">
-                <div class="tile-label">Total devices</div>
-                <div class="tile-value" id="hwTotal">0</div>
-                <div class="tile-sub">managed endpoints</div>
+              <div class="tile clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
+                <div class="tile-label">4GB RAM</div>
+                <div class="tile-value" id="hwRam4">0</div>
+                <div class="tile-sub">≤ 4GB installed</div>
               </div>
-              <div class="tile clickable" id="hwRecycleTile" title="Click to filter to recycle candidates">
-                <div class="tile-label">Recycle candidates</div>
-                <div class="tile-value accent" id="hwRecycle">0</div>
-                <div class="tile-sub">≤4GB RAM, ≤128GB storage, or ≤10GB free</div>
-              </div>
-              <div class="tile clickable" id="hwLowStorageTile" title="Click to filter to low storage devices">
-                <div class="tile-label">Low storage</div>
-                <div class="tile-value" id="hwLowStorage">0</div>
-                <div class="tile-sub">≤10GB free</div>
-              </div>
-              <div class="tile clickable" id="hwLowRamTile" title="Click to filter to 8GB RAM devices">
+              <div class="tile clickable" id="hwRam8Tile" title="Click to filter to 8GB RAM devices">
                 <div class="tile-label">8GB RAM</div>
-                <div class="tile-value" id="hwLowRam">0</div>
+                <div class="tile-value" id="hwRam8">0</div>
                 <div class="tile-sub">8GB installed</div>
+              </div>
+              <div class="tile clickable" id="hwRam16Tile" title="Click to filter to 16GB RAM devices">
+                <div class="tile-label">16GB RAM</div>
+                <div class="tile-value" id="hwRam16">0</div>
+                <div class="tile-sub">16GB installed</div>
+              </div>
+              <div class="tile clickable" id="hwRam32Tile" title="Click to filter to 32+ GB RAM devices">
+                <div class="tile-label">32+ GB RAM</div>
+                <div class="tile-value" id="hwRam32">0</div>
+                <div class="tile-sub">≥ 32GB installed</div>
+              </div>
+              <div class="tile clickable" id="hwStor64Tile" title="Click to filter to ≤64GB storage devices">
+                <div class="tile-label">64GB Storage</div>
+                <div class="tile-value" id="hwStor64">0</div>
+                <div class="tile-sub">≤ 64GB total</div>
+              </div>
+              <div class="tile clickable" id="hwStor128Tile" title="Click to filter to 128GB storage devices">
+                <div class="tile-label">128GB Storage</div>
+                <div class="tile-value" id="hwStor128">0</div>
+                <div class="tile-sub">128GB total</div>
+              </div>
+              <div class="tile clickable" id="hwStor256Tile" title="Click to filter to 256GB storage devices">
+                <div class="tile-label">256GB Storage</div>
+                <div class="tile-value" id="hwStor256">0</div>
+                <div class="tile-sub">256GB total</div>
+              </div>
+              <div class="tile clickable" id="hwStor512Tile" title="Click to filter to 512+ GB storage devices">
+                <div class="tile-label">512+ GB Storage</div>
+                <div class="tile-value" id="hwStor512">0</div>
+                <div class="tile-sub">≥ 512GB total</div>
               </div>
             </div>
             <div class="donut-card">
@@ -1914,9 +1934,11 @@ function filterHw() {
   const compF = $('hwComplianceFilter').value;
   const mfrF = $('hwManufacturerFilter').value;
   return hwDevices.filter(d => {
-    if (hwTileFilter === 'recycle' && !isRecycle(d)) return false;
-    if (hwTileFilter === 'lowStorage' && !(d.freeGB <= 10)) return false;
-    if (hwTileFilter === 'lowRam' && !(d.ramGB === 8)) return false;
+    if (hwTileFilter) {
+      const [kind, val] = hwTileFilter.split(':');
+      if (kind === 'ram' && ramBucket(d.ramGB) !== val) return false;
+      if (kind === 'stor' && storageBucket(d.totalGB) !== val) return false;
+    }
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
       d.userPrincipalName.toLowerCase().includes(q) ||
@@ -1933,10 +1955,20 @@ function filterHw() {
 
 function renderHardware() {
   // KPIs always reflect full dataset
-  $('hwTotal').textContent = hwDevices.length;
-  $('hwRecycle').textContent = hwDevices.filter(isRecycle).length;
-  $('hwLowStorage').textContent = hwDevices.filter(d => d.freeGB <= 10).length;
-  $('hwLowRam').textContent = hwDevices.filter(d => d.ramGB === 8).length;
+  const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
+  const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
+  hwDevices.forEach(d => {
+    const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
+    const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
+  });
+  $('hwRam4').textContent = ramCounts.le4;
+  $('hwRam8').textContent = ramCounts['8'];
+  $('hwRam16').textContent = ramCounts['16'];
+  $('hwRam32').textContent = ramCounts.ge32;
+  $('hwStor64').textContent = storCounts.le64;
+  $('hwStor128').textContent = storCounts['128'];
+  $('hwStor256').textContent = storCounts['256'];
+  $('hwStor512').textContent = storCounts.ge512;
 
   renderHwDonut();
 
@@ -2031,10 +2063,14 @@ $('hwComplianceFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
 const hwTileMap = {
-  hwTotalTile: null,
-  hwRecycleTile: 'recycle',
-  hwLowStorageTile: 'lowStorage',
-  hwLowRamTile: 'lowRam'
+  hwRam4Tile: 'ram:le4',
+  hwRam8Tile: 'ram:8',
+  hwRam16Tile: 'ram:16',
+  hwRam32Tile: 'ram:ge32',
+  hwStor64Tile: 'stor:le64',
+  hwStor128Tile: 'stor:128',
+  hwStor256Tile: 'stor:256',
+  hwStor512Tile: 'stor:ge512'
 };
 Object.keys(hwTileMap).forEach(tileId => {
   $(tileId).addEventListener('click', () => {

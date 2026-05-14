@@ -38,7 +38,7 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Type to filter the list.
 
 **Hardware** — managed-device inventory.
-- KPI tiles: total devices, recycle candidates (≤4GB RAM, ≤128GB storage, or ≤10GB free), low-storage devices, and devices with ≤4GB RAM. Click the **Recycle candidates** tile to filter the table to just those devices; click again to clear.
+- KPI tiles: eight clickable buckets — RAM (4GB, 8GB, 16GB, 32+ GB) and storage (64GB, 128GB, 256GB, 512+ GB). Click any tile to filter the table to that bucket; click the active tile again to clear.
 - RAM distribution donut chart.
 - Filters for RAM bucket, storage bucket, compliance state, and manufacturer.
 - Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, primary user, and compliance.
