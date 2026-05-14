@@ -481,7 +481,6 @@
   <div class="tabs">
     <button class="tab active" data-tab="local">Local</button>
     <button class="tab" data-tab="intune">Intune</button>
-    <button class="tab" data-tab="required">Required</button>
     <button class="tab" data-tab="analyze">Analyze</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
@@ -617,6 +616,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div class="subtabs">
         <button class="subtab active" data-subtab="failed">Failed Apps</button>
+        <button class="subtab" data-subtab="required">Required Apps</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
       </div>
 
@@ -689,6 +689,20 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
       </div>
       </div><!-- /intuneSubFailed -->
+
+      <div id="intuneSubRequired" style="display:none;">
+        <div id="requiredError"></div>
+        <div class="app-picker">
+          <div class="app-picker-bar">
+            <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
+            <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
+          </div>
+          <div class="app-list no-scroll" id="requiredList">
+            <div class="loading">Loading required apps…</div>
+          </div>
+          <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
+        </div>
+      </div><!-- /intuneSubRequired -->
 
       <div id="intuneSubHardware" style="display:none;">
         <div id="hwLoading" class="loading">Loading devices…</div>
@@ -774,7 +788,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort="ramGB">RAM (GB) <span class="arrow">▼</span></th>
                   <th data-sort="totalGB">Total (GB) <span class="arrow">▼</span></th>
                   <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
-                  <th data-sort="tpm">TPM <span class="arrow">▼</span></th>
                   <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
                   <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
                   <th data-sort="userPrincipalName">Primary User <span class="arrow">▼</span></th>
@@ -789,35 +802,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubHardware -->
     </div>
   </div><!-- /viewIntune -->
-
-  <div id="viewRequired" style="display:none;">
-    <div id="requiredSignedOut" class="signin-prompt">
-      <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
-      <div>Sign in to your Microsoft tenant to load required apps.</div>
-      <button class="btn" id="btnSignInRequired">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementApps.Read.All · User.Read</div>
-    </div>
-
-    <div id="requiredSignedIn" style="display:none;">
-      <div class="auth-bar">
-        <div class="auth-user">Signed in as <strong id="userNameReq">—</strong> · <span id="userUpnReq"></span></div>
-        <button class="btn btn-ghost" id="btnSignOutReq">Sign out</button>
-      </div>
-
-      <div id="requiredError"></div>
-
-      <div class="app-picker">
-        <div class="app-picker-bar">
-          <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
-          <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
-        </div>
-        <div class="app-list no-scroll" id="requiredList">
-          <div class="loading">Loading required apps…</div>
-        </div>
-        <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
-      </div>
-    </div>
-  </div><!-- /viewRequired -->
 
   <div id="viewAnalyze" style="display:none;">
     <div class="auth-bar" style="flex-direction:column; align-items:stretch; gap:16px;">
@@ -1151,7 +1135,7 @@ $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeMo
 // ============================================================
 // Intune tab
 // ============================================================
-const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_REQUIRED = 'required', TAB_ANALYZE = 'analyze', TAB_SETTINGS = 'settings';
+const TAB_LOCAL = 'local', TAB_INTUNE = 'intune', TAB_ANALYZE = 'analyze', TAB_SETTINGS = 'settings';
 
 // Windows app @odata.type discriminators
 const WIN_TYPES = new Set([
@@ -1174,11 +1158,9 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('viewLocal').style.display = tab === TAB_LOCAL ? '' : 'none';
   $('viewIntune').style.display = tab === TAB_INTUNE ? '' : 'none';
-  $('viewRequired').style.display = tab === TAB_REQUIRED ? '' : 'none';
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
-  if (tab === TAB_REQUIRED) initRequired();
 }
 
 // --- MSAL ---
@@ -1279,65 +1261,18 @@ function showIntuneError(msg) {
 function clearIntuneError() { $('intuneError').innerHTML = ''; }
 
 // ============================================================
-// Required tab
+// Required Apps subtab (under Intune)
 // ============================================================
 const ALL_DEVICES_GROUP_ID = '00000000-0000-0000-0000-000000000002';
-let requiredInit = false;
+let requiredLoaded = false;
 let requiredApps = [];
-
-async function initRequired() {
-  if (!requiredInit) {
-    requiredInit = true;
-    if (typeof msal === 'undefined') {
-      showRequiredError('MSAL library failed to load. Check your network or CDN access.');
-      return;
-    }
-    if (!msalApp) {
-      msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
-      await msalApp.initialize();
-    }
-  }
-  const account = msalApp.getAllAccounts()[0];
-  if (account) {
-    msalApp.setActiveAccount(account);
-    onRequiredSignedIn(account);
-  } else {
-    $('requiredSignedOut').style.display = '';
-    $('requiredSignedIn').style.display = 'none';
-  }
-}
-
-$('btnSignInRequired').addEventListener('click', async () => {
-  try {
-    if (!msalApp) throw new Error('MSAL not initialized');
-    const result = await msalApp.loginPopup({ scopes: SCOPES });
-    msalApp.setActiveAccount(result.account);
-    onRequiredSignedIn(result.account);
-  } catch (e) {
-    console.error('Sign-in failed', e);
-    showRequiredError('Sign-in failed: ' + (e.message || e));
-  }
-});
-
-$('btnSignOutReq').addEventListener('click', async () => {
-  await msalApp.logoutPopup();
-  $('requiredSignedIn').style.display = 'none';
-  $('requiredSignedOut').style.display = '';
-});
 
 $('btnReloadRequired').addEventListener('click', loadRequiredApps);
 
 $('requiredFilter').addEventListener('input', renderRequiredList);
 
-function onRequiredSignedIn(account) {
-  $('requiredSignedOut').style.display = 'none';
-  $('requiredSignedIn').style.display = '';
-  $('userNameReq').textContent = account.name || account.username;
-  $('userUpnReq').textContent = account.username;
-  loadRequiredApps();
-}
-
 async function loadRequiredApps() {
+  requiredLoaded = true;
   clearRequiredError();
   $('requiredList').innerHTML = '<div class="loading">Loading required apps…</div>';
   try {
@@ -1791,8 +1726,10 @@ function switchSubtab(name) {
   activeSubtab = name;
   document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
   $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
+  $('intuneSubRequired').style.display = name === 'required' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   if (name === 'hardware' && !hwLoaded) loadHardware();
+  if (name === 'required' && !requiredLoaded) loadRequiredApps();
 }
 
 const GB = 1024 * 1024 * 1024;
@@ -1805,7 +1742,7 @@ async function loadHardware() {
   $('hwError').innerHTML = '';
   try {
     const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
-                   'freeStorageSpaceInBytes,tpmSpecificationVersion,osVersion,lastSyncDateTime,' +
+                   'freeStorageSpaceInBytes,osVersion,lastSyncDateTime,' +
                    'userPrincipalName,complianceState';
     let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
     const all = [];
@@ -1823,7 +1760,6 @@ async function loadHardware() {
       ramGB: Math.round(toGB(d.physicalMemoryInBytes)),
       totalGB: Math.round(toGB(d.totalStorageSpaceInBytes)),
       freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
-      tpm: d.tpmSpecificationVersion || '—',
       osVersion: d.osVersion || '—',
       lastSync: d.lastSyncDateTime || '',
       userPrincipalName: d.userPrincipalName || '—',
@@ -1927,7 +1863,6 @@ function renderHardware() {
           ${ramCell}
           ${totCell}
           ${freeCell}
-          <td>${esc(d.tpm)}</td>
           <td>${esc(d.osVersion)}</td>
           <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
           <td class="pub">${esc(d.userPrincipalName)}</td>
