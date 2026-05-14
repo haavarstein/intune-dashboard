@@ -617,6 +617,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div class="subtabs">
         <button class="subtab active" data-subtab="failed">Failed Apps</button>
         <button class="subtab" data-subtab="required">Required Apps</button>
+        <button class="subtab" data-subtab="uninstall">Uninstall Apps</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
       </div>
 
@@ -703,6 +704,20 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
         </div>
       </div><!-- /intuneSubRequired -->
+
+      <div id="intuneSubUninstall" style="display:none;">
+        <div id="uninstallError"></div>
+        <div class="app-picker">
+          <div class="app-picker-bar">
+            <input type="text" class="search" id="uninstallFilter" placeholder="Filter uninstall apps…">
+            <button class="btn btn-ghost" id="btnReloadUninstall">↻ Reload</button>
+          </div>
+          <div class="app-list no-scroll" id="uninstallList">
+            <div class="loading">Loading uninstall apps…</div>
+          </div>
+          <div class="footer-count" style="padding: 12px 20px;"><span id="uninstallCount">0</span> uninstall apps</div>
+        </div>
+      </div><!-- /intuneSubUninstall -->
 
       <div id="intuneSubHardware" style="display:none;">
         <div id="hwLoading" class="loading">Loading devices…</div>
@@ -1325,6 +1340,71 @@ function showRequiredError(msg) {
 function clearRequiredError() { $('requiredError').innerHTML = ''; }
 
 
+// ============================================================
+// Uninstall Apps subtab (under Intune)
+// ============================================================
+let uninstallLoaded = false;
+let uninstallApps = [];
+
+$('btnReloadUninstall').addEventListener('click', loadUninstallApps);
+$('uninstallFilter').addEventListener('input', renderUninstallList);
+
+async function loadUninstallApps() {
+  uninstallLoaded = true;
+  clearUninstallError();
+  $('uninstallList').innerHTML = '<div class="loading">Loading uninstall apps…</div>';
+  try {
+    let path = "beta/deviceAppManagement/mobileApps?$expand=assignments";
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
+    const names = new Set();
+    for (const app of all) {
+      if (!app.displayName) continue;
+      const assignments = app.assignments || [];
+      for (const a of assignments) {
+        if (a.intent === 'uninstall' &&
+            a.target && a.target['@odata.type'] === '#microsoft.graph.groupAssignmentTarget') {
+          names.add(app.displayName);
+          break;
+        }
+      }
+    }
+    uninstallApps = [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    renderUninstallList();
+  } catch (e) {
+    console.error(e);
+    showUninstallError('Failed to load uninstall apps: ' + (e.message || e));
+    $('uninstallList').innerHTML = '';
+  }
+}
+
+function renderUninstallList() {
+  const q = $('uninstallFilter').value.trim().toLowerCase();
+  const filtered = q ? uninstallApps.filter(n => n.toLowerCase().includes(q)) : uninstallApps;
+  $('uninstallCount').textContent = filtered.length;
+  if (!filtered.length) {
+    const msg = uninstallApps.length === 0
+      ? 'No applications currently assigned for uninstall.'
+      : 'No uninstall apps found.';
+    $('uninstallList').innerHTML = `<div class="loading">${msg}</div>`;
+    return;
+  }
+  $('uninstallList').innerHTML = filtered
+    .map(n => `<div class="app-row" style="cursor:default;"><div class="name">${esc(n)}</div></div>`)
+    .join('');
+}
+
+function showUninstallError(msg) {
+  $('uninstallError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+}
+function clearUninstallError() { $('uninstallError').innerHTML = ''; }
+
+
 // --- App list: apps with install failures (matches Intune portal "Apps install status" view) ---
 async function loadApps() {
   clearIntuneError();
@@ -1727,9 +1807,11 @@ function switchSubtab(name) {
   document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
   $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
   $('intuneSubRequired').style.display = name === 'required' ? '' : 'none';
+  $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
+  if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
 }
 
 const GB = 1024 * 1024 * 1024;
