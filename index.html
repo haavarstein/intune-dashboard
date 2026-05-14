@@ -355,6 +355,8 @@
   }
   .donut-card svg { flex: 0 0 auto; }
   .donut-legend { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .donut-legend .breakdown-row { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+  .donut-legend .breakdown-row .val { min-width: 24px; text-align: right; }
   .donut-legend .breakdown-row { color: var(--ink-2); }
   .donut-legend .breakdown-row .label { color: var(--ink-2); }
   @media (max-width: 1024px) {
