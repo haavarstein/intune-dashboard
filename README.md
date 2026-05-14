@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Four sub-tabs: Failed Apps, Required Apps, Uninstall Apps, and Hardware.
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Four sub-tabs: Failed Install, Required Install, Required Uninstall, and Hardware.
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — Claude API key and model selection for the optional AI features.
 
@@ -23,22 +23,22 @@ A clean, client-side dashboard with four tabs:
 
 Sign in once with MSAL — all four sub-tabs share the same session.
 
-**Failed Apps** — the default view.
+**Failed Install** — the default view.
 - Lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
 - Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 
-**Required Apps** — Win32 apps assigned as *Required* to *All Devices*.
+**Required Install** — Win32 apps assigned as *Required* to *All Devices*.
 - Alphabetical list of `displayName`s.
 - Type to filter the list.
 - `Update for*` driver/firmware apps are excluded for a cleaner audit view.
 
-**Uninstall Apps** — Win32 apps assigned with intent *Uninstall* to a group.
+**Required Uninstall** — Win32 apps assigned with intent *Uninstall* to a group.
 - Alphabetical list of `displayName`s with a group-targeted uninstall assignment.
 - Type to filter the list.
 
 **Hardware** — managed-device inventory.
-- KPI tiles: total devices, recycle candidates (≤4GB RAM, ≤128GB storage, or ≤10GB free), low-storage devices, and devices with ≤4GB RAM.
+- KPI tiles: total devices, recycle candidates (≤4GB RAM, ≤128GB storage, or ≤10GB free), low-storage devices, and devices with ≤4GB RAM. Click the **Recycle candidates** tile to filter the table to just those devices; click again to clear.
 - RAM distribution donut chart.
 - Filters for RAM bucket, storage bucket, compliance state, and manufacturer.
 - Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, primary user, and compliance.

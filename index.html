@@ -50,6 +50,8 @@
     transition: transform .15s, box-shadow .15s;
   }
   .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.04); }
+  .tile.clickable { cursor: pointer; }
+  .tile.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .tile-label {
     font-size: 10px;
     font-weight: 600;
@@ -615,9 +617,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
 
       <div class="subtabs">
-        <button class="subtab active" data-subtab="failed">Failed Apps</button>
-        <button class="subtab" data-subtab="required">Required Apps</button>
-        <button class="subtab" data-subtab="uninstall">Uninstall Apps</button>
+        <button class="subtab active" data-subtab="failed">Failed Install</button>
+        <button class="subtab" data-subtab="required">Required Install</button>
+        <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
       </div>
 
@@ -730,7 +732,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-value" id="hwTotal">0</div>
                 <div class="tile-sub">managed endpoints</div>
               </div>
-              <div class="tile">
+              <div class="tile clickable" id="hwRecycleTile" title="Click to filter to recycle candidates">
                 <div class="tile-label">Recycle candidates</div>
                 <div class="tile-value accent" id="hwRecycle">0</div>
                 <div class="tile-sub">≤4GB RAM, ≤128GB storage, or ≤10GB free</div>
@@ -1799,6 +1801,7 @@ let hwLoaded = false;
 let hwDevices = [];
 let hwSortKey = 'deviceName';
 let hwSortDir = 'asc';
+let hwRecycleOnly = false;
 
 document.querySelectorAll('.subtab').forEach(btn => {
   btn.addEventListener('click', () => switchSubtab(btn.dataset.subtab));
@@ -1909,6 +1912,7 @@ function filterHw() {
   const compF = $('hwComplianceFilter').value;
   const mfrF = $('hwManufacturerFilter').value;
   return hwDevices.filter(d => {
+    if (hwRecycleOnly && !isRecycle(d)) return false;
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
       d.userPrincipalName.toLowerCase().includes(q) ||
@@ -2022,6 +2026,11 @@ $('hwStorageFilter').addEventListener('change', renderHardware);
 $('hwComplianceFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
+$('hwRecycleTile').addEventListener('click', () => {
+  hwRecycleOnly = !hwRecycleOnly;
+  $('hwRecycleTile').classList.toggle('active', hwRecycleOnly);
+  renderHardware();
+});
 
 document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
   th.addEventListener('click', () => {
