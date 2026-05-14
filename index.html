@@ -742,10 +742,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-value" id="hwLowStorage">0</div>
                 <div class="tile-sub">≤10GB free</div>
               </div>
-              <div class="tile clickable" id="hwLowRamTile" title="Click to filter to low RAM devices">
-                <div class="tile-label">Under 8GB RAM</div>
+              <div class="tile clickable" id="hwLowRamTile" title="Click to filter to 8GB RAM devices">
+                <div class="tile-label">8GB RAM</div>
                 <div class="tile-value" id="hwLowRam">0</div>
-                <div class="tile-sub">≤4GB installed</div>
+                <div class="tile-sub">8GB installed</div>
               </div>
             </div>
             <div class="donut-card">
@@ -1914,7 +1914,7 @@ function filterHw() {
   return hwDevices.filter(d => {
     if (hwTileFilter === 'recycle' && !isRecycle(d)) return false;
     if (hwTileFilter === 'lowStorage' && !(d.freeGB <= 10)) return false;
-    if (hwTileFilter === 'lowRam' && !(d.ramGB <= 4)) return false;
+    if (hwTileFilter === 'lowRam' && !(d.ramGB === 8)) return false;
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
       d.userPrincipalName.toLowerCase().includes(q) ||
@@ -1934,7 +1934,7 @@ function renderHardware() {
   $('hwTotal').textContent = hwDevices.length;
   $('hwRecycle').textContent = hwDevices.filter(isRecycle).length;
   $('hwLowStorage').textContent = hwDevices.filter(d => d.freeGB <= 10).length;
-  $('hwLowRam').textContent = hwDevices.filter(d => d.ramGB <= 4).length;
+  $('hwLowRam').textContent = hwDevices.filter(d => d.ramGB === 8).length;
 
   renderHwDonut();
 
