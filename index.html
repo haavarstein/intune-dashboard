@@ -1423,7 +1423,9 @@ async function loadApps() {
     const rows = parseReport(data);
 
     // Normalize to the shape the rest of the UI expects (id, displayName, publisher)
-    intuneApps = rows.map(r => ({
+    intuneApps = rows
+      .filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName))
+      .map(r => ({
       id: r.ApplicationId,
       displayName: r.DisplayName,
       publisher: r.Publisher,
@@ -1847,6 +1849,21 @@ async function loadHardware() {
       userPrincipalName: d.userPrincipalName || '—',
       complianceState: d.complianceState || 'unknown'
     }));
+
+    // physicalMemoryInBytes is not populated by the managedDevices list endpoint;
+    // it requires a per-device GET. Fetch in chunks to avoid throttling.
+    const CHUNK = 20;
+    for (let i = 0; i < hwDevices.length; i += CHUNK) {
+      const slice = hwDevices.slice(i, i + CHUNK);
+      await Promise.all(slice.map(async dev => {
+        try {
+          const detail = await graphGet(
+            `beta/deviceManagement/managedDevices/${dev.id}?$select=physicalMemoryInBytes`
+          );
+          dev.ramGB = Math.round(toGB(detail.physicalMemoryInBytes));
+        } catch (_) { /* leave ramGB as 0 */ }
+      }));
+    }
     populateHwFilterOptions();
     renderHardware();
     $('hwLoading').style.display = 'none';
