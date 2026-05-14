@@ -1330,19 +1330,21 @@ async function loadRequiredApps() {
       const next = data['@odata.nextLink'];
       path = next ? next.replace('https://graph.microsoft.com/', '') : null;
     }
-    const names = new Set();
+    const byName = new Map();
     for (const app of all) {
       if (!app.displayName || /^update for/i.test(app.displayName)) continue;
       const assignments = app.assignments || [];
       for (const a of assignments) {
         if (a.intent === 'required' &&
             a.target && a.target['@odata.type'] === '#microsoft.graph.allDevicesAssignmentTarget') {
-          names.add(app.displayName);
+          if (!byName.has(app.displayName)) byName.set(app.displayName, app.id);
           break;
         }
       }
     }
-    requiredApps = [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    requiredApps = [...byName.entries()]
+      .map(([name, id]) => ({ name, id }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     renderRequiredList();
   } catch (e) {
     console.error(e);
@@ -1353,14 +1355,14 @@ async function loadRequiredApps() {
 
 function renderRequiredList() {
   const q = $('requiredFilter').value.trim().toLowerCase();
-  const filtered = q ? requiredApps.filter(n => n.toLowerCase().includes(q)) : requiredApps;
+  const filtered = q ? requiredApps.filter(a => a.name.toLowerCase().includes(q)) : requiredApps;
   $('requiredCount').textContent = filtered.length;
   if (!filtered.length) {
     $('requiredList').innerHTML = '<div class="loading">No required apps found.</div>';
     return;
   }
   $('requiredList').innerHTML = filtered
-    .map(n => `<div class="app-row" style="cursor:default;"><div class="name">${esc(n)}</div></div>`)
+    .map(a => `<a class="app-row" href="https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;"><div class="name">${esc(a.name)}</div></a>`)
     .join('');
 }
 
@@ -1392,19 +1394,21 @@ async function loadUninstallApps() {
       const next = data['@odata.nextLink'];
       path = next ? next.replace('https://graph.microsoft.com/', '') : null;
     }
-    const names = new Set();
+    const byName = new Map();
     for (const app of all) {
       if (!app.displayName) continue;
       const assignments = app.assignments || [];
       for (const a of assignments) {
         if (a.intent === 'uninstall' &&
             a.target && a.target['@odata.type'] === '#microsoft.graph.groupAssignmentTarget') {
-          names.add(app.displayName);
+          if (!byName.has(app.displayName)) byName.set(app.displayName, app.id);
           break;
         }
       }
     }
-    uninstallApps = [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    uninstallApps = [...byName.entries()]
+      .map(([name, id]) => ({ name, id }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     renderUninstallList();
   } catch (e) {
     console.error(e);
@@ -1415,7 +1419,7 @@ async function loadUninstallApps() {
 
 function renderUninstallList() {
   const q = $('uninstallFilter').value.trim().toLowerCase();
-  const filtered = q ? uninstallApps.filter(n => n.toLowerCase().includes(q)) : uninstallApps;
+  const filtered = q ? uninstallApps.filter(a => a.name.toLowerCase().includes(q)) : uninstallApps;
   $('uninstallCount').textContent = filtered.length;
   if (!filtered.length) {
     const msg = uninstallApps.length === 0
@@ -1425,7 +1429,7 @@ function renderUninstallList() {
     return;
   }
   $('uninstallList').innerHTML = filtered
-    .map(n => `<div class="app-row" style="cursor:default;"><div class="name">${esc(n)}</div></div>`)
+    .map(a => `<a class="app-row" href="https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;"><div class="name">${esc(a.name)}</div></a>`)
     .join('');
 }
 
