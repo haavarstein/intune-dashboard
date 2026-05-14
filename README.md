@@ -1,10 +1,11 @@
 # Intune Dashboard
 
-A clean, client-side dashboard for three things:
+A clean, client-side dashboard with four tabs:
 
-1. **Local view** — visualize Microsoft Intune uninstall registry exports from a CSV.
-2. **Intune view** — sign in with your Microsoft account and inspect Intune app-install failures live, with optional AI-powered error-code analysis.
-3. **Required view** — list all Win32 apps assigned as *Required* to *All Devices* in your tenant.
+1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Four sub-tabs: Failed Apps, Required Apps, Uninstall Apps, and Hardware.
+3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
+4. **Settings** — Claude API key and model selection for the optional AI features.
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)
 
@@ -19,16 +20,29 @@ A clean, client-side dashboard for three things:
 - **Search & sort** — filter by name or publisher, sort any column
 
 ### Intune tab (Graph API)
-- **Live sign-in** to your Microsoft tenant via MSAL (popup)
-- **Failed-apps overview** — lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count
-- **Per-app drill-in** — click an app to see every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified)
+
+Sign in once with MSAL — all four sub-tabs share the same session.
+
+**Failed Apps** — the default view.
+- Lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
+- Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 
-### Required tab (Graph API)
-- **Win32 apps assigned as Required to All Devices** — alphabetical list of `displayName`s
-- **Shared sign-in** — uses the same MSAL session as the Intune tab
-- **Filter** — type to narrow the list
-- **"Update for*" excluded** — filters out driver/firmware update apps for a cleaner audit view
+**Required Apps** — Win32 apps assigned as *Required* to *All Devices*.
+- Alphabetical list of `displayName`s.
+- Type to filter the list.
+- `Update for*` driver/firmware apps are excluded for a cleaner audit view.
+
+**Uninstall Apps** — Win32 apps assigned with intent *Uninstall* to a group.
+- Alphabetical list of `displayName`s with a group-targeted uninstall assignment.
+- Type to filter the list.
+
+**Hardware** — managed-device inventory.
+- KPI tiles: total devices, recycle candidates (≤4GB RAM, ≤128GB storage, or ≤10GB free), low-storage devices, and devices with ≤4GB RAM.
+- RAM distribution donut chart.
+- Filters for RAM bucket, storage bucket, compliance state, and manufacturer.
+- Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, primary user, and compliance.
+- `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
 
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
@@ -74,7 +88,9 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 
 - `POST /beta/deviceManagement/reports/getAppsInstallSummaryReport` — the failed-apps overview
 - `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status
-- `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — Win32 apps with assignments (for the Required tab)
+- `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — Win32 apps with assignments (for the Required and Uninstall sub-tabs)
+- `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
+- `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 
