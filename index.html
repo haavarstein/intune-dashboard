@@ -727,7 +727,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
             <div class="hw-tiles">
-              <div class="tile">
+              <div class="tile clickable" id="hwTotalTile" title="Click to clear filters">
                 <div class="tile-label">Total devices</div>
                 <div class="tile-value" id="hwTotal">0</div>
                 <div class="tile-sub">managed endpoints</div>
@@ -737,12 +737,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-value accent" id="hwRecycle">0</div>
                 <div class="tile-sub">≤4GB RAM, ≤128GB storage, or ≤10GB free</div>
               </div>
-              <div class="tile">
+              <div class="tile clickable" id="hwLowStorageTile" title="Click to filter to low storage devices">
                 <div class="tile-label">Low storage</div>
                 <div class="tile-value" id="hwLowStorage">0</div>
                 <div class="tile-sub">≤10GB free</div>
               </div>
-              <div class="tile">
+              <div class="tile clickable" id="hwLowRamTile" title="Click to filter to low RAM devices">
                 <div class="tile-label">Under 8GB RAM</div>
                 <div class="tile-value" id="hwLowRam">0</div>
                 <div class="tile-sub">≤4GB installed</div>
@@ -1801,7 +1801,7 @@ let hwLoaded = false;
 let hwDevices = [];
 let hwSortKey = 'deviceName';
 let hwSortDir = 'asc';
-let hwRecycleOnly = false;
+let hwTileFilter = null; // null | 'recycle' | 'lowStorage' | 'lowRam'
 
 document.querySelectorAll('.subtab').forEach(btn => {
   btn.addEventListener('click', () => switchSubtab(btn.dataset.subtab));
@@ -1912,7 +1912,9 @@ function filterHw() {
   const compF = $('hwComplianceFilter').value;
   const mfrF = $('hwManufacturerFilter').value;
   return hwDevices.filter(d => {
-    if (hwRecycleOnly && !isRecycle(d)) return false;
+    if (hwTileFilter === 'recycle' && !isRecycle(d)) return false;
+    if (hwTileFilter === 'lowStorage' && !(d.freeGB <= 10)) return false;
+    if (hwTileFilter === 'lowRam' && !(d.ramGB <= 4)) return false;
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
       d.userPrincipalName.toLowerCase().includes(q) ||
@@ -2026,10 +2028,22 @@ $('hwStorageFilter').addEventListener('change', renderHardware);
 $('hwComplianceFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
-$('hwRecycleTile').addEventListener('click', () => {
-  hwRecycleOnly = !hwRecycleOnly;
-  $('hwRecycleTile').classList.toggle('active', hwRecycleOnly);
-  renderHardware();
+const hwTileMap = {
+  hwTotalTile: null,
+  hwRecycleTile: 'recycle',
+  hwLowStorageTile: 'lowStorage',
+  hwLowRamTile: 'lowRam'
+};
+Object.keys(hwTileMap).forEach(tileId => {
+  $(tileId).addEventListener('click', () => {
+    const target = hwTileMap[tileId];
+    // Toggle off if clicking the already-active tile; otherwise switch to it
+    hwTileFilter = (hwTileFilter === target) ? null : target;
+    Object.keys(hwTileMap).forEach(id => {
+      $(id).classList.toggle('active', hwTileMap[id] === hwTileFilter);
+    });
+    renderHardware();
+  });
 });
 
 document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
