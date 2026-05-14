@@ -270,6 +270,95 @@
   .tab:hover { color: var(--ink-2); }
   .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 
+  /* Sub-tabs — smaller than main tabs to convey hierarchy */
+  .subtabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 0 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .subtab {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color .15s, border-color .15s;
+  }
+  .subtab:hover { color: var(--ink-2); }
+  .subtab.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  /* Hardware tab filter chips */
+  .filter-bar {
+    display: flex;
+    gap: 20px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .filter-group { display: flex; align-items: center; gap: 8px; }
+  .filter-group-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .filter-select {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--ink);
+    outline: none;
+    cursor: pointer;
+  }
+  .filter-select:focus { border-color: var(--accent); }
+
+  /* Recycle candidate row — subtle warning tint */
+  tbody tr.warn-row { background: #fcf3eb; }
+  tbody tr.warn-row:hover { background: #f9ead9; }
+  .warn-cell { color: var(--accent); font-weight: 600; }
+
+  /* Donut + summary layout for Hardware */
+  .hw-overview {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .hw-tiles {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .donut-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .donut-card svg { flex: 0 0 auto; }
+  .donut-legend { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .donut-legend .breakdown-row { color: var(--ink-2); }
+  .donut-legend .breakdown-row .label { color: var(--ink-2); }
+  @media (max-width: 1024px) {
+    .hw-overview { grid-template-columns: 1fr; }
+  }
+
   .auth-bar {
     display: flex;
     justify-content: space-between;
@@ -526,8 +615,14 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
       </div>
 
+      <div class="subtabs">
+        <button class="subtab active" data-subtab="failed">Failed Apps</button>
+        <button class="subtab" data-subtab="hardware">Hardware</button>
+      </div>
+
       <div id="intuneError"></div>
 
+      <div id="intuneSubFailed">
       <!-- App picker (shown when no app selected) -->
       <div id="appPicker" class="app-picker">
         <div class="app-picker-bar">
@@ -593,6 +688,105 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <div class="footer-count"><span id="failedCount">0</span> devices</div>
         </div>
       </div>
+      </div><!-- /intuneSubFailed -->
+
+      <div id="intuneSubHardware" style="display:none;">
+        <div id="hwLoading" class="loading">Loading devices…</div>
+        <div id="hwError"></div>
+        <div id="hwContent" style="display:none;">
+          <div class="hw-overview">
+            <div class="hw-tiles">
+              <div class="tile">
+                <div class="tile-label">Total devices</div>
+                <div class="tile-value" id="hwTotal">0</div>
+                <div class="tile-sub">managed endpoints</div>
+              </div>
+              <div class="tile">
+                <div class="tile-label">Recycle candidates</div>
+                <div class="tile-value accent" id="hwRecycle">0</div>
+                <div class="tile-sub">≤4GB RAM, ≤128GB storage, or ≤10GB free</div>
+              </div>
+              <div class="tile">
+                <div class="tile-label">Low storage</div>
+                <div class="tile-value" id="hwLowStorage">0</div>
+                <div class="tile-sub">≤10GB free</div>
+              </div>
+              <div class="tile">
+                <div class="tile-label">Under 8GB RAM</div>
+                <div class="tile-value" id="hwLowRam">0</div>
+                <div class="tile-sub">≤4GB installed</div>
+              </div>
+            </div>
+            <div class="donut-card">
+              <div id="hwDonut"></div>
+              <div class="donut-legend" id="hwDonutLegend"></div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2>Hardware inventory</h2>
+              <div class="controls">
+                <input type="text" class="search" id="hwFilter" placeholder="Search device, user, model…">
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnHwRefresh">↻ Refresh</span>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <div class="filter-group">
+                <span class="filter-group-label">RAM</span>
+                <select class="filter-select" id="hwRamFilter">
+                  <option value="">All</option>
+                  <option value="le4">≤ 4 GB</option>
+                  <option value="8">8 GB</option>
+                  <option value="16">16 GB</option>
+                  <option value="ge32">32+ GB</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <span class="filter-group-label">Storage</span>
+                <select class="filter-select" id="hwStorageFilter">
+                  <option value="">All</option>
+                  <option value="le64">≤ 64 GB</option>
+                  <option value="128">128 GB</option>
+                  <option value="256">256 GB</option>
+                  <option value="ge512">512+ GB</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <span class="filter-group-label">Compliance</span>
+                <select class="filter-select" id="hwComplianceFilter">
+                  <option value="">All</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <span class="filter-group-label">Manufacturer</span>
+                <select class="filter-select" id="hwManufacturerFilter">
+                  <option value="">All</option>
+                </select>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th data-sort="deviceName">Device Name <span class="arrow">▼</span></th>
+                  <th data-sort="manufacturer">Manufacturer <span class="arrow">▼</span></th>
+                  <th data-sort="model">Model <span class="arrow">▼</span></th>
+                  <th data-sort="ramGB">RAM (GB) <span class="arrow">▼</span></th>
+                  <th data-sort="totalGB">Total (GB) <span class="arrow">▼</span></th>
+                  <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
+                  <th data-sort="tpm">TPM <span class="arrow">▼</span></th>
+                  <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
+                  <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
+                  <th data-sort="userPrincipalName">Primary User <span class="arrow">▼</span></th>
+                  <th data-sort="complianceState">Compliance <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="hwRows"></tbody>
+            </table>
+            <div class="footer-count"><span id="hwCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubHardware -->
     </div>
   </div><!-- /viewIntune -->
 
@@ -1579,6 +1773,231 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSessionPill();
   });
 });
+
+// ============================================================
+// Intune sub-tabs (Failed Apps / Hardware)
+// ============================================================
+let activeSubtab = 'failed';
+let hwLoaded = false;
+let hwDevices = [];
+let hwSortKey = 'deviceName';
+let hwSortDir = 'asc';
+
+document.querySelectorAll('.subtab').forEach(btn => {
+  btn.addEventListener('click', () => switchSubtab(btn.dataset.subtab));
+});
+
+function switchSubtab(name) {
+  activeSubtab = name;
+  document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
+  $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
+  $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
+  if (name === 'hardware' && !hwLoaded) loadHardware();
+}
+
+const GB = 1024 * 1024 * 1024;
+const toGB = b => (!b || b <= 0) ? 0 : b / GB;
+
+async function loadHardware() {
+  hwLoaded = true;
+  $('hwLoading').style.display = '';
+  $('hwContent').style.display = 'none';
+  $('hwError').innerHTML = '';
+  try {
+    const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
+                   'freeStorageSpaceInBytes,tpmSpecificationVersion,osVersion,lastSyncDateTime,' +
+                   'userPrincipalName,complianceState';
+    let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
+    hwDevices = all.map(d => ({
+      id: d.id,
+      deviceName: d.deviceName || '—',
+      manufacturer: d.manufacturer || '—',
+      model: d.model || '—',
+      ramGB: Math.round(toGB(d.physicalMemoryInBytes)),
+      totalGB: Math.round(toGB(d.totalStorageSpaceInBytes)),
+      freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
+      tpm: d.tpmSpecificationVersion || '—',
+      osVersion: d.osVersion || '—',
+      lastSync: d.lastSyncDateTime || '',
+      userPrincipalName: d.userPrincipalName || '—',
+      complianceState: d.complianceState || 'unknown'
+    }));
+    populateHwFilterOptions();
+    renderHardware();
+    $('hwLoading').style.display = 'none';
+    $('hwContent').style.display = '';
+  } catch (e) {
+    $('hwLoading').style.display = 'none';
+    $('hwError').innerHTML = `<div class="error-banner">Failed to load devices: ${esc(e.message || e)}</div>`;
+  }
+}
+
+function isRecycle(d) {
+  return d.ramGB <= 4 || d.totalGB <= 128 || d.freeGB <= 10;
+}
+
+function populateHwFilterOptions() {
+  const comp = [...new Set(hwDevices.map(d => d.complianceState).filter(Boolean))].sort();
+  const mfr = [...new Set(hwDevices.map(d => d.manufacturer).filter(Boolean))].sort();
+  $('hwComplianceFilter').innerHTML = '<option value="">All</option>' +
+    comp.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  $('hwManufacturerFilter').innerHTML = '<option value="">All</option>' +
+    mfr.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+}
+
+function ramBucket(gb) {
+  if (gb <= 4) return 'le4';
+  if (gb >= 5 && gb <= 8) return '8';
+  if (gb >= 9 && gb <= 16) return '16';
+  if (gb >= 32) return 'ge32';
+  return 'other';
+}
+function storageBucket(gb) {
+  if (gb <= 64) return 'le64';
+  if (gb >= 65 && gb <= 128) return '128';
+  if (gb >= 129 && gb <= 256) return '256';
+  if (gb >= 512) return 'ge512';
+  return 'other';
+}
+
+function filterHw() {
+  const q = $('hwFilter').value.toLowerCase();
+  const ramF = $('hwRamFilter').value;
+  const storF = $('hwStorageFilter').value;
+  const compF = $('hwComplianceFilter').value;
+  const mfrF = $('hwManufacturerFilter').value;
+  return hwDevices.filter(d => {
+    if (q && !(
+      d.deviceName.toLowerCase().includes(q) ||
+      d.userPrincipalName.toLowerCase().includes(q) ||
+      d.model.toLowerCase().includes(q) ||
+      d.manufacturer.toLowerCase().includes(q)
+    )) return false;
+    if (ramF && ramBucket(d.ramGB) !== ramF) return false;
+    if (storF && storageBucket(d.totalGB) !== storF) return false;
+    if (compF && d.complianceState !== compF) return false;
+    if (mfrF && d.manufacturer !== mfrF) return false;
+    return true;
+  });
+}
+
+function renderHardware() {
+  // KPIs always reflect full dataset
+  $('hwTotal').textContent = hwDevices.length;
+  $('hwRecycle').textContent = hwDevices.filter(isRecycle).length;
+  $('hwLowStorage').textContent = hwDevices.filter(d => d.freeGB <= 10).length;
+  $('hwLowRam').textContent = hwDevices.filter(d => d.ramGB <= 4).length;
+
+  renderHwDonut();
+
+  let rows = filterHw();
+  rows.sort((a, b) => {
+    let va = a[hwSortKey], vb = b[hwSortKey];
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return hwSortDir === 'asc' ? va - vb : vb - va;
+    }
+    va = (va ?? '').toString().toLowerCase();
+    vb = (vb ?? '').toString().toLowerCase();
+    if (va < vb) return hwSortDir === 'asc' ? -1 : 1;
+    if (va > vb) return hwSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = $('hwRows');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">No devices match.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(d => {
+      const warn = isRecycle(d);
+      const ramCell = d.ramGB <= 4 ? `<td class="warn-cell">${d.ramGB || '—'}</td>` : `<td>${d.ramGB || '—'}</td>`;
+      const totCell = d.totalGB <= 128 ? `<td class="warn-cell">${d.totalGB || '—'}</td>` : `<td>${d.totalGB || '—'}</td>`;
+      const freeCell = d.freeGB <= 10 ? `<td class="warn-cell">${d.freeGB || '—'}</td>` : `<td>${d.freeGB || '—'}</td>`;
+      return `
+        <tr class="${warn ? 'warn-row' : ''}">
+          <td class="app-name">${esc(d.deviceName)}</td>
+          <td>${esc(d.manufacturer)}</td>
+          <td>${esc(d.model)}</td>
+          ${ramCell}
+          ${totCell}
+          ${freeCell}
+          <td>${esc(d.tpm)}</td>
+          <td>${esc(d.osVersion)}</td>
+          <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
+          <td class="pub">${esc(d.userPrincipalName)}</td>
+          <td>${esc(d.complianceState)}</td>
+        </tr>`;
+    }).join('');
+  }
+  $('hwCount').textContent = rows.length;
+
+  document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    const arrow = th.querySelector('.arrow');
+    if (arrow) arrow.textContent = '▼';
+    if (th.dataset.sort === hwSortKey) {
+      th.classList.add(hwSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      if (arrow) arrow.textContent = hwSortDir === 'asc' ? '▲' : '▼';
+    }
+  });
+}
+
+function renderHwDonut() {
+  // RAM distribution donut — inline SVG, theme-consistent colors
+  const buckets = [
+    { label: '≤ 4 GB', key: 'le4', color: 'var(--accent)' },
+    { label: '8 GB', key: '8', color: '#5a8ec4' },
+    { label: '16 GB', key: '16', color: '#4caf50' },
+    { label: '32+ GB', key: 'ge32', color: '#6b6b70' },
+    { label: 'Other', key: 'other', color: '#cfc8bd' }
+  ];
+  const counts = buckets.map(b => hwDevices.filter(d => ramBucket(d.ramGB) === b.key).length);
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  const cx = 70, cy = 70, r = 50, stroke = 18;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  const segments = buckets.map((b, i) => {
+    const pct = counts[i] / total;
+    const len = pct * circ;
+    const seg = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${b.color}" stroke-width="${stroke}" stroke-dasharray="${len} ${circ - len}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"></circle>`;
+    offset += len;
+    return seg;
+  }).join('');
+  $('hwDonut').innerHTML = `
+    <svg width="140" height="140" viewBox="0 0 140 140">
+      ${segments}
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)" font-family="Inter, sans-serif">${hwDevices.length}</text>
+      <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="var(--muted)" font-family="Inter, sans-serif" letter-spacing="1.4">DEVICES</text>
+    </svg>`;
+  $('hwDonutLegend').innerHTML = buckets.map((b, i) => `
+    <div class="breakdown-row">
+      <div><span class="dot" style="background:${b.color};"></span><span class="label">${b.label}</span></div>
+      <div><span class="val">${counts[i]}</span></div>
+    </div>`).join('');
+}
+
+$('hwFilter').addEventListener('input', renderHardware);
+$('hwRamFilter').addEventListener('change', renderHardware);
+$('hwStorageFilter').addEventListener('change', renderHardware);
+$('hwComplianceFilter').addEventListener('change', renderHardware);
+$('hwManufacturerFilter').addEventListener('change', renderHardware);
+$('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
+
+document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (hwSortKey === key) hwSortDir = hwSortDir === 'asc' ? 'desc' : 'asc';
+    else { hwSortKey = key; hwSortDir = 'asc'; }
+    renderHardware();
+  });
+});
+
 let uploadedLogs = [];
 
 $('copyLogPath').addEventListener('click', async () => {
