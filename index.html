@@ -440,6 +440,46 @@
   .pager .page-btn.disabled { opacity: 0.4; cursor: default; }
   .pager .page-ellipsis { padding: 0 4px; color: var(--ink-2); }
   .pager .page-info { margin-left: auto; color: var(--ink-2); }
+  .assignments-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .assignments-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+  }
+  .assignment-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 14px;
+  }
+  .assignment-row + .assignment-row { border-top: 1px dashed var(--line); }
+  .assignment-intent {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--line);
+    color: var(--ink-2);
+    min-width: 72px;
+    text-align: center;
+  }
+  .assignment-intent.required { background: #fde8d4; color: #9a4a00; }
+  .assignment-intent.available { background: #e2efd9; color: #2f6f0e; }
+  .assignment-intent.uninstall { background: #f8d7d7; color: #8a1a1a; }
+  .assignment-group { color: var(--ink); }
+  .assignment-mode { font-size: 12px; color: var(--ink-2); margin-left: auto; }
   .app-row {
     padding: 12px 20px;
     border-bottom: 1px solid var(--line);
@@ -756,6 +796,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="meta" id="instAppMeta">—</div>
             </div>
             <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
+          </div>
+
+          <div class="assignments-card" id="instAssignmentsCard">
+            <div class="assignments-header">Assigned to</div>
+            <div id="instAssignmentsBody"><div class="loading">Loading assignments…</div></div>
           </div>
 
           <div class="table-card">
@@ -1331,7 +1376,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'User.Read'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'Group.Read.All', 'User.Read'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -1946,7 +1991,59 @@ function selectAppInstalled(app) {
   const portalUrl = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(app.id)}`;
   $('instAppName').innerHTML = `<a href="${portalUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" title="Open in Intune admin center">${esc(app.displayName)} ↗</a>`;
   $('instAppMeta').textContent = app.publisher || '—';
+  loadInstalledAssignments();
   loadInstalled();
+}
+
+async function loadInstalledAssignments() {
+  const body = $('instAssignmentsBody');
+  body.innerHTML = '<div class="loading">Loading assignments…</div>';
+  try {
+    const data = await graphGet(`beta/deviceAppManagement/mobileApps/${encodeURIComponent(selectedApp.id)}?$expand=assignments`);
+    const assignments = data.assignments || [];
+    if (!assignments.length) {
+      body.innerHTML = '<div class="meta">No assignments.</div>';
+      return;
+    }
+
+    // Resolve group names in parallel; skip non-group targets (allDevices/allLicensedUsers)
+    const groupIds = [...new Set(assignments
+      .map(a => a.target && a.target.groupId)
+      .filter(Boolean))];
+    const nameById = {};
+    await Promise.all(groupIds.map(async gid => {
+      try {
+        const g = await graphGet(`beta/groups/${encodeURIComponent(gid)}?$select=displayName,id`);
+        nameById[gid] = g.displayName || gid;
+      } catch {
+        nameById[gid] = gid; // fall back to id if access denied
+      }
+    }));
+
+    body.innerHTML = assignments.map(a => {
+      const intent = (a.intent || 'unknown').toLowerCase();
+      const target = a.target || {};
+      const tType = (target['@odata.type'] || '').split('.').pop();
+      let label;
+      if (target.groupId) {
+        label = `<span class="assignment-group">${esc(nameById[target.groupId])}</span>`;
+      } else if (tType === 'allDevicesAssignmentTarget') {
+        label = `<span class="assignment-group">All Devices</span>`;
+      } else if (tType === 'allLicensedUsersAssignmentTarget') {
+        label = `<span class="assignment-group">All Users</span>`;
+      } else {
+        label = `<span class="assignment-group">${esc(tType || 'Unknown target')}</span>`;
+      }
+      const mode = tType === 'exclusionGroupAssignmentTarget' ? '(exclusion)' : '';
+      return `<div class="assignment-row">
+        <span class="assignment-intent ${esc(intent)}">${esc(intent)}</span>
+        ${label}
+        ${mode ? `<span class="assignment-mode">${esc(mode)}</span>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="meta">Failed to load assignments: ${esc(e.message || e)}</div>`;
+  }
 }
 
 async function loadInstalled() {
@@ -2067,7 +2164,11 @@ $('btnChangeAppInstalled').addEventListener('click', () => {
   $('installedAppPicker').style.display = '';
   $('installedView').style.display = 'none';
 });
-$('btnRefreshInstalled').addEventListener('click', () => selectedApp && loadInstalled());
+$('btnRefreshInstalled').addEventListener('click', () => {
+  if (!selectedApp) return;
+  loadInstalledAssignments();
+  loadInstalled();
+});
 $('installedFilter').addEventListener('input', renderInstalled);
 $('installedStateFilter').addEventListener('change', renderInstalled);
 $('btnCopyInstalled').addEventListener('click', copyInstalledNames);
