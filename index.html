@@ -741,6 +741,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
             <div class="hw-tiles">
+              <div class="tile clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
+                <div class="tile-label">Windows 10</div>
+                <div class="tile-value" id="hwWin10">0</div>
+                <div class="tile-sub">10.0.19xxx builds</div>
+              </div>
+              <div class="tile clickable" id="hwWin11Tile" title="Click to filter to Windows 11 devices">
+                <div class="tile-label">Windows 11</div>
+                <div class="tile-value" id="hwWin11">0</div>
+                <div class="tile-sub">10.0.26xxx builds</div>
+              </div>
               <div class="tile clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
                 <div class="tile-label">4GB RAM</div>
                 <div class="tile-value" id="hwRam4">0</div>
@@ -793,6 +803,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <h2>Hardware inventory</h2>
               <div class="controls">
                 <input type="text" class="search" id="hwFilter" placeholder="Search device, user, model…">
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnHwClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnHwRefresh">↻ Refresh</span>
               </div>
             </div>
@@ -1979,6 +1990,12 @@ function ramBucket(gb) {
   if (gb >= 32) return 'ge32';
   return 'other';
 }
+function winBucket(osVersion) {
+  if (!osVersion) return null;
+  if (osVersion.startsWith('10.0.19')) return 'win10';
+  if (osVersion.startsWith('10.0.26')) return 'win11';
+  return null;
+}
 function storageBucket(gb) {
   if (gb <= 64) return 'le64';
   if (gb >= 65 && gb <= 128) return '128';
@@ -1999,6 +2016,7 @@ function filterHw() {
       const [kind, val] = hwTileFilter.split(':');
       if (kind === 'ram' && ramBucket(d.ramGB) !== val) return false;
       if (kind === 'stor' && storageBucket(d.totalGB) !== val) return false;
+      if (kind === 'win' && winBucket(d.osVersion) !== val) return false;
     }
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
@@ -2018,10 +2036,14 @@ function renderHardware() {
   const platScope = platF ? hwDevices.filter(d => d.os === platF) : hwDevices;
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
+  const winCounts = { win10: 0, win11: 0 };
   platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
+    const wb = winBucket(d.osVersion); if (wb) winCounts[wb]++;
   });
+  $('hwWin10').textContent = winCounts.win10;
+  $('hwWin11').textContent = winCounts.win11;
   $('hwRam4').textContent = ramCounts.le4;
   $('hwRam8').textContent = ramCounts['8'];
   $('hwRam16').textContent = ramCounts['16'];
@@ -2057,7 +2079,7 @@ function renderHardware() {
       const freeCell = d.freeGB <= 10 ? `<td class="warn-cell">${d.freeGB || '—'}</td>` : `<td>${d.freeGB || '—'}</td>`;
       return `
         <tr class="${warn ? 'warn-row' : ''}">
-          <td class="app-name"><a href="https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${encodeURIComponent(d.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(d.deviceName)}</a></td>
+          <td class="app-name"><a href="https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/hardware/mdmDeviceId/${encodeURIComponent(d.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(d.deviceName)}</a></td>
           <td>${esc(d.manufacturer)}</td>
           <td>${esc(d.model)}</td>
           ${ramCell}
@@ -2124,6 +2146,8 @@ $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('hwPlatformFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
 const hwTileMap = {
+  hwWin10Tile: 'win:win10',
+  hwWin11Tile: 'win:win11',
   hwRam4Tile: 'ram:le4',
   hwRam8Tile: 'ram:8',
   hwRam16Tile: 'ram:16',
@@ -2133,16 +2157,25 @@ const hwTileMap = {
   hwStor256Tile: 'stor:256',
   hwStor512Tile: 'stor:ge512'
 };
+function syncHwTileUi() {
+  Object.keys(hwTileMap).forEach(id => {
+    $(id).classList.toggle('active', hwTileMap[id] === hwTileFilter);
+  });
+  $('btnHwClearKpi').style.display = hwTileFilter ? '' : 'none';
+}
 Object.keys(hwTileMap).forEach(tileId => {
   $(tileId).addEventListener('click', () => {
     const target = hwTileMap[tileId];
     // Toggle off if clicking the already-active tile; otherwise switch to it
     hwTileFilter = (hwTileFilter === target) ? null : target;
-    Object.keys(hwTileMap).forEach(id => {
-      $(id).classList.toggle('active', hwTileMap[id] === hwTileFilter);
-    });
+    syncHwTileUi();
     renderHardware();
   });
+});
+$('btnHwClearKpi').addEventListener('click', () => {
+  hwTileFilter = null;
+  syncHwTileUi();
+  renderHardware();
 });
 
 document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
