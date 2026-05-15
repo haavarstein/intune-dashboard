@@ -1808,7 +1808,7 @@ let installedAppsLoaded = false;
 let installedApps = [];
 let installedAppsFiltered = [];
 let installedAppsPage = 1;
-const INSTALLED_PAGE_SIZE = 50;
+const INSTALLED_PAGE_SIZE = 25;
 
 async function loadInstalledApps() {
   installedAppsLoaded = true;
@@ -1939,7 +1939,8 @@ function selectAppInstalled(app) {
   selectedApp = app;
   $('installedAppPicker').style.display = 'none';
   $('installedView').style.display = '';
-  $('instAppName').textContent = app.displayName;
+  const portalUrl = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(app.id)}`;
+  $('instAppName').innerHTML = `<a href="${portalUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" title="Open in Intune admin center">${esc(app.displayName)} ↗</a>`;
   $('instAppMeta').textContent = app.publisher || '—';
   loadInstalled();
 }
@@ -1949,7 +1950,7 @@ async function loadInstalled() {
   $('installedRows').innerHTML = '<tr><td colspan="5" class="loading">Loading report…</td></tr>';
   try {
     const body = {
-      top: 50, skip: 0,
+      top: 1000, skip: 0,
       select: ['ApplicationId', 'AppVersion', 'DeviceId', 'DeviceName',
                'InstallState', 'LastModifiedDateTime', 'Platform',
                'UserName', 'UserPrincipalName'],
@@ -1958,7 +1959,10 @@ async function loadInstalled() {
     };
     const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
     const all = parseReport(data);
-    installedRows = all.filter(r => String(r.InstallState || '').toLowerCase() === 'installed');
+    installedRows = all.filter(r => {
+      const s = String(r.InstallState || '').toLowerCase();
+      return s.startsWith('installed');
+    });
     renderInstalled();
   } catch (e) {
     showIntuneError(e.message);
