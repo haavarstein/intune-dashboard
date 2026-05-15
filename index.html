@@ -626,6 +626,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div class="subtabs">
         <button class="subtab active" data-subtab="failed">Failed Install</button>
         <button class="subtab" data-subtab="required">Required Install</button>
+        <button class="subtab" data-subtab="installed">Installed</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
       </div>
@@ -704,42 +705,61 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <div class="footer-count"><span id="failedCount">0</span> devices</div>
         </div>
       </div>
-
-      <div id="installedView" style="display:none;">
-        <div class="selected-app">
-          <div>
-            <div class="name" id="instAppName">—</div>
-            <div class="meta" id="instAppMeta">—</div>
-          </div>
-          <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
-        </div>
-
-        <div class="table-card">
-          <div class="table-toolbar">
-            <h2>Installed devices</h2>
-            <div class="controls">
-              <input type="text" class="search" id="installedFilter" placeholder="Search device, user…">
-              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCopyInstalled">⧉ Copy device names</span>
-              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnExportInstalled">⬇ Export CSV</span>
-              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefreshInstalled">↻ Refresh</span>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th data-sort-inst="DeviceName">Device <span class="arrow">▼</span></th>
-                <th data-sort-inst="UserPrincipalName">User <span class="arrow">▼</span></th>
-                <th data-sort-inst="AppVersion">Version <span class="arrow">▼</span></th>
-                <th data-sort-inst="Platform">Platform <span class="arrow">▼</span></th>
-                <th data-sort-inst="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
-              </tr>
-            </thead>
-            <tbody id="installedRows"></tbody>
-          </table>
-          <div class="footer-count"><span id="installedCount">0</span> devices</div>
-        </div>
-      </div>
       </div><!-- /intuneSubFailed -->
+
+      <div id="intuneSubInstalled" style="display:none;">
+        <!-- App picker (shown when no app selected) -->
+        <div id="installedAppPicker" class="app-picker">
+          <div class="app-picker-bar">
+            <input type="text" class="search" id="installedAppFilter" placeholder="Search apps by name or publisher…">
+            <div class="filter-group">
+              <span class="filter-group-label">Platform</span>
+              <select class="filter-select" id="installedAppPlatformFilter">
+                <option value="">All</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" id="btnReloadInstalledApps">↻ Reload apps</button>
+          </div>
+          <div class="app-list" id="installedAppList">
+            <div class="loading">Loading apps…</div>
+          </div>
+        </div>
+
+        <div id="installedView" style="display:none;">
+          <div class="selected-app">
+            <div>
+              <div class="name" id="instAppName">—</div>
+              <div class="meta" id="instAppMeta">—</div>
+            </div>
+            <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2>Installed devices</h2>
+              <div class="controls">
+                <input type="text" class="search" id="installedFilter" placeholder="Search device, user…">
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCopyInstalled">⧉ Copy device names</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnExportInstalled">⬇ Export CSV</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefreshInstalled">↻ Refresh</span>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th data-sort-inst="DeviceName">Device <span class="arrow">▼</span></th>
+                  <th data-sort-inst="UserPrincipalName">User <span class="arrow">▼</span></th>
+                  <th data-sort-inst="AppVersion">Version <span class="arrow">▼</span></th>
+                  <th data-sort-inst="Platform">Platform <span class="arrow">▼</span></th>
+                  <th data-sort-inst="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="installedRows"></tbody>
+            </table>
+            <div class="footer-count"><span id="installedCount">0</span> devices</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubInstalled -->
 
       <div id="intuneSubRequired" style="display:none;">
         <div id="requiredError"></div>
@@ -1603,19 +1623,12 @@ function renderAppList() {
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
       <div class="pub-small" style="min-width:90px; text-align:right;">${a.failedDeviceCount ?? ''} failed</div>
-      <span class="pub-small installed-link" data-id="${esc(a.id)}" style="cursor:pointer; color:var(--accent); font-weight:600; margin-left:12px;">Installed →</span>
+      <div class="pub-small">→</div>
     </div>
   `).join('');
 }
 
 $('appList').addEventListener('click', e => {
-  const installedTrigger = e.target.closest('.installed-link');
-  if (installedTrigger) {
-    e.stopPropagation();
-    const app = intuneApps.find(a => a.id === installedTrigger.dataset.id);
-    if (app) selectAppInstalled(app);
-    return;
-  }
   const row = e.target.closest('.app-row');
   if (!row) return;
   const app = intuneApps.find(a => a.id === row.dataset.id);
@@ -1764,9 +1777,97 @@ let installedRows = [];
 let installedSortKey = 'DeviceName';
 let installedSortDir = 'asc';
 
+// --- Installed sub-tab: full app list (no FailedDeviceCount filter) ---
+let installedAppsLoaded = false;
+let installedApps = [];
+let installedAppsFiltered = [];
+
+async function loadInstalledApps() {
+  installedAppsLoaded = true;
+  clearIntuneError();
+  $('installedAppList').innerHTML = '<div class="loading">Loading apps…</div>';
+  try {
+    const body = {
+      top: 200,
+      skip: 0,
+      filter: '',
+      orderBy: ['DisplayName asc'],
+      search: '',
+      select: ['DisplayName', 'Publisher', 'Platform', 'AppVersion',
+               'FailedDevicePercentage', 'FailedDeviceCount', 'ApplicationId']
+    };
+    const data = await graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body);
+    const rows = parseReport(data);
+
+    installedApps = rows
+      .filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName))
+      .map(r => ({
+        id: r.ApplicationId,
+        displayName: r.DisplayName,
+        publisher: r.Publisher,
+        platform: r.Platform
+      }));
+
+    installedAppsFiltered = installedApps;
+    populateInstalledAppPlatformOptions();
+    applyInstalledAppFilter();
+  } catch (e) {
+    showIntuneError(e.message);
+    $('installedAppList').innerHTML = '';
+  }
+}
+
+function populateInstalledAppPlatformOptions() {
+  const plats = [...new Set(installedApps.map(a => platformLabel(a.platform)).filter(p => p && p !== '—'))].sort();
+  $('installedAppPlatformFilter').innerHTML = '<option value="">All</option>' +
+    plats.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  if (plats.includes('Windows')) $('installedAppPlatformFilter').value = 'Windows';
+}
+
+function applyInstalledAppFilter() {
+  const q = $('installedAppFilter').value.toLowerCase();
+  const platF = $('installedAppPlatformFilter').value;
+  installedAppsFiltered = installedApps.filter(a => {
+    if (platF && platformLabel(a.platform) !== platF) return false;
+    if (q && !(
+      (a.displayName || '').toLowerCase().includes(q) ||
+      (a.publisher || '').toLowerCase().includes(q)
+    )) return false;
+    return true;
+  });
+  renderInstalledAppList();
+}
+
+function renderInstalledAppList() {
+  if (!installedAppsFiltered.length) {
+    $('installedAppList').innerHTML = '<div class="loading">No apps found.</div>';
+    return;
+  }
+  $('installedAppList').innerHTML = installedAppsFiltered.map(a => `
+    <div class="app-row" data-id="${esc(a.id)}">
+      <div style="flex:1; min-width:0;">
+        <div class="name">${esc(a.displayName)}</div>
+        <div class="meta">${esc(a.publisher) || '—'}</div>
+      </div>
+      <div class="pub-small">→</div>
+    </div>
+  `).join('');
+}
+
+$('installedAppList').addEventListener('click', e => {
+  const row = e.target.closest('.app-row');
+  if (!row) return;
+  const app = installedApps.find(a => a.id === row.dataset.id);
+  if (app) selectAppInstalled(app);
+});
+
+$('installedAppFilter').addEventListener('input', applyInstalledAppFilter);
+$('installedAppPlatformFilter').addEventListener('change', applyInstalledAppFilter);
+$('btnReloadInstalledApps').addEventListener('click', loadInstalledApps);
+
 function selectAppInstalled(app) {
   selectedApp = app;
-  $('appPicker').style.display = 'none';
+  $('installedAppPicker').style.display = 'none';
   $('installedView').style.display = '';
   $('instAppName').textContent = app.displayName;
   $('instAppMeta').textContent = app.publisher || '—';
@@ -1870,7 +1971,7 @@ function exportInstalledCSV() {
 $('btnChangeAppInstalled').addEventListener('click', () => {
   selectedApp = null;
   installedRows = [];
-  $('appPicker').style.display = '';
+  $('installedAppPicker').style.display = '';
   $('installedView').style.display = 'none';
 });
 $('btnRefreshInstalled').addEventListener('click', () => selectedApp && loadInstalled());
@@ -2079,11 +2180,13 @@ function switchSubtab(name) {
   document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
   $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
   $('intuneSubRequired').style.display = name === 'required' ? '' : 'none';
+  $('intuneSubInstalled').style.display = name === 'installed' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
+  if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
 }
 
 const GB = 1024 * 1024 * 1024;
