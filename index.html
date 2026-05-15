@@ -824,12 +824,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 </select>
               </div>
               <div class="filter-group">
-                <span class="filter-group-label">Compliance</span>
-                <select class="filter-select" id="hwComplianceFilter">
-                  <option value="">All</option>
-                </select>
-              </div>
-              <div class="filter-group">
                 <span class="filter-group-label">Manufacturer</span>
                 <select class="filter-select" id="hwManufacturerFilter">
                   <option value="">All</option>
@@ -847,7 +841,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
                   <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
                   <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
-                  <th data-sort="complianceState">Compliance <span class="arrow">▼</span></th>
                 </tr>
               </thead>
               <tbody id="hwRows"></tbody>
@@ -1918,8 +1911,7 @@ async function loadHardware() {
   $('hwError').innerHTML = '';
   try {
     const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
-                   'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime,' +
-                   'complianceState';
+                   'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime';
     let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
     const all = [];
     while (path) {
@@ -1938,8 +1930,7 @@ async function loadHardware() {
       freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
       osVersion: d.osVersion || '—',
       os: d.operatingSystem || 'Unknown',
-      lastSync: d.lastSyncDateTime || '',
-      complianceState: d.complianceState || 'unknown'
+      lastSync: d.lastSyncDateTime || ''
     }));
 
     // physicalMemoryInBytes is not populated by the managedDevices list endpoint;
@@ -1971,11 +1962,8 @@ function isRecycle(d) {
 }
 
 function populateHwFilterOptions() {
-  const comp = [...new Set(hwDevices.map(d => d.complianceState).filter(Boolean))].sort();
   const mfr = [...new Set(hwDevices.map(d => d.manufacturer).filter(Boolean))].sort();
   const plat = [...new Set(hwDevices.map(d => d.os).filter(Boolean))].sort();
-  $('hwComplianceFilter').innerHTML = '<option value="">All</option>' +
-    comp.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   $('hwManufacturerFilter').innerHTML = '<option value="">All</option>' +
     mfr.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
   $('hwPlatformFilter').innerHTML = '<option value="">All</option>' +
@@ -2003,7 +1991,6 @@ function filterHw() {
   const q = $('hwFilter').value.toLowerCase();
   const ramF = $('hwRamFilter').value;
   const storF = $('hwStorageFilter').value;
-  const compF = $('hwComplianceFilter').value;
   const mfrF = $('hwManufacturerFilter').value;
   const platF = $('hwPlatformFilter').value;
   return hwDevices.filter(d => {
@@ -2020,7 +2007,6 @@ function filterHw() {
     )) return false;
     if (ramF && ramBucket(d.ramGB) !== ramF) return false;
     if (storF && storageBucket(d.totalGB) !== storF) return false;
-    if (compF && d.complianceState !== compF) return false;
     if (mfrF && d.manufacturer !== mfrF) return false;
     return true;
   });
@@ -2071,7 +2057,7 @@ function renderHardware() {
       const freeCell = d.freeGB <= 10 ? `<td class="warn-cell">${d.freeGB || '—'}</td>` : `<td>${d.freeGB || '—'}</td>`;
       return `
         <tr class="${warn ? 'warn-row' : ''}">
-          <td class="app-name">${esc(d.deviceName)}</td>
+          <td class="app-name"><a href="https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${encodeURIComponent(d.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(d.deviceName)}</a></td>
           <td>${esc(d.manufacturer)}</td>
           <td>${esc(d.model)}</td>
           ${ramCell}
@@ -2079,7 +2065,6 @@ function renderHardware() {
           ${freeCell}
           <td>${esc(d.osVersion)}</td>
           <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
-          <td>${esc(d.complianceState)}</td>
         </tr>`;
     }).join('');
   }
@@ -2135,7 +2120,6 @@ function renderHwDonut() {
 $('hwFilter').addEventListener('input', renderHardware);
 $('hwRamFilter').addEventListener('change', renderHardware);
 $('hwStorageFilter').addEventListener('change', renderHardware);
-$('hwComplianceFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('hwPlatformFilter').addEventListener('change', renderHardware);
 $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
