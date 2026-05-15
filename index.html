@@ -744,12 +744,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="tile clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
                 <div class="tile-label">Windows 10</div>
                 <div class="tile-value" id="hwWin10">0</div>
-                <div class="tile-sub">10.0.19xxx builds</div>
+                <div class="tile-sub">&nbsp;</div>
               </div>
               <div class="tile clickable" id="hwWin11Tile" title="Click to filter to Windows 11 devices">
                 <div class="tile-label">Windows 11</div>
                 <div class="tile-value" id="hwWin11">0</div>
-                <div class="tile-sub">10.0.26xxx builds</div>
+                <div class="tile-sub">&nbsp;</div>
               </div>
               <div class="tile clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
                 <div class="tile-label">4GB RAM</div>
@@ -2037,6 +2037,8 @@ function renderHardware() {
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
   const winCounts = { win10: 0, win11: 0 };
+  // DEBUG: log osVersion values to help diagnose Win10/Win11 classification
+  console.log('[hwDebug] platScope osVersions:', platScope.map(d => ({ name: d.deviceName, osVersion: d.osVersion, bucket: winBucket(d.osVersion) })));
   platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
