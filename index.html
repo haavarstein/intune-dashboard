@@ -417,6 +417,29 @@
     overflow-y: auto;
   }
   .app-list.no-scroll { max-height: none; overflow-y: visible; }
+  .pager {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 4px 4px;
+    font-size: 13px;
+    color: var(--ink-2);
+    flex-wrap: wrap;
+  }
+  .pager .page-btn {
+    cursor: pointer;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--ink-2);
+    user-select: none;
+  }
+  .pager .page-btn:hover:not(.disabled):not(.active) { color: var(--ink); border-color: var(--ink-2); }
+  .pager .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .pager .page-btn.disabled { opacity: 0.4; cursor: default; }
+  .pager .page-ellipsis { padding: 0 4px; color: var(--ink-2); }
+  .pager .page-info { margin-left: auto; color: var(--ink-2); }
   .app-row {
     padding: 12px 20px;
     border-bottom: 1px solid var(--line);
@@ -624,16 +647,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
 
       <div class="subtabs">
-        <button class="subtab active" data-subtab="failed">Failed Install</button>
+        <button class="subtab active" data-subtab="installed">Installed</button>
+        <button class="subtab" data-subtab="failed">Failed Install</button>
         <button class="subtab" data-subtab="required">Required Install</button>
-        <button class="subtab" data-subtab="installed">Installed</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
       </div>
 
       <div id="intuneError"></div>
 
-      <div id="intuneSubFailed">
+      <div id="intuneSubFailed" style="display:none;">
       <!-- App picker (shown when no app selected) -->
       <div id="appPicker" class="app-picker">
         <div class="app-picker-bar">
@@ -707,7 +730,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
       </div><!-- /intuneSubFailed -->
 
-      <div id="intuneSubInstalled" style="display:none;">
+      <div id="intuneSubInstalled">
         <!-- App picker (shown when no app selected) -->
         <div id="installedAppPicker" class="app-picker">
           <div class="app-picker-bar">
@@ -720,9 +743,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             </div>
             <button class="btn btn-ghost" id="btnReloadInstalledApps">↻ Reload apps</button>
           </div>
-          <div class="app-list" id="installedAppList">
+          <div class="app-list no-scroll" id="installedAppList">
             <div class="loading">Loading apps…</div>
           </div>
+          <div class="pager" id="installedAppsPager"></div>
         </div>
 
         <div id="installedView" style="display:none;">
@@ -1309,6 +1333,7 @@ let msalApp = null;
 let intuneInit = false;
 let intuneApps = [];
 let intuneAppsFiltered = [];
+let failedAppsLoaded = false;
 let selectedApp = null;
 let failedRows = [];
 let failedSortKey = 'DeviceName';
@@ -1352,7 +1377,7 @@ function onSignedIn(account) {
   $('intuneSignedOut').style.display = 'none';
   $('intuneSignedIn').style.display = '';
   $('userName').textContent = account.name || account.username;
-  loadApps();
+  loadInstalledApps();
 }
 
 async function getToken() {
@@ -1545,6 +1570,7 @@ function clearUninstallError() { $('uninstallError').innerHTML = ''; }
 
 // --- App list: apps with install failures (matches Intune portal "Apps install status" view) ---
 async function loadApps() {
+  failedAppsLoaded = true;
   clearIntuneError();
   $('appList').innerHTML = '<div class="loading">Loading apps with failures…</div>';
   try {
@@ -1781,6 +1807,8 @@ let installedSortDir = 'asc';
 let installedAppsLoaded = false;
 let installedApps = [];
 let installedAppsFiltered = [];
+let installedAppsPage = 1;
+const INSTALLED_PAGE_SIZE = 50;
 
 async function loadInstalledApps() {
   installedAppsLoaded = true;
@@ -1788,7 +1816,7 @@ async function loadInstalledApps() {
   $('installedAppList').innerHTML = '<div class="loading">Loading apps…</div>';
   try {
     const body = {
-      top: 200,
+      top: 1000,
       skip: 0,
       filter: '',
       orderBy: ['DisplayName asc'],
@@ -1835,15 +1863,23 @@ function applyInstalledAppFilter() {
     )) return false;
     return true;
   });
+  installedAppsPage = 1;
   renderInstalledAppList();
 }
 
 function renderInstalledAppList() {
-  if (!installedAppsFiltered.length) {
+  const total = installedAppsFiltered.length;
+  if (!total) {
     $('installedAppList').innerHTML = '<div class="loading">No apps found.</div>';
+    $('installedAppsPager').innerHTML = '';
     return;
   }
-  $('installedAppList').innerHTML = installedAppsFiltered.map(a => `
+  const totalPages = Math.max(1, Math.ceil(total / INSTALLED_PAGE_SIZE));
+  if (installedAppsPage > totalPages) installedAppsPage = totalPages;
+  const start = (installedAppsPage - 1) * INSTALLED_PAGE_SIZE;
+  const slice = installedAppsFiltered.slice(start, start + INSTALLED_PAGE_SIZE);
+
+  $('installedAppList').innerHTML = slice.map(a => `
     <div class="app-row" data-id="${esc(a.id)}">
       <div style="flex:1; min-width:0;">
         <div class="name">${esc(a.displayName)}</div>
@@ -1852,6 +1888,31 @@ function renderInstalledAppList() {
       <div class="pub-small">→</div>
     </div>
   `).join('');
+
+  renderInstalledAppsPager(totalPages, total);
+}
+
+function renderInstalledAppsPager(totalPages, total) {
+  const pager = $('installedAppsPager');
+  if (totalPages <= 1) {
+    pager.innerHTML = `<span class="pub-small">${total} app${total === 1 ? '' : 's'}</span>`;
+    return;
+  }
+  const p = installedAppsPage;
+  // Compact window: first, last, current ± 2, with ellipses
+  const pages = new Set([1, totalPages, p - 1, p, p + 1]);
+  const sorted = [...pages].filter(n => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+  const parts = [];
+  parts.push(`<span class="page-btn ${p === 1 ? 'disabled' : ''}" data-page="${p - 1}">‹ Prev</span>`);
+  let prev = 0;
+  for (const n of sorted) {
+    if (n - prev > 1) parts.push(`<span class="page-ellipsis">…</span>`);
+    parts.push(`<span class="page-btn ${n === p ? 'active' : ''}" data-page="${n}">${n}</span>`);
+    prev = n;
+  }
+  parts.push(`<span class="page-btn ${p === totalPages ? 'disabled' : ''}" data-page="${p + 1}">Next ›</span>`);
+  parts.push(`<span class="page-info">${total} apps</span>`);
+  pager.innerHTML = parts.join('');
 }
 
 $('installedAppList').addEventListener('click', e => {
@@ -1864,6 +1925,15 @@ $('installedAppList').addEventListener('click', e => {
 $('installedAppFilter').addEventListener('input', applyInstalledAppFilter);
 $('installedAppPlatformFilter').addEventListener('change', applyInstalledAppFilter);
 $('btnReloadInstalledApps').addEventListener('click', loadInstalledApps);
+
+$('installedAppsPager').addEventListener('click', e => {
+  const btn = e.target.closest('.page-btn');
+  if (!btn || btn.classList.contains('disabled') || btn.classList.contains('active')) return;
+  const n = parseInt(btn.dataset.page, 10);
+  if (!Number.isFinite(n)) return;
+  installedAppsPage = n;
+  renderInstalledAppList();
+});
 
 function selectAppInstalled(app) {
   selectedApp = app;
@@ -2164,7 +2234,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 // Intune sub-tabs (Failed Apps / Hardware)
 // ============================================================
-let activeSubtab = 'failed';
+let activeSubtab = 'installed';
 let hwLoaded = false;
 let hwDevices = [];
 let hwSortKey = 'deviceName';
@@ -2183,6 +2253,7 @@ function switchSubtab(name) {
   $('intuneSubInstalled').style.display = name === 'installed' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
+  if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
