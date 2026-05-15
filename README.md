@@ -46,9 +46,10 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Type to filter the list.
 
-**Hardware** — managed-device inventory.
-- KPI tiles: ten clickable buckets — OS (Windows 10, Windows 11), RAM (4GB, 8GB, 16GB, 32+ GB), and storage (64GB, 128GB, 256GB, 512+ GB). Windows 10 matches build prefix `10.0.19`; Windows 11 matches `10.0.26`. Click any tile to filter the table; click the active tile again, or hit **✕ Clear KPI** in the toolbar, to clear.
-- RAM distribution donut chart.
+**Hardware** — managed-device inventory, framed for recycle/refresh planning and Windows 11 readiness.
+- KPI tiles: ten clickable buckets — OS (Windows 10, Windows 11), RAM (4GB, 8GB, 16GB, 32+ GB), and storage (64GB, 128GB, 256GB, 512+ GB). Windows 10 matches build prefix `10.0.19`; Windows 11 matches `10.0.26`. **Click any tile to filter the table** to just those devices; click the active tile again, or hit **✕ Clear KPI** in the toolbar, to clear.
+- Use cases: spot Windows 10 holdouts before end-of-support, find the low-RAM/low-storage devices that won't survive a Feature Update (or shouldn't get one), build refresh-budget shortlists, or pull a quick exclusion list of underspecced machines.
+- RAM distribution donut chart for at-a-glance fleet composition.
 - Filters for platform (defaults to *Windows*), RAM bucket, storage bucket, and manufacturer.
 - Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, and last check-in. Click a device name to open its Hardware blade in the Intune admin center in a new tab.
 - `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
