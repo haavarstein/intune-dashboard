@@ -632,6 +632,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="appPicker" class="app-picker">
         <div class="app-picker-bar">
           <input type="text" class="search" id="appFilter" placeholder="Search apps by name or publisher…">
+          <div class="filter-group">
+            <span class="filter-group-label">Platform</span>
+            <select class="filter-select" id="appPlatformFilter">
+              <option value="">All</option>
+            </select>
+          </div>
           <button class="btn btn-ghost" id="btnReloadApps">↻ Reload apps</button>
         </div>
         <div class="app-list" id="appList">
@@ -714,6 +720,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div class="app-picker">
           <div class="app-picker-bar">
             <input type="text" class="search" id="uninstallFilter" placeholder="Filter uninstall apps…">
+            <div class="filter-group">
+              <span class="filter-group-label">Platform</span>
+              <select class="filter-select" id="uninstallPlatformFilter">
+                <option value="">All</option>
+              </select>
+            </div>
             <button class="btn btn-ghost" id="btnReloadUninstall">↻ Reload</button>
           </div>
           <div class="app-list no-scroll" id="uninstallList">
@@ -835,7 +847,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
                   <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
                   <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
-                  <th data-sort="userPrincipalName">Primary User <span class="arrow">▼</span></th>
                   <th data-sort="complianceState">Compliance <span class="arrow">▼</span></th>
                 </tr>
               </thead>
@@ -1195,6 +1206,17 @@ const WIN_TYPES = new Set([
   '#microsoft.graph.microsoftEdgeApp'
 ]);
 
+// Map an app @odata.type to a coarse platform label
+function platformFromOdataType(t) {
+  if (!t) return 'Other';
+  if (WIN_TYPES.has(t)) return 'Windows';
+  const s = t.toLowerCase();
+  if (s.includes('android')) return 'Android';
+  if (s.includes('ios')) return 'iOS';
+  if (s.includes('macos') || s.includes('osx')) return 'macOS';
+  return 'Other';
+}
+
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
@@ -1380,6 +1402,7 @@ let uninstallApps = [];
 
 $('btnReloadUninstall').addEventListener('click', loadUninstallApps);
 $('uninstallFilter').addEventListener('input', renderUninstallList);
+$('uninstallPlatformFilter').addEventListener('change', renderUninstallList);
 
 async function loadUninstallApps() {
   uninstallLoaded = true;
@@ -1401,14 +1424,20 @@ async function loadUninstallApps() {
       for (const a of assignments) {
         if (a.intent === 'uninstall' &&
             a.target && a.target['@odata.type'] === '#microsoft.graph.groupAssignmentTarget') {
-          if (!byName.has(app.displayName)) byName.set(app.displayName, app.id);
+          if (!byName.has(app.displayName)) {
+            byName.set(app.displayName, {
+              id: app.id,
+              platform: platformFromOdataType(app['@odata.type'])
+            });
+          }
           break;
         }
       }
     }
     uninstallApps = [...byName.entries()]
-      .map(([name, id]) => ({ name, id }))
+      .map(([name, v]) => ({ name, id: v.id, platform: v.platform }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    populateUninstallPlatformOptions();
     renderUninstallList();
   } catch (e) {
     console.error(e);
@@ -1417,9 +1446,21 @@ async function loadUninstallApps() {
   }
 }
 
+function populateUninstallPlatformOptions() {
+  const plats = [...new Set(uninstallApps.map(a => a.platform).filter(Boolean))].sort();
+  $('uninstallPlatformFilter').innerHTML = '<option value="">All</option>' +
+    plats.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  if (plats.includes('Windows')) $('uninstallPlatformFilter').value = 'Windows';
+}
+
 function renderUninstallList() {
   const q = $('uninstallFilter').value.trim().toLowerCase();
-  const filtered = q ? uninstallApps.filter(a => a.name.toLowerCase().includes(q)) : uninstallApps;
+  const platF = $('uninstallPlatformFilter').value;
+  const filtered = uninstallApps.filter(a => {
+    if (platF && a.platform !== platF) return false;
+    if (q && !a.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
   $('uninstallCount').textContent = filtered.length;
   if (!filtered.length) {
     const msg = uninstallApps.length === 0
@@ -1468,11 +1509,33 @@ async function loadApps() {
     }));
 
     intuneAppsFiltered = intuneApps;
-    renderAppList();
+    populateAppPlatformOptions();
+    applyAppFilter();
   } catch (e) {
     showIntuneError(e.message);
     $('appList').innerHTML = '';
   }
+}
+
+function populateAppPlatformOptions() {
+  const plats = [...new Set(intuneApps.map(a => platformLabel(a.platform)).filter(p => p && p !== '—'))].sort();
+  $('appPlatformFilter').innerHTML = '<option value="">All</option>' +
+    plats.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  if (plats.includes('Windows')) $('appPlatformFilter').value = 'Windows';
+}
+
+function applyAppFilter() {
+  const q = $('appFilter').value.toLowerCase();
+  const platF = $('appPlatformFilter').value;
+  intuneAppsFiltered = intuneApps.filter(a => {
+    if (platF && platformLabel(a.platform) !== platF) return false;
+    if (q && !(
+      (a.displayName || '').toLowerCase().includes(q) ||
+      (a.publisher || '').toLowerCase().includes(q)
+    )) return false;
+    return true;
+  });
+  renderAppList();
 }
 
 function platformLabel(p) {
@@ -1509,14 +1572,8 @@ $('appList').addEventListener('click', e => {
   if (app) selectApp(app);
 });
 
-$('appFilter').addEventListener('input', () => {
-  const q = $('appFilter').value.toLowerCase();
-  intuneAppsFiltered = !q ? intuneApps : intuneApps.filter(a =>
-    (a.displayName || '').toLowerCase().includes(q) ||
-    (a.publisher || '').toLowerCase().includes(q)
-  );
-  renderAppList();
-});
+$('appFilter').addEventListener('input', applyAppFilter);
+$('appPlatformFilter').addEventListener('change', applyAppFilter);
 
 $('btnReloadApps').addEventListener('click', loadApps);
 
@@ -1862,7 +1919,7 @@ async function loadHardware() {
   try {
     const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
                    'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime,' +
-                   'userPrincipalName,complianceState';
+                   'complianceState';
     let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
     const all = [];
     while (path) {
@@ -1882,7 +1939,6 @@ async function loadHardware() {
       osVersion: d.osVersion || '—',
       os: d.operatingSystem || 'Unknown',
       lastSync: d.lastSyncDateTime || '',
-      userPrincipalName: d.userPrincipalName || '—',
       complianceState: d.complianceState || 'unknown'
     }));
 
@@ -1959,7 +2015,6 @@ function filterHw() {
     }
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
-      d.userPrincipalName.toLowerCase().includes(q) ||
       d.model.toLowerCase().includes(q) ||
       d.manufacturer.toLowerCase().includes(q)
     )) return false;
@@ -2024,7 +2079,6 @@ function renderHardware() {
           ${freeCell}
           <td>${esc(d.osVersion)}</td>
           <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
-          <td class="pub">${esc(d.userPrincipalName)}</td>
           <td>${esc(d.complianceState)}</td>
         </tr>`;
     }).join('');
