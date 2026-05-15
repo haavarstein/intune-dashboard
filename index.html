@@ -763,6 +763,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <h2>Installed devices</h2>
               <div class="controls">
                 <input type="text" class="search" id="installedFilter" placeholder="Search device, user…">
+                <select class="filter-select" id="installedStateFilter">
+                  <option value="">All states</option>
+                </select>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCopyInstalled">⧉ Copy device names</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnExportInstalled">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefreshInstalled">↻ Refresh</span>
@@ -774,6 +777,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort-inst="DeviceName">Device <span class="arrow">▼</span></th>
                   <th data-sort-inst="UserPrincipalName">User <span class="arrow">▼</span></th>
                   <th data-sort-inst="AppVersion">Version <span class="arrow">▼</span></th>
+                  <th data-sort-inst="InstallState">State <span class="arrow">▼</span></th>
                   <th data-sort-inst="Platform">Platform <span class="arrow">▼</span></th>
                   <th data-sort-inst="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
                 </tr>
@@ -1808,7 +1812,7 @@ let installedAppsLoaded = false;
 let installedApps = [];
 let installedAppsFiltered = [];
 let installedAppsPage = 1;
-const INSTALLED_PAGE_SIZE = 25;
+const INSTALLED_PAGE_SIZE = 15;
 
 async function loadInstalledApps() {
   installedAppsLoaded = true;
@@ -1947,7 +1951,7 @@ function selectAppInstalled(app) {
 
 async function loadInstalled() {
   clearIntuneError();
-  $('installedRows').innerHTML = '<tr><td colspan="5" class="loading">Loading report…</td></tr>';
+  $('installedRows').innerHTML = '<tr><td colspan="6" class="loading">Loading report…</td></tr>';
   try {
     const body = {
       top: 1000, skip: 0,
@@ -1958,11 +1962,8 @@ async function loadInstalled() {
       filter: `(ApplicationId eq '${selectedApp.id}')`
     };
     const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
-    const all = parseReport(data);
-    installedRows = all.filter(r => {
-      const s = String(r.InstallState || '').toLowerCase();
-      return s.startsWith('installed');
-    });
+    installedRows = parseReport(data);
+    populateInstalledStateOptions();
     renderInstalled();
   } catch (e) {
     showIntuneError(e.message);
@@ -1971,9 +1972,26 @@ async function loadInstalled() {
   }
 }
 
+function populateInstalledStateOptions() {
+  const states = [...new Set(installedRows.map(r => r.InstallState).filter(Boolean))].sort();
+  const sel = $('installedStateFilter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All states</option>' +
+    states.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  // Default to "installed" if present, else leave All
+  if (!current && states.some(s => /^installed/i.test(s))) {
+    const match = states.find(s => /^installed/i.test(s));
+    sel.value = match;
+  } else if (current && states.includes(current)) {
+    sel.value = current;
+  }
+}
+
 function renderInstalled() {
   const q = $('installedFilter').value.toLowerCase();
+  const stateF = $('installedStateFilter').value;
   let filtered = installedRows.filter(r => {
+    if (stateF && r.InstallState !== stateF) return false;
     if (!q) return true;
     return (r.DeviceName || '').toLowerCase().includes(q)
         || (r.UserPrincipalName || '').toLowerCase().includes(q);
@@ -1988,13 +2006,14 @@ function renderInstalled() {
 
   const tbody = $('installedRows');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">No installed devices found.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">No devices found${installedRows.length ? ` (${installedRows.length} total, filter active)` : ''}.</td></tr>`;
   } else {
     tbody.innerHTML = filtered.map(r => `
       <tr>
         <td>${esc(r.DeviceName) || '—'}</td>
         <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
         <td class="version">${esc(r.AppVersion) || '—'}</td>
+        <td>${esc(r.InstallState) || '—'}</td>
         <td><span class="badge platform-badge">${esc(r.Platform) || '—'}</span></td>
         <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
       </tr>`).join('');
@@ -2025,13 +2044,13 @@ function copyInstalledNames() {
 
 function exportInstalledCSV() {
   const rows = window.__installedFiltered || installedRows;
-  const header = ['Device', 'User', 'Version', 'Platform', 'LastModified'];
+  const header = ['Device', 'User', 'Version', 'InstallState', 'Platform', 'LastModified'];
   const escCsv = v => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [header.join(',')].concat(
-    rows.map(r => [r.DeviceName, r.UserPrincipalName, r.AppVersion, r.Platform, r.LastModifiedDateTime].map(escCsv).join(','))
+    rows.map(r => [r.DeviceName, r.UserPrincipalName, r.AppVersion, r.InstallState, r.Platform, r.LastModifiedDateTime].map(escCsv).join(','))
   );
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -2050,6 +2069,7 @@ $('btnChangeAppInstalled').addEventListener('click', () => {
 });
 $('btnRefreshInstalled').addEventListener('click', () => selectedApp && loadInstalled());
 $('installedFilter').addEventListener('input', renderInstalled);
+$('installedStateFilter').addEventListener('change', renderInstalled);
 $('btnCopyInstalled').addEventListener('click', copyInstalledNames);
 $('btnExportInstalled').addEventListener('click', exportInstalledCSV);
 
