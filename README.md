@@ -24,24 +24,26 @@ A clean, client-side dashboard with four tabs:
 Sign in once with MSAL — all four sub-tabs share the same session.
 
 **Failed Install** — the default view.
-- Lists all apps (Windows and macOS) with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
+- Lists all apps with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
+- **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 
 **Required Install** — Win32 apps assigned as *Required* to *All Devices*.
-- Alphabetical list of `displayName`s.
+- Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
 - Type to filter the list.
 - `Update for*` driver/firmware apps are excluded for a cleaner audit view.
 
-**Required Uninstall** — Win32 apps assigned with intent *Uninstall* to a group.
-- Alphabetical list of `displayName`s with a group-targeted uninstall assignment.
+**Required Uninstall** — apps assigned with intent *Uninstall* to a group.
+- Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
+- **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Type to filter the list.
 
 **Hardware** — managed-device inventory.
-- KPI tiles: eight clickable buckets — RAM (4GB, 8GB, 16GB, 32+ GB) and storage (64GB, 128GB, 256GB, 512+ GB). Click any tile to filter the table to that bucket; click the active tile again to clear.
+- KPI tiles: ten clickable buckets — OS (Windows 10, Windows 11), RAM (4GB, 8GB, 16GB, 32+ GB), and storage (64GB, 128GB, 256GB, 512+ GB). Windows 10 matches build prefix `10.0.19`; Windows 11 matches `10.0.26`. Click any tile to filter the table; click the active tile again, or hit **✕ Clear KPI** in the toolbar, to clear.
 - RAM distribution donut chart.
-- Filters for RAM bucket, storage bucket, compliance state, and manufacturer.
-- Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, primary user, and compliance.
+- Filters for platform (defaults to *Windows*), RAM bucket, storage bucket, and manufacturer.
+- Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, and last check-in. Click a device name to open its Hardware blade in the Intune admin center in a new tab.
 - `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
 
 ### Analyze tab (log files)
@@ -88,7 +90,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 
 - `POST /beta/deviceManagement/reports/getAppsInstallSummaryReport` — the failed-apps overview
 - `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status
-- `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — Win32 apps with assignments (for the Required and Uninstall sub-tabs)
+- `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — apps with assignments (Win32-filtered server-side for Required Install; all platforms for Required Uninstall, with client-side platform filtering)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 

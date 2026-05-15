@@ -364,17 +364,22 @@
   }
 
   .auth-bar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 10px;
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
+    border-radius: 999px;
+    padding: 6px 6px 6px 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   }
-  .auth-user { font-size: 13px; color: var(--ink-2); }
+  .auth-user { font-size: 12px; color: var(--ink-2); }
   .auth-user strong { color: var(--ink); font-weight: 600; }
+  .auth-bar .btn { padding: 6px 12px; font-size: 12px; }
   .btn {
     background: var(--ink); color: white; border: none; border-radius: 8px;
     padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
@@ -614,7 +619,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
     <div id="intuneSignedIn" style="display:none;">
       <div class="auth-bar">
-        <div class="auth-user">Signed in as <strong id="userName">—</strong> · <span id="userUpn"></span></div>
+        <div class="auth-user"><strong id="userName">—</strong></div>
         <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
       </div>
 
@@ -1292,7 +1297,6 @@ function onSignedIn(account) {
   $('intuneSignedOut').style.display = 'none';
   $('intuneSignedIn').style.display = '';
   $('userName').textContent = account.name || account.username;
-  $('userUpn').textContent = account.username;
   loadApps();
 }
 
@@ -2037,8 +2041,6 @@ function renderHardware() {
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
   const winCounts = { win10: 0, win11: 0 };
-  // DEBUG: log osVersion values to help diagnose Win10/Win11 classification
-  console.log('[hwDebug] platScope osVersions:', platScope.map(d => ({ name: d.deviceName, osVersion: d.osVersion, bucket: winBucket(d.osVersion) })));
   platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
