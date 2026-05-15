@@ -27,6 +27,7 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Lists all apps with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
 - **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
+- **Installed →** on each app row drills into the list of devices that *have the app installed* (Device · User · Version · Platform · Last modified). **⧉ Copy device names** copies the filtered list to the clipboard, newline-separated — paste straight into an Entra group, an exclusion list, or a Feature Update assignment. **⬇ Export CSV** downloads the same list. Useful for targeted upgrades and Feature Update exclusions when you need "the group of devices that have App X".
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 
 **Required Install** — Win32 apps assigned as *Required* to *All Devices*.
@@ -89,7 +90,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 **What the dashboard calls:**
 
 - `POST /beta/deviceManagement/reports/getAppsInstallSummaryReport` — the failed-apps overview
-- `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status
+- `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status (used by both the Failed drill-in and the Installed Devices view; the latter filters client-side for `installState === "installed"`)
 - `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — apps with assignments (Win32-filtered server-side for Required Install; all platforms for Required Uninstall, with client-side platform filtering)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)

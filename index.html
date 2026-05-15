@@ -704,6 +704,41 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <div class="footer-count"><span id="failedCount">0</span> devices</div>
         </div>
       </div>
+
+      <div id="installedView" style="display:none;">
+        <div class="selected-app">
+          <div>
+            <div class="name" id="instAppName">—</div>
+            <div class="meta" id="instAppMeta">—</div>
+          </div>
+          <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
+        </div>
+
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Installed devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="installedFilter" placeholder="Search device, user…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCopyInstalled">⧉ Copy device names</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnExportInstalled">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefreshInstalled">↻ Refresh</span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th data-sort-inst="DeviceName">Device <span class="arrow">▼</span></th>
+                <th data-sort-inst="UserPrincipalName">User <span class="arrow">▼</span></th>
+                <th data-sort-inst="AppVersion">Version <span class="arrow">▼</span></th>
+                <th data-sort-inst="Platform">Platform <span class="arrow">▼</span></th>
+                <th data-sort-inst="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
+              </tr>
+            </thead>
+            <tbody id="installedRows"></tbody>
+          </table>
+          <div class="footer-count"><span id="installedCount">0</span> devices</div>
+        </div>
+      </div>
       </div><!-- /intuneSubFailed -->
 
       <div id="intuneSubRequired" style="display:none;">
@@ -1568,12 +1603,19 @@ function renderAppList() {
         <div class="meta">${esc(a.publisher) || '—'}</div>
       </div>
       <div class="pub-small" style="min-width:90px; text-align:right;">${a.failedDeviceCount ?? ''} failed</div>
-      <div class="pub-small">→</div>
+      <span class="pub-small installed-link" data-id="${esc(a.id)}" style="cursor:pointer; color:var(--accent); font-weight:600; margin-left:12px;">Installed →</span>
     </div>
   `).join('');
 }
 
 $('appList').addEventListener('click', e => {
+  const installedTrigger = e.target.closest('.installed-link');
+  if (installedTrigger) {
+    e.stopPropagation();
+    const app = intuneApps.find(a => a.id === installedTrigger.dataset.id);
+    if (app) selectAppInstalled(app);
+    return;
+  }
   const row = e.target.closest('.app-row');
   if (!row) return;
   const app = intuneApps.find(a => a.id === row.dataset.id);
@@ -1714,6 +1756,134 @@ document.querySelectorAll('#failedView thead th').forEach(th => {
     if (failedSortKey === key) failedSortDir = failedSortDir === 'asc' ? 'desc' : 'asc';
     else { failedSortKey = key; failedSortDir = 'asc'; }
     renderFailed();
+  });
+});
+
+// --- Installed devices view: same endpoint as Failed, filter client-side ---
+let installedRows = [];
+let installedSortKey = 'DeviceName';
+let installedSortDir = 'asc';
+
+function selectAppInstalled(app) {
+  selectedApp = app;
+  $('appPicker').style.display = 'none';
+  $('installedView').style.display = '';
+  $('instAppName').textContent = app.displayName;
+  $('instAppMeta').textContent = app.publisher || '—';
+  loadInstalled();
+}
+
+async function loadInstalled() {
+  clearIntuneError();
+  $('installedRows').innerHTML = '<tr><td colspan="5" class="loading">Loading report…</td></tr>';
+  try {
+    const body = {
+      top: 50, skip: 0,
+      select: ['ApplicationId', 'AppVersion', 'DeviceId', 'DeviceName',
+               'InstallState', 'LastModifiedDateTime', 'Platform',
+               'UserName', 'UserPrincipalName'],
+      orderBy: [], search: '',
+      filter: `(ApplicationId eq '${selectedApp.id}')`
+    };
+    const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
+    const all = parseReport(data);
+    installedRows = all.filter(r => String(r.InstallState || '').toLowerCase() === 'installed');
+    renderInstalled();
+  } catch (e) {
+    showIntuneError(e.message);
+    $('installedRows').innerHTML = '';
+    $('installedCount').textContent = '0';
+  }
+}
+
+function renderInstalled() {
+  const q = $('installedFilter').value.toLowerCase();
+  let filtered = installedRows.filter(r => {
+    if (!q) return true;
+    return (r.DeviceName || '').toLowerCase().includes(q)
+        || (r.UserPrincipalName || '').toLowerCase().includes(q);
+  });
+  filtered.sort((a, b) => {
+    const va = (a[installedSortKey] ?? '').toString().toLowerCase();
+    const vb = (b[installedSortKey] ?? '').toString().toLowerCase();
+    if (va < vb) return installedSortDir === 'asc' ? -1 : 1;
+    if (va > vb) return installedSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = $('installedRows');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No installed devices found.</td></tr>';
+  } else {
+    tbody.innerHTML = filtered.map(r => `
+      <tr>
+        <td>${esc(r.DeviceName) || '—'}</td>
+        <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
+        <td class="version">${esc(r.AppVersion) || '—'}</td>
+        <td><span class="badge platform-badge">${esc(r.Platform) || '—'}</span></td>
+        <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
+      </tr>`).join('');
+  }
+  $('installedCount').textContent = filtered.length;
+  window.__installedFiltered = filtered;
+
+  document.querySelectorAll('#installedView thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    const arrow = th.querySelector('.arrow');
+    if (th.dataset.sortInst === installedSortKey) {
+      th.classList.add(installedSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      arrow.textContent = installedSortDir === 'asc' ? '▲' : '▼';
+    }
+  });
+}
+
+function copyInstalledNames() {
+  const rows = window.__installedFiltered || installedRows;
+  const names = rows.map(r => r.DeviceName).filter(Boolean).join('\n');
+  navigator.clipboard.writeText(names).then(() => {
+    const btn = $('btnCopyInstalled');
+    const orig = btn.textContent;
+    btn.textContent = `✓ Copied ${rows.length}`;
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+function exportInstalledCSV() {
+  const rows = window.__installedFiltered || installedRows;
+  const header = ['Device', 'User', 'Version', 'Platform', 'LastModified'];
+  const escCsv = v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [header.join(',')].concat(
+    rows.map(r => [r.DeviceName, r.UserPrincipalName, r.AppVersion, r.Platform, r.LastModifiedDateTime].map(escCsv).join(','))
+  );
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(selectedApp.displayName || 'app').replace(/[^a-z0-9-_]+/gi, '_')}-installed.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('btnChangeAppInstalled').addEventListener('click', () => {
+  selectedApp = null;
+  installedRows = [];
+  $('appPicker').style.display = '';
+  $('installedView').style.display = 'none';
+});
+$('btnRefreshInstalled').addEventListener('click', () => selectedApp && loadInstalled());
+$('installedFilter').addEventListener('input', renderInstalled);
+$('btnCopyInstalled').addEventListener('click', copyInstalledNames);
+$('btnExportInstalled').addEventListener('click', exportInstalledCSV);
+
+document.querySelectorAll('#installedView thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sortInst;
+    if (installedSortKey === key) installedSortDir = installedSortDir === 'asc' ? 'desc' : 'asc';
+    else { installedSortKey = key; installedSortDir = 'asc'; }
+    renderInstalled();
   });
 });
 
