@@ -3258,8 +3258,11 @@ function summarizeSchedules(assignments) {
   return { display: ordered.join(', '), rank: REMEDIATION_SCHEDULE_RANK[ordered[0]] };
 }
 
-function remediationBladeUrl(scriptId) {
-  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesProactiveRemediationDetail.ReactView/id/${encodeURIComponent(scriptId)}`;
+function remediationBladeUrl(row) {
+  const id = encodeURIComponent(row.id);
+  const name = encodeURIComponent(row.displayName || '');
+  const firstParty = row.isGlobalScript ? 'true' : 'false';
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/UXAnalyticsScriptMenu/~/overview/id/${id}/scriptName/${name}/isFirstParty~/${firstParty}`;
 }
 
 async function loadRemediation(force = false) {
@@ -3286,7 +3289,8 @@ async function loadRemediation(force = false) {
         schedule: sched.display,
         scheduleRank: sched.rank,
         assignmentCount: Array.isArray(s.assignments) ? s.assignments.length : 0,
-        lastModified: s.lastModifiedDateTime || ''
+        lastModified: s.lastModifiedDateTime || '',
+        isGlobalScript: !!s.isGlobalScript
       };
     });
 
@@ -3330,7 +3334,7 @@ function renderRemediation() {
   } else {
     body.innerHTML = rows.map(r => `
       <tr>
-        <td><a href="${remediationBladeUrl(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.displayName) || '—'}</a></td>
+        <td><a href="${remediationBladeUrl(r)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.displayName) || '—'}</a></td>
         <td>${esc(r.publisher) || '—'}</td>
         <td>${esc(r.schedule)}</td>
         <td>${r.assignmentCount}</td>
