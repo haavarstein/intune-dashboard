@@ -695,6 +695,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities</button>
       </div>
 
       <div id="intuneError"></div>
@@ -996,6 +997,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubHardware -->
+
+      <div id="intuneSubVulnerabilities" style="display:none;">
+        <h2 style="font-size:16px; font-weight:700; margin:0 0 12px 0;">Vulnerabilities</h2>
+        <div style="color:var(--muted); font-size:13px;">Loading vulnerability data…</div>
+      </div><!-- /intuneSubVulnerabilities -->
     </div>
   </div><!-- /viewIntune -->
 
@@ -2381,6 +2387,7 @@ function switchSubtab(name) {
   $('intuneSubInstalled').style.display = name === 'installed' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
+  $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
