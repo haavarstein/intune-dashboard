@@ -110,9 +110,9 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
-- `DeviceManagementConfiguration.Read.All` — read Intune device health scripts (Remediation sub-tab)
+- `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab)
 
-**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt when `DeviceManagementConfiguration.Read.All` is requested for the first time.
+**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt when `DeviceManagementScripts.Read.All` is requested for the first time.
 
 **Token storage.** Access tokens are held in browser session storage by MSAL and refreshed silently. Click **Sign out** to clear them.
 

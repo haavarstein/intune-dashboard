@@ -1540,7 +1540,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementScripts.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -3228,7 +3228,7 @@ document.querySelectorAll('[data-sort-drift]').forEach(th => {
 
 // ============================================================
 // Remediation sub-tab (deviceHealthScripts / Proactive Remediations)
-// Requires: DeviceManagementConfiguration.Read.All
+// Requires: DeviceManagementScripts.Read.All
 // ============================================================
 let remediationLoaded = false;
 let remediationRows = [];
