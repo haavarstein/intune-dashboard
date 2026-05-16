@@ -3088,7 +3088,7 @@ function renderDriftRows() {
       ? `<td style="font-weight:700; color:var(--accent); background:var(--accent-soft);">${a.driftPct.toFixed(1)}%</td>`
       : `<td>${a.driftPct.toFixed(1)}%</td>`;
     return `<tr>
-      <td>${esc(a.softwareName)}</td>
+      <td><a href="${defenderInventoryUrl(a)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(a.softwareName)}</a></td>
       <td>${esc(a.vendor) || '—'}</td>
       <td class="version">${esc(a.dominantVersion)}</td>
       ${driftCell}
