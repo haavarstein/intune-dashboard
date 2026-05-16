@@ -2735,10 +2735,19 @@ function titleCase(s) {
   return s.replace(/\b([a-z])/g, c => c.toUpperCase());
 }
 
-function defenderInventoryUrl() {
+function defenderInventoryUrl(row) {
   const account = msalApp && msalApp.getActiveAccount();
   const tid = account && account.tenantId ? account.tenantId : '';
-  return `https://security.microsoft.com/vulnerability-management-inventories/VulnerableComponents?tid=${encodeURIComponent(tid)}`;
+  const tidParam = `tid=${encodeURIComponent(tid)}`;
+  if (row && row.vendor && row.softwareName) {
+    const vendorSlug = row.vendor.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const nameSlug = encodeURIComponent(encodeURIComponent(row.softwareName.toLowerCase()));
+    if (vendorSlug && nameSlug) {
+      const softwareId = `${vendorSlug}-_-${nameSlug}`;
+      return `https://security.microsoft.com/vulnerability-management-inventories/applications/overview?${tidParam}&softwareId=${softwareId}`;
+    }
+  }
+  return `https://security.microsoft.com/vulnerability-management-inventories/VulnerableComponents?${tidParam}`;
 }
 
 async function loadVulnerabilities(force = false) {
@@ -2781,14 +2790,13 @@ function renderVulnerabilities() {
     if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
     return av < bv ? -dir : av > bv ? dir : 0;
   });
-  const url = defenderInventoryUrl();
   const body = $('vulnRowsBody');
   if (!rows.length) {
     body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:24px;">No vulnerabilities found</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => `
       <tr>
-        <td><a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.softwareName)}</a></td>
+        <td><a href="${defenderInventoryUrl(r)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.softwareName)}</a></td>
         <td>${esc(r.osPlatform)}</td>
         <td>${esc(r.vendor)}</td>
         <td>${r.weaknesses}</td>
