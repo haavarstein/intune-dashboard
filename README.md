@@ -69,7 +69,7 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 
 - Sortable table with **Script name**, **Publisher**, **Schedule**, **Assigned groups** (count), and **Last modified**. Default sort is Schedule with **Hourly** first, then **Daily**, then **Run once**, then **Unassigned**, tie-broken by script name A→Z.
 - The **Schedule** column reads each script's assignment `runSchedule`. Scripts with multiple assignments at different cadences show a joined value (e.g. *Hourly, Daily*). Scripts with no assignments show *Unassigned*.
-- Click any **Script name** to open the script's blade in the Intune admin center in a new tab.
+- Click any **Script name** to open the script's *Overview* blade (Intune admin center → *Devices → Scripts and remediations*) in a new tab. The link preserves the script's first-party vs tenant-uploaded distinction via the `isGlobalScript` flag from Graph.
 - Type to filter across script name and publisher.
 - Lazy-loaded: the call runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
 
