@@ -999,8 +999,33 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubHardware -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
-        <h2 style="font-size:16px; font-weight:700; margin:0 0 12px 0;">Vulnerabilities</h2>
-        <div style="color:var(--muted); font-size:13px;">Loading vulnerability data…</div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Device vulnerabilities</h2>
+            <div class="controls">
+              <input type="text" class="search" id="vulnFilter" placeholder="Search device, CVE, product…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnVulnRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="vulnLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading vulnerability data…</div>
+          <div id="vulnError"></div>
+          <div id="vulnContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-vsort="deviceName">Device Name <span class="arrow">▼</span></th>
+                  <th data-vsort="severity">Severity <span class="arrow">▼</span></th>
+                  <th data-vsort="cveId">CVE ID <span class="arrow">▼</span></th>
+                  <th data-vsort="productName">Product <span class="arrow">▼</span></th>
+                  <th data-vsort="description">Description <span class="arrow">▼</span></th>
+                  <th data-vsort="firstSeen">First Detected <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="vulnRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="vulnCount">0</span> findings shown</div>
+          </div>
+        </div>
       </div><!-- /intuneSubVulnerabilities -->
     </div>
   </div><!-- /viewIntune -->
@@ -1386,6 +1411,7 @@ const MSAL_CONFIG = {
   cache: { cacheLocation: 'sessionStorage' }
 };
 const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'Group.Read.All', 'User.Read'];
+const WDATP_SCOPES = ['https://api.securitycenter.microsoft.com/Vulnerability.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -1444,6 +1470,16 @@ async function getToken() {
     return r.accessToken;
   } catch (e) {
     const r = await msalApp.acquireTokenPopup({ scopes: SCOPES });
+    return r.accessToken;
+  }
+}
+
+async function getWdatpToken() {
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: WDATP_SCOPES, account: msalApp.getActiveAccount() });
+    return r.accessToken;
+  } catch (e) {
+    const r = await msalApp.acquireTokenPopup({ scopes: WDATP_SCOPES });
     return r.accessToken;
   }
 }
@@ -2393,6 +2429,7 @@ function switchSubtab(name) {
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
+  if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
 }
 
 const GB = 1024 * 1024 * 1024;
@@ -2667,6 +2704,96 @@ document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
     if (hwSortKey === key) hwSortDir = hwSortDir === 'asc' ? 'desc' : 'asc';
     else { hwSortKey = key; hwSortDir = 'asc'; }
     renderHardware();
+  });
+});
+
+// ============================================================
+// Vulnerabilities (Defender for Endpoint - WDATP API)
+// ============================================================
+let vulnLoaded = false;
+let vulnRows = [];
+let vulnSortKey = 'severity';
+let vulnSortDir = 'desc';
+
+const SEVERITY_RANK = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
+
+async function loadVulnerabilities(force = false) {
+  if (vulnLoaded && !force) return;
+  $('vulnLoading').style.display = '';
+  $('vulnContent').style.display = 'none';
+  $('vulnError').innerHTML = '';
+  try {
+    const token = await getWdatpToken();
+    let url = 'https://api.securitycenter.microsoft.com/api/vulnerabilities/machinesVulnerabilities';
+    const all = [];
+    while (url) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) throw new Error('WDATP ' + res.status + ': ' + await res.text());
+      const json = await res.json();
+      if (Array.isArray(json.value)) all.push(...json.value);
+      url = json['@odata.nextLink'] || null;
+    }
+    vulnRows = all.map(v => ({
+      deviceName: v.deviceName || v.computerDnsName || '',
+      severity: v.severity || '',
+      cveId: v.cveId || v.id || '',
+      productName: [v.productName, v.productVersion].filter(Boolean).join(' '),
+      description: v.description || '',
+      firstSeen: v.firstSeenTimestamp || v.firstSeen || ''
+    }));
+    vulnLoaded = true;
+    $('vulnLoading').style.display = 'none';
+    $('vulnContent').style.display = '';
+    renderVulnerabilities();
+  } catch (e) {
+    console.error('Vulnerabilities load failed', e);
+    $('vulnLoading').style.display = 'none';
+    $('vulnError').innerHTML = `<div class="error-banner">Failed to load vulnerabilities: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderVulnerabilities() {
+  const q = ($('vulnFilter').value || '').toLowerCase().trim();
+  let rows = vulnRows.filter(r =>
+    !q || r.deviceName.toLowerCase().includes(q)
+       || r.cveId.toLowerCase().includes(q)
+       || r.productName.toLowerCase().includes(q)
+       || r.description.toLowerCase().includes(q)
+  );
+  const dir = vulnSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av = a[vulnSortKey], bv = b[vulnSortKey];
+    if (vulnSortKey === 'severity') { av = SEVERITY_RANK[av] ?? -1; bv = SEVERITY_RANK[bv] ?? -1; }
+    else if (vulnSortKey === 'firstSeen') { av = av ? Date.parse(av) : 0; bv = bv ? Date.parse(bv) : 0; }
+    else { av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+  const body = $('vulnRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:24px;">No vulnerabilities found</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => `
+      <tr>
+        <td>${esc(r.deviceName)}</td>
+        <td>${esc(r.severity)}</td>
+        <td>${esc(r.cveId)}</td>
+        <td>${esc(r.productName)}</td>
+        <td>${esc(r.description)}</td>
+        <td>${esc(r.firstSeen ? new Date(r.firstSeen).toLocaleString() : '')}</td>
+      </tr>
+    `).join('');
+  }
+  $('vulnCount').textContent = rows.length;
+}
+
+$('vulnFilter').addEventListener('input', renderVulnerabilities);
+$('btnVulnRefresh').addEventListener('click', () => loadVulnerabilities(true));
+document.querySelectorAll('#intuneSubVulnerabilities th[data-vsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.vsort;
+    if (vulnSortKey === key) vulnSortDir = vulnSortDir === 'asc' ? 'desc' : 'asc';
+    else { vulnSortKey = key; vulnSortDir = 'asc'; }
+    renderVulnerabilities();
   });
 });
 
