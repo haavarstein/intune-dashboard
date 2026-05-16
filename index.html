@@ -696,7 +696,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
-        <button class="subtab" data-subtab="drift">Drift & Compliance</button>
+        <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
       </div>
 
@@ -1044,62 +1044,50 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubVulnerabilities -->
 
       <div id="intuneSubDrift" style="display:none;">
+        <h2 style="margin: 0 0 16px 0; font-size: 22px;">Software Version Drift &amp; Compliance</h2>
 
-        <!-- Pre-load CTA: scanning every app is expensive, so we don't auto-load -->
-        <div id="driftIntro" class="table-card" style="padding: 32px; text-align: center;">
-          <h2 style="margin: 0 0 8px 0; font-size: 20px;">App Version Drift &amp; Compliance</h2>
-          <div class="meta" style="margin-bottom: 20px; max-width: 560px; margin-left: auto; margin-right: auto;">
-            Scans every assigned app in your tenant for version drift — devices running older or
-            mixed versions of the same app. First load fetches device-version data per app and may
-            take a minute on large tenants. Results are cached for this session.
+        <!-- KPI tiles -->
+        <div class="tiles" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="tile">
+            <div class="tile-label">Software with Drift &gt; 10%</div>
+            <div class="tile-value accent" id="kDriftHighCount">0</div>
+            <div class="tile-sub">≥ 1 device on a non-dominant version</div>
           </div>
-          <button class="btn" id="btnDriftLoad">Load drift data</button>
-          <div class="meta" id="driftLoadStatus" style="margin-top: 16px;"></div>
+          <div class="tile">
+            <div class="tile-label">Fleet Drift Average</div>
+            <div class="tile-value" id="kDriftAvg">0%</div>
+            <div class="tile-sub">Mean drift across software</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Devices Affected</div>
+            <div class="tile-value" id="kDriftDevices">0</div>
+            <div class="tile-sub">Sum of drifted-device counts</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Top Drifted Software</div>
+            <div class="tile-value" id="kDriftTopApp" style="font-size: 20px; line-height: 1.2;">—</div>
+            <div class="tile-sub" id="kDriftTopAppSub">—</div>
+          </div>
         </div>
 
-        <!-- Main view (revealed after load) -->
-        <div id="driftView" style="display:none;">
-          <h2 style="margin: 0 0 16px 0; font-size: 22px;">App Version Drift &amp; Compliance</h2>
-
-          <!-- KPI tiles -->
-          <div class="tiles" style="grid-template-columns: repeat(4, 1fr);">
-            <div class="tile">
-              <div class="tile-label">Apps with Drift &gt; 10%</div>
-              <div class="tile-value accent" id="kDriftHighCount">0</div>
-              <div class="tile-sub">≥ 1 device on a non-dominant version</div>
-            </div>
-            <div class="tile">
-              <div class="tile-label">Fleet Drift Average</div>
-              <div class="tile-value" id="kDriftAvg">0%</div>
-              <div class="tile-sub">Mean drift across scanned apps</div>
-            </div>
-            <div class="tile">
-              <div class="tile-label">Devices Affected</div>
-              <div class="tile-value" id="kDriftDevices">0</div>
-              <div class="tile-sub">Sum of drifted-device counts</div>
-            </div>
-            <div class="tile">
-              <div class="tile-label">Top Drifted App</div>
-              <div class="tile-value" id="kDriftTopApp" style="font-size: 20px; line-height: 1.2;">—</div>
-              <div class="tile-sub" id="kDriftTopAppSub">—</div>
+        <!-- Table -->
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Software version drift</h2>
+            <div class="controls">
+              <input type="text" class="search" id="driftFilter" placeholder="Search software, vendor…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftRefresh">↻ Refresh</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftExport">⬇ Export CSV</span>
             </div>
           </div>
-
-          <!-- Table -->
-          <div class="table-card">
-            <div class="table-toolbar">
-              <h2>App version drift</h2>
-              <div class="controls">
-                <input type="text" class="search" id="driftFilter" placeholder="Search app, publisher…">
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftRefresh">↻ Refresh Data</span>
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftExport">⬇ Export CSV</span>
-              </div>
-            </div>
+          <div id="driftLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading drift data…</div>
+          <div id="driftError"></div>
+          <div id="driftContent" style="display:none;">
             <table>
               <thead>
                 <tr>
-                  <th data-sort-drift="displayName">App Name <span class="arrow">▼</span></th>
-                  <th data-sort-drift="publisher">Publisher <span class="arrow">▼</span></th>
+                  <th data-sort-drift="softwareName">Software <span class="arrow">▼</span></th>
+                  <th data-sort-drift="vendor">Vendor <span class="arrow">▼</span></th>
                   <th data-sort-drift="dominantVersion">Dominant Version <span class="arrow">▼</span></th>
                   <th data-sort-drift="driftPct">Drift % <span class="arrow">▼</span></th>
                   <th data-sort-drift="driftedDevices">Drifted Devices <span class="arrow">▼</span></th>
@@ -1109,23 +1097,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               </thead>
               <tbody id="driftRows"></tbody>
             </table>
-            <div class="footer-count"><span id="driftCount">0</span> apps shown</div>
-          </div>
-
-          <!-- Version distribution chart (hidden until a row's button is clicked) -->
-          <div class="table-card" id="driftChartCard" style="display:none; margin-top: 16px;">
-            <div class="table-toolbar">
-              <h2 id="driftChartTitle">Version distribution</h2>
-              <div class="controls">
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftChartClose">✕ Close</span>
-              </div>
-            </div>
-            <div style="padding: 16px; height: 360px;">
-              <canvas id="driftChartCanvas"></canvas>
-            </div>
+            <div class="footer-count"><span id="driftCount">0</span> software components shown</div>
           </div>
         </div>
 
+        <!-- Version distribution chart (hidden until a row's button is clicked) -->
+        <div class="table-card" id="driftChartCard" style="display:none; margin-top: 16px;">
+          <div class="table-toolbar">
+            <h2 id="driftChartTitle">Version distribution</h2>
+            <div class="controls">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftChartClose">✕ Close</span>
+            </div>
+          </div>
+          <div style="padding: 16px; height: 360px;">
+            <canvas id="driftChartCanvas"></canvas>
+          </div>
+        </div>
       </div><!-- /intuneSubDrift -->
 
       <div id="intuneSubRemediation" style="display:none;">
@@ -2545,6 +2532,7 @@ function switchSubtab(name) {
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
+  if (name === 'drift' && !driftLoaded) loadDriftData();
   if (name === 'remediation' && !remediationLoaded) loadRemediation();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
@@ -2951,12 +2939,13 @@ document.querySelectorAll('#intuneSubVulnerabilities th[data-vsort]').forEach(th
 });
 
 // ============================================================
-// Drift & Compliance sub-tab
+// Drift & Compliance (P2/E5) sub-tab
 //
-// Lazy-loaded: scans every entry in `installedApps` (already
-// filtered to apps with ≥1 assignment) and fans out one
-// retrieveDeviceAppInstallationStatusReport call per app to
-// compute version drift. Cached for the session.
+// Defender-based: one KQL query against DeviceTvmSoftwareInventory
+// returns (software, vendor, version, deviceCount) rows for the
+// whole fleet. Grouped client-side by software+vendor to compute
+// dominant version and drift %. Requires Defender for Endpoint P2
+// or M365 E5 (same as Vulnerabilities tab).
 // ============================================================
 
 let driftLoaded = false;
@@ -2967,141 +2956,77 @@ let driftSortKey = 'driftPct';
 let driftSortDir = 'desc';
 let driftChartInstance = null;
 
-const DRIFT_CONCURRENCY = 5;
 const DRIFT_WARN_THRESHOLD = 20;
 
-function calculateAppDrift(deviceRows) {
-  const installedOnly = deviceRows.filter(r =>
-    (r.InstallState || '').toLowerCase().startsWith('installed'));
+const DRIFT_KQL = `
+DeviceTvmSoftwareInventory
+| where isnotempty(SoftwareName) and isnotempty(SoftwareVersion)
+| summarize DeviceCount = dcount(DeviceId) by SoftwareName, SoftwareVendor, SoftwareVersion
+| order by SoftwareName asc, DeviceCount desc
+`;
 
-  const versionCounts = new Map();
-  for (const r of installedOnly) {
-    const v = (r.AppVersion && String(r.AppVersion).trim()) || '(unknown)';
-    versionCounts.set(v, (versionCounts.get(v) || 0) + 1);
-  }
-
-  const totalInstalled = installedOnly.length;
-  if (totalInstalled === 0) {
-    return { totalInstalled: 0, dominantVersion: '—', dominantCount: 0,
-             driftedDevices: 0, driftPct: 0, versionCount: 0, versions: [] };
-  }
-
-  const versions = [...versionCounts.entries()].sort((a, b) => b[1] - a[1]);
-  const [dominantVersion, dominantCount] = versions[0];
-  const driftedDevices = totalInstalled - dominantCount;
-  const driftPct = (driftedDevices / totalInstalled) * 100;
-
-  return {
-    totalInstalled, dominantVersion, dominantCount,
-    driftedDevices, driftPct,
-    versionCount: versions.length, versions
-  };
-}
-
-async function loadDriftData(force) {
+async function loadDriftData(force = false) {
   if (driftLoading) return;
   if (driftLoaded && !force) return;
 
   driftLoading = true;
-  $('btnDriftLoad').disabled = true;
-  $('driftLoadStatus').textContent = 'Loading app list…';
+  $('driftLoading').style.display = '';
+  $('driftContent').style.display = 'none';
+  $('driftError').innerHTML = '';
 
-  // Drift scans every app the install-report system knows about — independent
-  // of the Installed sub-tab's assignment filter. This catches apps whose
-  // assignments were removed but still report device installs (orphaned drift).
-  let apps;
   try {
-    const listBody = {
-      top: 1000, skip: 0,
-      filter: '',
-      orderBy: ['DisplayName asc'],
-      search: '',
-      select: ['DisplayName', 'Publisher', 'Platform', 'ApplicationId']
-    };
-    const listData = await graphPost(
-      'beta/deviceManagement/reports/getAppsInstallSummaryReport', listBody);
-    const rows = parseReport(listData);
-    apps = rows
-      .filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName))
-      .map(r => ({
-        id: r.ApplicationId,
-        displayName: r.DisplayName,
-        publisher: r.Publisher || '',
-        platform: r.Platform || ''
-      }));
-  } catch (e) {
-    $('driftLoadStatus').textContent = `Error loading app list: ${e.message || e}`;
-    driftLoading = false;
-    $('btnDriftLoad').disabled = false;
-    return;
-  }
+    const json = await graphPost('v1.0/security/runHuntingQuery', { Query: DRIFT_KQL });
+    const results = Array.isArray(json.results) ? json.results : [];
 
-  if (!apps.length) {
-    $('driftLoadStatus').textContent = 'No apps with install activity found.';
-    driftLoading = false;
-    $('btnDriftLoad').disabled = false;
-    return;
-  }
-
-  $('driftLoadStatus').textContent = `Scanning 0 of ${apps.length} apps…`;
-
-  const results = [];
-  let cursor = 0;
-  let completed = 0;
-
-  const worker = async () => {
-    while (cursor < apps.length) {
-      const idx = cursor++;
-      const app = apps[idx];
-      try {
-        const body = {
-          top: 1000, skip: 0,
-          select: ['ApplicationId', 'AppVersion', 'DeviceId', 'DeviceName',
-                   'InstallState', 'Platform'],
-          orderBy: [], search: '',
-          filter: `(ApplicationId eq '${app.id}')`
-        };
-        const data = await graphPost(
-          'beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
-        const rows = parseReport(data);
-        const summary = calculateAppDrift(rows);
-
-        if (summary.totalInstalled > 0) {
-          results.push({
-            id: app.id,
-            displayName: app.displayName,
-            publisher: app.publisher || '',
-            platform: app.platform || '',
-            ...summary
-          });
-        }
-      } catch (e) {
-        console.warn(`Drift scan failed for ${app.displayName}:`, e.message || e);
-      } finally {
-        completed++;
-        $('driftLoadStatus').textContent = `Scanning ${completed} of ${apps.length} apps…`;
+    // Group by software+vendor → accumulate [version, count] pairs
+    const bySoftware = new Map();
+    for (const r of results) {
+      const name = r.SoftwareName || '';
+      const vendor = r.SoftwareVendor || '';
+      const version = r.SoftwareVersion || '';
+      const count = Number(r.DeviceCount) || 0;
+      if (!name || !version || count === 0) continue;
+      const key = `${name}|${vendor}`;
+      if (!bySoftware.has(key)) {
+        bySoftware.set(key, { softwareName: titleCase(name), vendor: titleCase(vendor), versions: [] });
       }
+      bySoftware.get(key).versions.push([version, count]);
     }
-  };
 
-  try {
-    await Promise.all(Array.from({ length: DRIFT_CONCURRENCY }, worker));
-    driftApps = results;
+    driftApps = [...bySoftware.values()].map(s => {
+      const versions = s.versions.slice().sort((a, b) => b[1] - a[1]);
+      const totalInstalled = versions.reduce((sum, [, c]) => sum + c, 0);
+      const [dominantVersion, dominantCount] = versions[0];
+      const driftedDevices = totalInstalled - dominantCount;
+      const driftPct = totalInstalled > 0 ? (driftedDevices / totalInstalled) * 100 : 0;
+      return {
+        key: `${s.softwareName}|${s.vendor}`,
+        softwareName: s.softwareName,
+        vendor: s.vendor,
+        totalInstalled,
+        dominantVersion,
+        dominantCount,
+        driftedDevices,
+        driftPct,
+        versionCount: versions.length,
+        versions
+      };
+    });
+
     driftLoaded = true;
-    // Diagnostic: expose to window for DevTools inspection. Use:
-    //   window.driftApps.filter(a => a.displayName.toLowerCase().includes('snagit'))
-    // to see version distribution per app. Each entry has .versions = [[version, count], ...]
     window.driftApps = driftApps;
     const drifting = driftApps.filter(a => a.driftPct > 0).length;
-    console.log(`[Drift] Scanned ${apps.length} apps · ${driftApps.length} with installs · ${drifting} with drift > 0%. Inspect via window.driftApps`);
-    $('driftIntro').style.display = 'none';
-    $('driftView').style.display = '';
+    console.log(`[Drift] ${driftApps.length} software components · ${drifting} with drift > 0%. Inspect via window.driftApps`);
+
+    $('driftLoading').style.display = 'none';
+    $('driftContent').style.display = '';
     renderDriftTab();
   } catch (e) {
-    $('driftLoadStatus').textContent = `Error: ${e.message || e}`;
+    console.error('Drift load failed', e);
+    $('driftLoading').style.display = 'none';
+    $('driftError').innerHTML = `<div class="error-banner">Failed to load drift data: ${esc(e.message || String(e))}</div>`;
   } finally {
     driftLoading = false;
-    $('btnDriftLoad').disabled = false;
   }
 }
 
@@ -3116,12 +3041,12 @@ function renderDriftKPIs() {
     ? driftApps.reduce((s, a) => s + a.driftPct, 0) / driftApps.length
     : 0;
   const totalDrifted = driftApps.reduce((s, a) => s + a.driftedDevices, 0);
-  const top = driftApps.slice().sort((a, b) => b.driftPct - a.driftPct)[0];
+  const top = driftApps.filter(a => a.driftPct > 0).sort((a, b) => b.driftPct - a.driftPct)[0];
 
   $('kDriftHighCount').textContent = overTen;
   $('kDriftAvg').textContent = avg.toFixed(1) + '%';
   $('kDriftDevices').textContent = totalDrifted;
-  $('kDriftTopApp').textContent = top ? top.displayName : '—';
+  $('kDriftTopApp').textContent = top ? top.softwareName : '—';
   $('kDriftTopAppSub').textContent = top
     ? `${top.driftPct.toFixed(1)}% · ${top.driftedDevices} devices`
     : '—';
@@ -3131,8 +3056,8 @@ function applyDriftFilter() {
   const q = ($('driftFilter').value || '').toLowerCase().trim();
   driftFiltered = driftApps.filter(a => {
     if (!q) return true;
-    return (a.displayName || '').toLowerCase().includes(q) ||
-           (a.publisher || '').toLowerCase().includes(q);
+    return (a.softwareName || '').toLowerCase().includes(q) ||
+           (a.vendor || '').toLowerCase().includes(q);
   });
   sortDriftRows();
   renderDriftRows();
@@ -3153,7 +3078,7 @@ function renderDriftRows() {
   $('driftCount').textContent = driftFiltered.length;
 
   if (!driftFiltered.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty">No apps to show.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">No software to show.</td></tr>`;
     return;
   }
 
@@ -3163,13 +3088,13 @@ function renderDriftRows() {
       ? `<td style="font-weight:700; color:var(--accent); background:var(--accent-soft);">${a.driftPct.toFixed(1)}%</td>`
       : `<td>${a.driftPct.toFixed(1)}%</td>`;
     return `<tr>
-      <td>${esc(a.displayName)}</td>
-      <td>${esc(a.publisher) || '—'}</td>
+      <td>${esc(a.softwareName)}</td>
+      <td>${esc(a.vendor) || '—'}</td>
       <td class="version">${esc(a.dominantVersion)}</td>
       ${driftCell}
       <td>${a.driftedDevices}</td>
       <td>${a.versionCount}</td>
-      <td><button class="btn btn-ghost" data-drift-chart="${esc(a.id)}" style="padding:4px 10px; font-size:12px;">View Chart</button></td>
+      <td><button class="btn btn-ghost" data-drift-chart="${esc(a.key)}" style="padding:4px 10px; font-size:12px;">View Chart</button></td>
     </tr>`;
   }).join('');
 
@@ -3178,15 +3103,15 @@ function renderDriftRows() {
   });
 }
 
-function showVersionDistributionChart(appId) {
-  const app = driftApps.find(a => a.id === appId);
+function showVersionDistributionChart(key) {
+  const app = driftApps.find(a => a.key === key);
   if (!app) return;
   if (typeof Chart === 'undefined') {
     alert('Chart.js failed to load. Check the CDN script in <head>.');
     return;
   }
 
-  $('driftChartTitle').textContent = `Version distribution — ${app.displayName}`;
+  $('driftChartTitle').textContent = `Version distribution — ${app.softwareName}`;
   $('driftChartCard').style.display = '';
   $('driftChartCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -3224,12 +3149,12 @@ function showVersionDistributionChart(appId) {
 }
 
 function exportDriftCSV() {
-  const header = ['App Name', 'Publisher', 'Dominant Version', 'Drift %',
+  const header = ['Software', 'Vendor', 'Dominant Version', 'Drift %',
                   'Drifted Devices', 'Total Installed', 'Versions Detected'];
   const lines = [header.join(',')];
   for (const a of driftFiltered) {
     lines.push([
-      a.displayName, a.publisher, a.dominantVersion,
+      a.softwareName, a.vendor, a.dominantVersion,
       a.driftPct.toFixed(2), a.driftedDevices, a.totalInstalled, a.versionCount
     ].map(escCsv).join(','));
   }
@@ -3242,7 +3167,6 @@ function exportDriftCSV() {
   URL.revokeObjectURL(url);
 }
 
-$('btnDriftLoad').addEventListener('click', () => loadDriftData(false));
 $('btnDriftRefresh').addEventListener('click', () => loadDriftData(true));
 $('btnDriftExport').addEventListener('click', exportDriftCSV);
 $('btnDriftChartClose').addEventListener('click', () => {

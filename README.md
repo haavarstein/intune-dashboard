@@ -65,6 +65,17 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Type to filter across software name, vendor, and platform.
 - Lazy-loaded: the query runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
 
+**Drift & Compliance (P2/E5)** — fleet-wide software version drift, surfaced from Microsoft Defender Vulnerability Management via the Advanced Hunting API. Highlights software where devices are running mixed versions of the same product (e.g. .NET Desktop Runtime 8 alongside 9, Snagit across major versions).
+
+> ⚠️ **Licensing required.** This sub-tab queries `DeviceTvmSoftwareInventory` and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (same constraint as Vulnerabilities). Devices must be Defender-onboarded to appear in the data.
+
+- **KPI tiles**: count of software with > 10% drift, fleet drift average, total devices affected, and the single top-drifted software component.
+- Sortable table with **Software**, **Vendor**, **Dominant Version**, **Drift %**, **Drifted Devices**, and **Versions Detected**. Drift % > 20% is highlighted. Default sort is Drift % descending.
+- The **Distribution** column opens a Chart.js bar chart of the version histogram for that software — the dominant version is highlighted, the rest are the drift tail.
+- Type to filter across software name and vendor. **⬇ Export CSV** downloads the current filtered view.
+- Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
+- Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
+
 **Remediation** — proactive remediation scripts (`deviceHealthScripts`) and their schedules.
 
 - Sortable table with **Script name**, **Publisher**, **Schedule**, **Assigned groups** (count), and **Last modified**. Default sort is Schedule with **Hourly** first, then **Daily**, then **Run once**, then **Unassigned**, tie-broken by script name A→Z.
@@ -125,7 +136,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
-- `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab)
+- `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
