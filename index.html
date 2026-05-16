@@ -695,7 +695,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
-        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities</button>
+        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/O365E5)</button>
       </div>
 
       <div id="intuneError"></div>
@@ -1013,17 +1013,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <table>
               <thead>
                 <tr>
-                  <th data-vsort="deviceName">Device Name <span class="arrow">▼</span></th>
-                  <th data-vsort="severity">Severity <span class="arrow">▼</span></th>
-                  <th data-vsort="cveId">CVE ID <span class="arrow">▼</span></th>
-                  <th data-vsort="productName">Product <span class="arrow">▼</span></th>
-                  <th data-vsort="description">Description <span class="arrow">▼</span></th>
-                  <th data-vsort="firstSeen">First Detected <span class="arrow">▼</span></th>
+                  <th data-vsort="softwareName">Software <span class="arrow">▼</span></th>
+                  <th data-vsort="osPlatform">OS Platform <span class="arrow">▼</span></th>
+                  <th data-vsort="vendor">Vendor <span class="arrow">▼</span></th>
+                  <th data-vsort="weaknesses">Weaknesses <span class="arrow">▼</span></th>
+                  <th data-vsort="exposedDevices">Exposed Devices <span class="arrow">▼</span></th>
                 </tr>
               </thead>
               <tbody id="vulnRowsBody"></tbody>
             </table>
-            <div class="footer-count"><span id="vulnCount">0</span> findings shown</div>
+            <div class="footer-count"><span id="vulnCount">0</span> software components shown</div>
           </div>
         </div>
       </div><!-- /intuneSubVulnerabilities -->
@@ -1410,8 +1409,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'Group.Read.All', 'User.Read'];
-const WDATP_SCOPES = ['https://api.securitycenter.microsoft.com/Vulnerability.Read'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -1470,16 +1468,6 @@ async function getToken() {
     return r.accessToken;
   } catch (e) {
     const r = await msalApp.acquireTokenPopup({ scopes: SCOPES });
-    return r.accessToken;
-  }
-}
-
-async function getWdatpToken() {
-  try {
-    const r = await msalApp.acquireTokenSilent({ scopes: WDATP_SCOPES, account: msalApp.getActiveAccount() });
-    return r.accessToken;
-  } catch (e) {
-    const r = await msalApp.acquireTokenPopup({ scopes: WDATP_SCOPES });
     return r.accessToken;
   }
 }
@@ -2708,14 +2696,25 @@ document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
 });
 
 // ============================================================
-// Vulnerabilities (Defender for Endpoint - WDATP API)
+// Vulnerabilities (Defender via Graph Advanced Hunting - KQL)
+// Requires: ThreatHunting.Read.All (Microsoft Graph, delegated)
+// Licensing: Defender for Endpoint P2 or Microsoft 365 E5
 // ============================================================
 let vulnLoaded = false;
 let vulnRows = [];
-let vulnSortKey = 'severity';
+let vulnSortKey = 'weaknesses';
 let vulnSortDir = 'desc';
 
-const SEVERITY_RANK = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
+const VULN_KQL = `
+DeviceTvmSoftwareInventory
+| summarize ExposedDevices = dcount(DeviceId) by SoftwareName, SoftwareVendor, OSPlatform
+| join kind=leftouter (
+    DeviceTvmSoftwareVulnerabilities
+    | summarize Weaknesses = dcount(CveId) by SoftwareName, SoftwareVendor
+  ) on SoftwareName, SoftwareVendor
+| project SoftwareName, OSPlatform, SoftwareVendor, Weaknesses = coalesce(Weaknesses, 0), ExposedDevices
+| order by Weaknesses desc, ExposedDevices desc
+`;
 
 async function loadVulnerabilities(force = false) {
   if (vulnLoaded && !force) return;
@@ -2723,23 +2722,14 @@ async function loadVulnerabilities(force = false) {
   $('vulnContent').style.display = 'none';
   $('vulnError').innerHTML = '';
   try {
-    const token = await getWdatpToken();
-    let url = 'https://api.securitycenter.microsoft.com/api/vulnerabilities/machinesVulnerabilities';
-    const all = [];
-    while (url) {
-      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-      if (!res.ok) throw new Error('WDATP ' + res.status + ': ' + await res.text());
-      const json = await res.json();
-      if (Array.isArray(json.value)) all.push(...json.value);
-      url = json['@odata.nextLink'] || null;
-    }
-    vulnRows = all.map(v => ({
-      deviceName: v.deviceName || v.computerDnsName || '',
-      severity: v.severity || '',
-      cveId: v.cveId || v.id || '',
-      productName: [v.productName, v.productVersion].filter(Boolean).join(' '),
-      description: v.description || '',
-      firstSeen: v.firstSeenTimestamp || v.firstSeen || ''
+    const json = await graphPost('v1.0/security/runHuntingQuery', { Query: VULN_KQL });
+    const results = Array.isArray(json.results) ? json.results : [];
+    vulnRows = results.map(r => ({
+      softwareName: r.SoftwareName || '',
+      osPlatform: r.OSPlatform || '',
+      vendor: r.SoftwareVendor || '',
+      weaknesses: Number(r.Weaknesses) || 0,
+      exposedDevices: Number(r.ExposedDevices) || 0
     }));
     vulnLoaded = true;
     $('vulnLoading').style.display = 'none';
@@ -2755,31 +2745,27 @@ async function loadVulnerabilities(force = false) {
 function renderVulnerabilities() {
   const q = ($('vulnFilter').value || '').toLowerCase().trim();
   let rows = vulnRows.filter(r =>
-    !q || r.deviceName.toLowerCase().includes(q)
-       || r.cveId.toLowerCase().includes(q)
-       || r.productName.toLowerCase().includes(q)
-       || r.description.toLowerCase().includes(q)
+    !q || r.softwareName.toLowerCase().includes(q)
+       || r.vendor.toLowerCase().includes(q)
+       || r.osPlatform.toLowerCase().includes(q)
   );
   const dir = vulnSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
     let av = a[vulnSortKey], bv = b[vulnSortKey];
-    if (vulnSortKey === 'severity') { av = SEVERITY_RANK[av] ?? -1; bv = SEVERITY_RANK[bv] ?? -1; }
-    else if (vulnSortKey === 'firstSeen') { av = av ? Date.parse(av) : 0; bv = bv ? Date.parse(bv) : 0; }
-    else { av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
     return av < bv ? -dir : av > bv ? dir : 0;
   });
   const body = $('vulnRowsBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:24px;">No vulnerabilities found</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:24px;">No vulnerabilities found</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => `
       <tr>
-        <td>${esc(r.deviceName)}</td>
-        <td>${esc(r.severity)}</td>
-        <td>${esc(r.cveId)}</td>
-        <td>${esc(r.productName)}</td>
-        <td>${esc(r.description)}</td>
-        <td>${esc(r.firstSeen ? new Date(r.firstSeen).toLocaleString() : '')}</td>
+        <td>${esc(r.softwareName)}</td>
+        <td>${esc(r.osPlatform)}</td>
+        <td>${esc(r.vendor)}</td>
+        <td>${r.weaknesses}</td>
+        <td>${r.exposedDevices}</td>
       </tr>
     `).join('');
   }
