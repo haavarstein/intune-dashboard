@@ -3002,14 +3002,47 @@ async function loadDriftData(force) {
   if (driftLoading) return;
   if (driftLoaded && !force) return;
 
-  const apps = Array.isArray(installedApps) ? installedApps.slice() : [];
-  if (!apps.length) {
-    $('driftLoadStatus').textContent = 'No assigned apps available. Open the Installed sub-tab first to load apps.';
+  driftLoading = true;
+  $('btnDriftLoad').disabled = true;
+  $('driftLoadStatus').textContent = 'Loading app list…';
+
+  // Drift scans every app the install-report system knows about — independent
+  // of the Installed sub-tab's assignment filter. This catches apps whose
+  // assignments were removed but still report device installs (orphaned drift).
+  let apps;
+  try {
+    const listBody = {
+      top: 1000, skip: 0,
+      filter: '',
+      orderBy: ['DisplayName asc'],
+      search: '',
+      select: ['DisplayName', 'Publisher', 'Platform', 'ApplicationId']
+    };
+    const listData = await graphPost(
+      'beta/deviceManagement/reports/getAppsInstallSummaryReport', listBody);
+    const rows = parseReport(listData);
+    apps = rows
+      .filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName))
+      .map(r => ({
+        id: r.ApplicationId,
+        displayName: r.DisplayName,
+        publisher: r.Publisher || '',
+        platform: r.Platform || ''
+      }));
+  } catch (e) {
+    $('driftLoadStatus').textContent = `Error loading app list: ${e.message || e}`;
+    driftLoading = false;
+    $('btnDriftLoad').disabled = false;
     return;
   }
 
-  driftLoading = true;
-  $('btnDriftLoad').disabled = true;
+  if (!apps.length) {
+    $('driftLoadStatus').textContent = 'No apps with install activity found.';
+    driftLoading = false;
+    $('btnDriftLoad').disabled = false;
+    return;
+  }
+
   $('driftLoadStatus').textContent = `Scanning 0 of ${apps.length} apps…`;
 
   const results = [];
