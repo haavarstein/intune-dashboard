@@ -3088,6 +3088,12 @@ async function loadDriftData(force) {
     await Promise.all(Array.from({ length: DRIFT_CONCURRENCY }, worker));
     driftApps = results;
     driftLoaded = true;
+    // Diagnostic: expose to window for DevTools inspection. Use:
+    //   window.driftApps.filter(a => a.displayName.toLowerCase().includes('snagit'))
+    // to see version distribution per app. Each entry has .versions = [[version, count], ...]
+    window.driftApps = driftApps;
+    const drifting = driftApps.filter(a => a.driftPct > 0).length;
+    console.log(`[Drift] Scanned ${apps.length} apps · ${driftApps.length} with installs · ${drifting} with drift > 0%. Inspect via window.driftApps`);
     $('driftIntro').style.display = 'none';
     $('driftView').style.display = '';
     renderDriftTab();
