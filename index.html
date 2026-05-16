@@ -1911,26 +1911,26 @@ async function loadInstalledApps() {
   clearIntuneError();
   $('installedAppList').innerHTML = '<div class="loading">Loading apps…</div>';
   try {
-    const body = {
-      top: 1000,
-      skip: 0,
-      filter: '',
-      orderBy: ['DisplayName asc'],
-      search: '',
-      select: ['DisplayName', 'Publisher', 'Platform', 'AppVersion',
-               'FailedDevicePercentage', 'FailedDeviceCount', 'ApplicationId']
-    };
-    const data = await graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body);
-    const rows = parseReport(data);
+    let path = 'beta/deviceAppManagement/mobileApps?$expand=assignments';
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
 
-    installedApps = rows
-      .filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName))
-      .map(r => ({
-        id: r.ApplicationId,
-        displayName: r.DisplayName,
-        publisher: r.Publisher,
-        platform: r.Platform
-      }));
+    installedApps = all
+      .filter(app => app.displayName
+        && !/^update for/i.test(app.displayName)
+        && (app.assignments || []).length > 0)
+      .map(app => ({
+        id: app.id,
+        displayName: app.displayName,
+        publisher: app.publisher,
+        platform: platformFromOdataType(app['@odata.type'])
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
 
     installedAppsFiltered = installedApps;
     populateInstalledAppPlatformOptions();
