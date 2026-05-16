@@ -65,6 +65,14 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Type to filter across software name, vendor, and platform.
 - Lazy-loaded: the query runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
 
+**Remediation** — proactive remediation scripts (`deviceHealthScripts`) and their schedules.
+
+- Sortable table with **Script name**, **Publisher**, **Schedule**, **Assigned groups** (count), and **Last modified**. Default sort is Schedule with **Hourly** first, then **Daily**, then **Run once**, then **Unassigned**, tie-broken by script name A→Z.
+- The **Schedule** column reads each script's assignment `runSchedule`. Scripts with multiple assignments at different cadences show a joined value (e.g. *Hourly, Daily*). Scripts with no assignments show *Unassigned*.
+- Click any **Script name** to open the script's blade in the Intune admin center in a new tab.
+- Type to filter across script name and publisher.
+- Lazy-loaded: the call runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
+
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
@@ -102,8 +110,9 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
+- `DeviceManagementConfiguration.Read.All` — read Intune device health scripts (Remediation sub-tab)
 
-**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app.
+**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt when `DeviceManagementConfiguration.Read.All` is requested for the first time.
 
 **Token storage.** Access tokens are held in browser session storage by MSAL and refreshed silently. Click **Sign out** to clear them.
 
@@ -117,6 +126,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab)
+- `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 

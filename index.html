@@ -697,6 +697,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="hardware">Hardware</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance</button>
+        <button class="subtab" data-subtab="remediation">Remediation</button>
       </div>
 
       <div id="intuneError"></div>
@@ -1126,6 +1127,35 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
 
       </div><!-- /intuneSubDrift -->
+
+      <div id="intuneSubRemediation" style="display:none;">
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Remediations</h2>
+            <div class="controls">
+              <input type="text" class="search" id="remediationFilter" placeholder="Search script or publisher…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRemediationRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="remediationLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading remediation scripts…</div>
+          <div id="remediationError"></div>
+          <div id="remediationContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-rsort="displayName">Script name <span class="arrow">▼</span></th>
+                  <th data-rsort="publisher">Publisher <span class="arrow">▼</span></th>
+                  <th data-rsort="schedule">Schedule <span class="arrow">▼</span></th>
+                  <th data-rsort="assignmentCount">Assigned groups <span class="arrow">▼</span></th>
+                  <th data-rsort="lastModified">Last modified <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="remediationRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="remediationCount">0</span> scripts shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubRemediation -->
     </div>
   </div><!-- /viewIntune -->
 
@@ -1510,7 +1540,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -2514,6 +2544,8 @@ function switchSubtab(name) {
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
+  $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
+  if (name === 'remediation' && !remediationLoaded) loadRemediation();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
@@ -3191,6 +3223,132 @@ document.querySelectorAll('[data-sort-drift]').forEach(th => {
     }
     sortDriftRows();
     renderDriftRows();
+  });
+});
+
+// ============================================================
+// Remediation sub-tab (deviceHealthScripts / Proactive Remediations)
+// Requires: DeviceManagementConfiguration.Read.All
+// ============================================================
+let remediationLoaded = false;
+let remediationRows = [];
+let remediationSortKey = 'schedule';
+let remediationSortDir = 'asc';
+
+// Schedule rank — lower = sorts earlier in default ascending order.
+const REMEDIATION_SCHEDULE_RANK = { 'Hourly': 0, 'Daily': 1, 'Run once': 2, 'Unassigned': 3 };
+
+function scheduleLabelFromAssignment(a) {
+  const t = a && a.runSchedule && a.runSchedule['@odata.type'];
+  if (!t) return null;
+  if (t.includes('Hourly')) return 'Hourly';
+  if (t.includes('Daily')) return 'Daily';
+  if (t.includes('RunOnce')) return 'Run once';
+  return null;
+}
+
+function summarizeSchedules(assignments) {
+  const labels = new Set();
+  for (const a of (assignments || [])) {
+    const lbl = scheduleLabelFromAssignment(a);
+    if (lbl) labels.add(lbl);
+  }
+  if (!labels.size) return { display: 'Unassigned', rank: REMEDIATION_SCHEDULE_RANK['Unassigned'] };
+  const ordered = [...labels].sort((a, b) => REMEDIATION_SCHEDULE_RANK[a] - REMEDIATION_SCHEDULE_RANK[b]);
+  return { display: ordered.join(', '), rank: REMEDIATION_SCHEDULE_RANK[ordered[0]] };
+}
+
+function remediationBladeUrl(scriptId) {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesProactiveRemediationDetail.ReactView/id/${encodeURIComponent(scriptId)}`;
+}
+
+async function loadRemediation(force = false) {
+  if (remediationLoaded && !force) return;
+  $('remediationLoading').style.display = '';
+  $('remediationContent').style.display = 'none';
+  $('remediationError').innerHTML = '';
+  try {
+    let path = 'beta/deviceManagement/deviceHealthScripts?$expand=assignments';
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
+
+    remediationRows = all.map(s => {
+      const sched = summarizeSchedules(s.assignments);
+      return {
+        id: s.id,
+        displayName: s.displayName || '',
+        publisher: s.publisher || '',
+        schedule: sched.display,
+        scheduleRank: sched.rank,
+        assignmentCount: Array.isArray(s.assignments) ? s.assignments.length : 0,
+        lastModified: s.lastModifiedDateTime || ''
+      };
+    });
+
+    remediationLoaded = true;
+    $('remediationLoading').style.display = 'none';
+    $('remediationContent').style.display = '';
+    renderRemediation();
+  } catch (e) {
+    console.error('Remediation load failed', e);
+    $('remediationLoading').style.display = 'none';
+    $('remediationError').innerHTML = `<div class="error-banner">Failed to load remediations: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderRemediation() {
+  const q = ($('remediationFilter').value || '').toLowerCase().trim();
+  let rows = remediationRows.filter(r =>
+    !q || r.displayName.toLowerCase().includes(q)
+       || r.publisher.toLowerCase().includes(q)
+  );
+
+  const dir = remediationSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (remediationSortKey === 'schedule') {
+      av = a.scheduleRank; bv = b.scheduleRank;
+    } else {
+      av = a[remediationSortKey];
+      bv = b[remediationSortKey];
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    // Secondary sort: displayName A→Z (independent of direction)
+    return a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase());
+  });
+
+  const body = $('remediationRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:24px;">No remediation scripts found</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => `
+      <tr>
+        <td><a href="${remediationBladeUrl(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.displayName) || '—'}</a></td>
+        <td>${esc(r.publisher) || '—'}</td>
+        <td>${esc(r.schedule)}</td>
+        <td>${r.assignmentCount}</td>
+        <td class="date">${esc(r.lastModified) ? new Date(r.lastModified).toLocaleString() : '—'}</td>
+      </tr>
+    `).join('');
+  }
+  $('remediationCount').textContent = rows.length;
+}
+
+$('remediationFilter').addEventListener('input', renderRemediation);
+$('btnRemediationRefresh').addEventListener('click', () => loadRemediation(true));
+document.querySelectorAll('#intuneSubRemediation th[data-rsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.rsort;
+    if (remediationSortKey === key) remediationSortDir = remediationSortDir === 'asc' ? 'desc' : 'asc';
+    else { remediationSortKey = key; remediationSortDir = 'asc'; }
+    renderRemediation();
   });
 });
 
