@@ -695,7 +695,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
-        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/O365E5)</button>
+        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
       </div>
 
       <div id="intuneError"></div>
@@ -2707,14 +2707,19 @@ let vulnSortDir = 'desc';
 
 const VULN_KQL = `
 DeviceTvmSoftwareInventory
-| summarize ExposedDevices = dcount(DeviceId) by SoftwareName, SoftwareVendor, OSPlatform
+| summarize ExposedDevices = dcount(DeviceId), SoftwareId = any(SoftwareId) by SoftwareName, SoftwareVendor, OSPlatform
 | join kind=leftouter (
     DeviceTvmSoftwareVulnerabilities
     | summarize Weaknesses = dcount(CveId) by SoftwareName, SoftwareVendor
   ) on SoftwareName, SoftwareVendor
-| project SoftwareName, OSPlatform, SoftwareVendor, Weaknesses = coalesce(Weaknesses, 0), ExposedDevices
+| project SoftwareName, OSPlatform, SoftwareVendor, Weaknesses = coalesce(Weaknesses, 0), ExposedDevices, SoftwareId
 | order by Weaknesses desc, ExposedDevices desc
 `;
+
+function titleCase(s) {
+  if (!s) return '';
+  return s.replace(/\b([a-z])/g, c => c.toUpperCase());
+}
 
 async function loadVulnerabilities(force = false) {
   if (vulnLoaded && !force) return;
@@ -2725,11 +2730,12 @@ async function loadVulnerabilities(force = false) {
     const json = await graphPost('v1.0/security/runHuntingQuery', { Query: VULN_KQL });
     const results = Array.isArray(json.results) ? json.results : [];
     vulnRows = results.map(r => ({
-      softwareName: r.SoftwareName || '',
-      osPlatform: r.OSPlatform || '',
-      vendor: r.SoftwareVendor || '',
+      softwareName: titleCase(r.SoftwareName || ''),
+      osPlatform: titleCase(r.OSPlatform || ''),
+      vendor: titleCase(r.SoftwareVendor || ''),
       weaknesses: Number(r.Weaknesses) || 0,
-      exposedDevices: Number(r.ExposedDevices) || 0
+      exposedDevices: Number(r.ExposedDevices) || 0,
+      softwareId: r.SoftwareId || ''
     }));
     vulnLoaded = true;
     $('vulnLoading').style.display = 'none';
@@ -2755,19 +2761,26 @@ function renderVulnerabilities() {
     if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
     return av < bv ? -dir : av > bv ? dir : 0;
   });
+  const account = msalApp && msalApp.getActiveAccount();
+  const tid = account && account.tenantId ? account.tenantId : '';
   const body = $('vulnRowsBody');
   if (!rows.length) {
     body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:24px;">No vulnerabilities found</td></tr>`;
   } else {
-    body.innerHTML = rows.map(r => `
+    body.innerHTML = rows.map(r => {
+      const nameCell = r.softwareId
+        ? `<a href="https://security.microsoft.com/software/${encodeURIComponent(r.softwareId)}?tid=${encodeURIComponent(tid)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.softwareName)}</a>`
+        : esc(r.softwareName);
+      return `
       <tr>
-        <td>${esc(r.softwareName)}</td>
+        <td>${nameCell}</td>
         <td>${esc(r.osPlatform)}</td>
         <td>${esc(r.vendor)}</td>
         <td>${r.weaknesses}</td>
         <td>${r.exposedDevices}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
   $('vulnCount').textContent = rows.length;
 }
