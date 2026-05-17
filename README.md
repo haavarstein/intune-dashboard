@@ -58,7 +58,6 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 
 > ⚠️ **Licensing required.** This sub-tab queries Microsoft Defender Vulnerability Management data and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (or the standalone Defender Vulnerability Management add-on). Without one of these licenses the tab will load empty or error out — the rest of the dashboard works regardless. The "(P2/E5)" suffix in the tab label is a reminder of this requirement.
 
-- One nested view today — **Software Inventory** — with room for more nested tabs later.
 - **KPI tile**: total count of unique software components in the tenant. Click the tile to open the Defender portal's *Vulnerability management → Inventories → Software* page in a new tab.
 - Sortable table with **Software**, **OS Platform**, **Vendor**, **Weaknesses** (distinct CVE count for that software), and **Exposed Devices** (distinct device count). Default sort is Weaknesses descending so the riskiest software floats to the top.
 - Click any **Software** name to open the Defender portal's inventory page in a new tab for further investigation. (Defender doesn't expose a stable software ID via KQL, so the link goes to the inventory list rather than deep-linking to the specific row.)

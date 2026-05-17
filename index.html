@@ -1001,44 +1001,38 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubHardware -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
-        <div class="subtabs" id="vulnNestedNav" style="margin-bottom:16px;">
-          <button class="subtab active" data-vsubtab="software">Software Inventory</button>
+        <div class="tiles" style="grid-template-columns: repeat(6, 1fr);">
+          <div class="tile" id="vulnTileSoftware" style="cursor:pointer;" title="Open Defender inventory in new tab">
+            <div class="tile-label">Software</div>
+            <div class="tile-value" id="vulnKpiSoftware">0</div>
+            <div class="tile-sub">unique components</div>
+          </div>
         </div>
 
-        <div id="vulnNestedSoftware">
-          <div class="tiles" style="grid-template-columns: repeat(6, 1fr);">
-            <div class="tile" id="vulnTileSoftware" style="cursor:pointer;" title="Open Defender inventory in new tab">
-              <div class="tile-label">Software</div>
-              <div class="tile-value" id="vulnKpiSoftware">0</div>
-              <div class="tile-sub">unique components</div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Software inventory</h2>
+            <div class="controls">
+              <input type="text" class="search" id="vulnFilter" placeholder="Search software, vendor, platform…">
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnVulnRefresh">↻ Refresh</span>
             </div>
           </div>
-
-          <div class="table-card">
-            <div class="table-toolbar">
-              <h2>Software inventory</h2>
-              <div class="controls">
-                <input type="text" class="search" id="vulnFilter" placeholder="Search software, vendor, platform…">
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnVulnRefresh">↻ Refresh</span>
-              </div>
-            </div>
-            <div id="vulnLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading vulnerability data…</div>
-            <div id="vulnError"></div>
-            <div id="vulnContent" style="display:none;">
-              <table>
-                <thead>
-                  <tr>
-                    <th data-vsort="softwareName">Software <span class="arrow">▼</span></th>
-                    <th data-vsort="osPlatform">OS Platform <span class="arrow">▼</span></th>
-                    <th data-vsort="vendor">Vendor <span class="arrow">▼</span></th>
-                    <th data-vsort="weaknesses">Weaknesses <span class="arrow">▼</span></th>
-                    <th data-vsort="exposedDevices">Exposed Devices <span class="arrow">▼</span></th>
-                  </tr>
-                </thead>
-                <tbody id="vulnRowsBody"></tbody>
-              </table>
-              <div class="footer-count"><span id="vulnCount">0</span> software components shown</div>
-            </div>
+          <div id="vulnLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading vulnerability data…</div>
+          <div id="vulnError"></div>
+          <div id="vulnContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-vsort="softwareName">Software <span class="arrow">▼</span></th>
+                  <th data-vsort="osPlatform">OS Platform <span class="arrow">▼</span></th>
+                  <th data-vsort="vendor">Vendor <span class="arrow">▼</span></th>
+                  <th data-vsort="weaknesses">Weaknesses <span class="arrow">▼</span></th>
+                  <th data-vsort="exposedDevices">Exposed Devices <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="vulnRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="vulnCount">0</span> software components shown</div>
           </div>
         </div>
       </div><!-- /intuneSubVulnerabilities -->
