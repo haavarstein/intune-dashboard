@@ -804,22 +804,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="overviewError"></div>
         <div id="overviewContent" style="display:none;">
           <div class="tiles" style="grid-template-columns: repeat(4, 1fr); margin-bottom:24px;">
-            <div class="tile">
+            <div class="tile clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
               <div class="tile-label">Managed devices</div>
               <div class="tile-value" id="ovTotalDevices">0</div>
               <div class="tile-sub" id="ovTotalDevicesSub">across all platforms</div>
             </div>
-            <div class="tile">
+            <div class="tile clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
               <div class="tile-label">Needing attention</div>
               <div class="tile-value accent" id="ovAttention">0</div>
               <div class="tile-sub" id="ovAttentionSub">stale 90+ days or Win 10</div>
             </div>
-            <div class="tile">
+            <div class="tile clickable" data-overview-jump="failed" title="Open Failed Install sub-tab">
               <div class="tile-label">Apps with failures</div>
               <div class="tile-value" id="ovFailedApps">0</div>
               <div class="tile-sub" id="ovFailedAppsSub">FailedDeviceCount &gt; 0</div>
             </div>
-            <div class="tile">
+            <div class="tile clickable" data-overview-jump="drift" title="Open Drift & Compliance sub-tab">
               <div class="tile-label">Drifted software (P2/E5)</div>
               <div class="tile-value" id="ovDrift">0</div>
               <div class="tile-sub" id="ovDriftSub">components with &gt;20% drift</div>
@@ -3109,7 +3109,7 @@ async function loadOverview() {
     $('ovFailedAppsSub').textContent = `${totalFailedDevices} failed devices total`;
     const top5 = rows.slice().sort((a, b) => (b.FailedDeviceCount || 0) - (a.FailedDeviceCount || 0)).slice(0, 5);
     $('ovFailedAppsList').innerHTML = top5.length
-      ? top5.map(r => `<tr><td>${esc(r.DisplayName)}</td><td>${esc(r.Publisher) || '—'}</td><td>${r.FailedDeviceCount}</td></tr>`).join('')
+      ? top5.map(r => `<tr data-overview-jump="failed" style="cursor:pointer;" title="Open Failed Install"><td>${esc(r.DisplayName)}</td><td>${esc(r.Publisher) || '—'}</td><td>${r.FailedDeviceCount}</td></tr>`).join('')
       : '<tr><td colspan="3" class="empty">No apps with failures.</td></tr>';
   } else {
     $('ovFailedApps').textContent = '—';
@@ -3144,7 +3144,7 @@ async function loadOverview() {
     $('ovDriftSub').textContent = `${drifted.length} unique components scanned`;
     const top5 = drifted.filter(d => d.driftPct > 0).sort((a, b) => b.driftPct - a.driftPct).slice(0, 5);
     $('ovDriftList').innerHTML = top5.length
-      ? top5.map(d => `<tr><td>${esc(d.name)}</td><td>${d.driftPct.toFixed(1)}%</td><td>${d.driftedDevices}</td></tr>`).join('')
+      ? top5.map(d => `<tr data-overview-jump="drift" style="cursor:pointer;" title="Open Drift & Compliance"><td>${esc(d.name)}</td><td>${d.driftPct.toFixed(1)}%</td><td>${d.driftedDevices}</td></tr>`).join('')
       : '<tr><td colspan="3" class="empty">No drift detected.</td></tr>';
   } else {
     $('ovDrift').textContent = '—';
@@ -3158,8 +3158,14 @@ async function loadOverview() {
   $('overviewContent').style.display = '';
 }
 
-document.querySelectorAll('[data-overview-jump]').forEach(el => {
-  el.addEventListener('click', () => switchSubtab(el.dataset.overviewJump));
+// Delegated: catches clicks on any [data-overview-jump] element including
+// rows rendered after this script runs.
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-overview-jump]');
+  if (!el) return;
+  // Only fire when the clicked element is inside the Overview sub-tab
+  if (!el.closest('#intuneSubOverview')) return;
+  switchSubtab(el.dataset.overviewJump);
 });
 
 const GB = 1024 * 1024 * 1024;
