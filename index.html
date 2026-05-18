@@ -1701,11 +1701,11 @@ async function getToken() {
   }
 }
 
-async function graphGet(path) {
+async function graphGet(path, opts = {}) {
   const token = await getToken();
-  const res = await fetch('https://graph.microsoft.com/' + path, {
-    headers: { Authorization: 'Bearer ' + token }
-  });
+  const headers = { Authorization: 'Bearer ' + token };
+  if (opts.headers) Object.assign(headers, opts.headers);
+  const res = await fetch('https://graph.microsoft.com/' + path, { headers });
   if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
   return res.json();
 }
@@ -3487,15 +3487,18 @@ async function loadAssignmentsPolicies(force = false) {
 }
 
 async function searchGroupsForAssignments(query) {
+  const box = $('assignmentsSearchResults');
   if (!query || query.length < 2) {
-    $('assignmentsSearchResults').style.display = 'none';
+    box.style.display = 'none';
     return;
   }
   try {
-    const path = `v1.0/groups?$filter=startswith(displayName,'${encodeURIComponent(query.replace(/'/g, "''"))}')&$top=20&$select=id,displayName,description&$orderby=displayName`;
-    const data = await graphGet(path);
+    // $search is substring/token-based across displayName — needs ConsistencyLevel: eventual.
+    // Much more forgiving than startswith() for users who paste partial names.
+    const term = `"displayName:${query.replace(/"/g, '')}"`;
+    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`;
+    const data = await graphGet(path, { headers: { ConsistencyLevel: 'eventual' } });
     const groups = data.value || [];
-    const box = $('assignmentsSearchResults');
     if (!groups.length) {
       box.innerHTML = `<div class="meta" style="padding:12px;">No groups match "${esc(query)}"</div>`;
     } else {
@@ -3514,6 +3517,8 @@ async function searchGroupsForAssignments(query) {
     box.style.display = '';
   } catch (e) {
     console.error('Group search failed', e);
+    box.innerHTML = `<div style="padding:12px; color:#c0392b; font-size:12px;">Search failed: ${esc(e.message || String(e))}</div>`;
+    box.style.display = '';
   }
 }
 
