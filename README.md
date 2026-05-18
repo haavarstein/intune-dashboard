@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Six sub-tabs: Installed, Failed Install, Required Install, Required Uninstall, Hardware, and Vulnerabilities.
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Nine sub-tabs: Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — Claude API key and model selection for the optional AI features.
 
@@ -23,7 +23,7 @@ A clean, client-side dashboard with four tabs:
 
 Sign in once with MSAL — all four sub-tabs share the same session.
 
-**Failed Install** — the default view.
+**Failed Install** — apps with install failures across the fleet.
 - Lists all apps with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
 - **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
@@ -35,7 +35,7 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - `Update for*` driver/firmware apps are excluded for a cleaner audit view.
 
 **Installed** *(default sub-tab)* — for any app, see the devices that report install status and the groups it's assigned to.
-- Alphabetical list of all apps in the tenant (up to 1000), paginated 15 per page, with name/publisher search and a platform filter that defaults to *Windows*. `Update for*` driver/firmware apps are excluded.
+- Alphabetical list of apps that have at least one assignment (apps with no current assignment are excluded; data source is `mobileApps?$expand=assignments`, fully paginated — no 1000-app cap). Paginated 15 per page, with name/publisher search and a platform filter that defaults to *Windows*. `Update for*` driver/firmware apps are excluded.
 - Click an app to drill in. The app name is a link that opens the app's blade in the Intune admin center in a new tab.
 - **Assigned to** panel shows the assignment groups for the app, each tagged by intent (*Required* / *Available* / *Uninstall*). Special targets like *All Devices* and *All Users* are labeled as such; exclusion groups are marked `(exclusion)`.
 - **Installed devices** table shows every device the install-status report returns: Device · User · Version · State · Platform · Last modified. The **State** dropdown defaults to whichever value starts with `installed` so you immediately see the install set; switch to *All states* to see failed, pending, etc.
@@ -78,7 +78,7 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 
 **Assignments** — group-centric reverse lookup. Pick an Entra group → see every policy targeting it, across four types: apps, configuration profiles, compliance policies, and proactive remediation scripts.
 
-- Type-ahead **group search** against `groups?$filter=startswith(displayName,'…')` (debounced). Pick a result to inspect.
+- Type-ahead **group search** against `groups?$search="displayName:…"` (debounced 300ms, substring/token match). Pick a result to inspect.
 - KPI tiles for the four counts (apps · configs · compliance · remediations).
 - Per-section tables show the policy name (linked to the relevant admin-center page), policy-specific column (intent for apps, type for configs, platform for compliance, schedule for remediations), the assignment filter ID if present, an *Excluded* badge if the assignment is an exclusion-group target, and the last-modified timestamp.
 - Policy index is fetched once per session — 4 paginated Graph calls run in parallel on first tab open and cached. Picking different groups after that is a client-side filter, no extra Graph traffic. Use **↻ Refresh** to invalidate the cache and re-fetch.
@@ -112,9 +112,9 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 
 1. Click the **Intune** tab and **Sign in with Microsoft**
 2. A popup opens to `login.microsoftonline.com` — sign in with an account that has Intune read permissions
-3. Consent to the three scopes (see below)
-4. The dashboard loads all apps with install failures
-5. Click an app to see device-level install status
+3. Consent to the requested scopes (see below)
+4. The **Installed** sub-tab loads first, with the list of apps that have at least one assignment in your tenant
+5. Click an app to see device-level install status, or switch to any other sub-tab (Failed Install, Hardware, Assignments, etc.)
 
 Everything runs in your browser. CSV data never leaves your machine. Intune data is fetched directly from `graph.microsoft.com` to your browser — it does not pass through any server.
 
@@ -146,7 +146,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
-- `GET /v1.0/groups?$filter=startswith(displayName,…)` — Entra group type-ahead search (Assignments sub-tab)
+- `GET /v1.0/groups?$search="displayName:…"` — Entra group type-ahead search (Assignments sub-tab; sent with `ConsistencyLevel: eventual` header)
 - `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles with their assignments (Assignments sub-tab)
 - `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments` — compliance policies with their assignments (Assignments sub-tab)
 
