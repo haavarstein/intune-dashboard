@@ -1,36 +1,27 @@
-# Patch My PC filter (Installed + Failed Install)
+# Helper hints across tabs
 
 ## Goal
-Checkbox in both Installed and Failed Install app pickers to include/exclude apps created by Patch My PC (PMPC). PMPC apps are identified by `notes` starting with `PmpAppId`. Default: **exclude** (checkbox unchecked).
+Make each tab self-describing at a glance. New users (and returning users on rarely-used tabs) immediately know what the tab is for, what data it pulls, and the distinctive feature/constraint.
 
 ## Tasks
-- [x] Shared module-scope `pmpcAppIds` Set + `ensurePmpcAppIdsLoaded()` lazy loader + `populatePmpcFromMobileApps()` helper
-- [x] `loadInstalledApps()` populates the Set from its existing mobileApps fetch (no extra Graph call when Installed loads first)
-- [x] `loadApps()` (Failed) awaits `ensurePmpcAppIdsLoaded()` in parallel with its report fetch via `Promise.all`
-- [x] PMPC checkbox in both `app-picker-bar`s
-- [x] Filter logic added to `applyInstalledAppFilter()` and `applyAppFilter()`
-- [x] Onchange listeners on both checkboxes wired
-- [x] README: both sub-tab entries updated, endpoint list note added for `?$select=id,notes`
+- [x] Add `.tab-hint` CSS class
+- [x] Hints in `viewLocal`, `viewAnalyze`, `viewSettings`
+- [x] Hints in all 9 Intune sub-tabs
+- [x] Canonical-facts scan: no README changes triggered (sub-tab count, scope count, default sub-tab, endpoints all unchanged)
 
-## Verifiable success
-1. Sign in → land on Installed → PMPC apps absent from the picker by default.
-2. Check "Include Patch My PC" → PMPC apps appear.
-3. Same behavior in Failed Install.
-4. State persists when navigating to a selected app and back — checkbox state stays.
+## Verification
+- All 12 hints render at the top of their respective tabs.
+- Hint styling consistent everywhere.
+- No layout breakage on the tabs that have pickers/tiles immediately below.
 
 ## Review
 
-**Net diff**: ~50 lines added to `index.html` (PMPC shared infra + checkboxes + filter logic + listeners), ~5 lines to `README.md`. No deletions, no existing-behavior changes.
+**Net diff**: 1 CSS rule (~11 lines) + 12 one-line hint insertions in `index.html`. Zero behavior changes, zero data-source changes, zero README impact.
 
-**Design notes**:
-- One shared `pmpcAppIds` Set. Both tabs read from it. The Installed loader populates it for free from its already-fetched mobileApps response; the Failed loader triggers a dedicated lightweight `?$select=id,notes` fetch only if no other path has populated it yet (cached via `pmpcAppIdsPromise` to deduplicate concurrent calls).
-- No new scope (`DeviceManagementApps.Read.All` already covers `mobileApps`).
-- Filter is purely client-side — the Set is built once per session and reused, so toggling the checkbox is instant.
+**Design**: `.tab-hint` styled as a subtle accent-tinted info box with a 3px left border and 6px right radius. Sits at the top of each tab content area, before any pickers/tiles/tables.
 
-**Canonical-facts scan run** (per lessons.md): sub-tab count unchanged, scope count unchanged, default sub-tab unchanged, no stale claims. README endpoint line for `mobileApps` updated to mention the new `$select=id,notes` variant.
+**Hint coverage**: 3 main tabs (Local, Analyze, Settings) + 9 Intune sub-tabs = 12 total. The Intune main tab itself doesn't get a hint — its sub-tabs each carry their own and a wrapper hint would be redundant.
 
-**Live verification needed**:
-1. Sign in → Installed sub-tab loads → PMPC apps (those with `notes` starting `PmpAppId`) are hidden by default.
-2. Tick "Include Patch My PC" → they appear.
-3. Failed Install → same behavior. Note: Failed Install adds a parallel `mobileApps?$select=id,notes` call on first load; should still be fast (<1s on most tenants).
-4. Toggle checkbox repeatedly — instant filter, no Graph traffic.
+**Skipped**: no dismissal mechanism in v1. If hints become noisy, add a "Hide hints" toggle in Settings later. Per CLAUDE.md "no features beyond what was asked".
+
+**Live verification**: load each tab and confirm the hint renders at the top, doesn't break layout adjacent to pickers/tiles, and reads cleanly.

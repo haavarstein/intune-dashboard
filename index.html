@@ -495,6 +495,17 @@
   .app-row.selected { background: var(--accent-soft); }
   .app-row .name { font-weight: 600; font-size: 13px; }
   .app-row .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .tab-hint {
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 1.55;
+    padding: 10px 14px;
+    background: rgba(232, 116, 59, 0.06);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 20px;
+  }
   .app-row .pub-small { font-size: 12px; color: var(--ink-2); }
 
   .selected-app {
@@ -562,6 +573,7 @@
   </div>
 
   <div id="viewLocal">
+  <div class="tab-hint">Drop a Windows uninstall-registry CSV from one machine for offline analysis. Architecture-aware dedup and one-click silent-uninstall strings.</div>
   <div id="dashboard" style="display:none;">
     <div class="tiles">
       <div class="tile">
@@ -705,6 +717,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneError"></div>
 
       <div id="intuneSubFailed" style="display:none;">
+        <div class="tab-hint">Apps with install failures across the fleet, sorted by failure count. Click any error code for an AI-powered diagnosis.</div>
       <!-- App picker (shown when no app selected) -->
       <div id="appPicker" class="app-picker">
         <div class="app-picker-bar">
@@ -785,6 +798,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubFailed -->
 
       <div id="intuneSubInstalled">
+        <div class="tab-hint">Find which devices have a given app, with per-device version and state. Export the device list for targeted upgrades or exclusion groups.</div>
         <!-- App picker (shown when no app selected) -->
         <div id="installedAppPicker" class="app-picker">
           <div class="app-picker-bar">
@@ -855,6 +869,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubInstalled -->
 
       <div id="intuneSubRequired" style="display:none;">
+        <div class="tab-hint">Audit view of Win32 apps assigned as Required to All Devices — what's being actively pushed to every machine.</div>
         <div id="requiredError"></div>
         <div class="app-picker">
           <div class="app-picker-bar">
@@ -869,6 +884,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubRequired -->
 
       <div id="intuneSubUninstall" style="display:none;">
+        <div class="tab-hint">Apps with an Uninstall assignment to a group — what's being actively removed from the fleet.</div>
         <div id="uninstallError"></div>
         <div class="app-picker">
           <div class="app-picker-bar">
@@ -889,6 +905,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubUninstall -->
 
       <div id="intuneSubHardware" style="display:none;">
+        <div class="tab-hint">Managed-device inventory for Windows 11 readiness and refresh planning. Click any KPI tile to filter the table.</div>
         <div id="hwLoading" class="loading">Loading devices…</div>
         <div id="hwError"></div>
         <div id="hwContent" style="display:none;">
@@ -1015,6 +1032,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubHardware -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
+        <div class="tab-hint">Defender software inventory with CVE counts and exposed-device counts. Requires Defender for Endpoint P2 or M365 E5.</div>
         <div class="tiles" style="grid-template-columns: repeat(6, 1fr);">
           <div class="tile" id="vulnTileSoftware" style="cursor:pointer;" title="Open Defender inventory in new tab">
             <div class="tile-label">Software</div>
@@ -1052,6 +1070,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubVulnerabilities -->
 
       <div id="intuneSubAssignments" style="display:none;">
+        <div class="tab-hint">Group-centric reverse lookup — pick an Entra group and see every policy, app, script, and update profile targeting it.</div>
         <div class="table-card" style="padding:20px; overflow:visible;">
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <div style="position:relative; flex:1; min-width:280px;">
@@ -1237,6 +1256,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubAssignments -->
 
       <div id="intuneSubDrift" style="display:none;">
+        <div class="tab-hint">Fleet-wide software version drift via Defender. Catches cross-product-family drift (.NET 8 vs 9, Snagit major versions) Intune's reports can't see.</div>
         <h2 style="margin: 0 0 16px 0; font-size: 22px;">Software Version Drift &amp; Compliance</h2>
 
         <!-- KPI tiles -->
@@ -1309,6 +1329,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubDrift -->
 
       <div id="intuneSubRemediation" style="display:none;">
+        <div class="tab-hint">All proactive remediation scripts (<code>deviceHealthScripts</code>) with their schedules. Click a script to open its Intune admin-center blade.</div>
         <div class="table-card">
           <div class="table-toolbar">
             <h2>Remediations</h2>
@@ -1340,6 +1361,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div><!-- /viewIntune -->
 
   <div id="viewAnalyze" style="display:none;">
+    <div class="tab-hint">Drop one or more Intune log files (IME / AgentExecutor / MSI verbose) for AI-powered triage. Auto-trim cuts input tokens ~80%.</div>
     <div class="table-card" style="display:flex; flex-direction:column; align-items:stretch; gap:16px; padding:24px;">
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Log file analysis</div>
@@ -1373,6 +1395,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 
   <div id="viewSettings" style="display:none;">
+    <div class="tab-hint">Configure the Claude API key and model used for the optional AI features. Stored in your browser's localStorage only.</div>
     <div class="table-card" style="display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px;">
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
