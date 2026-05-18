@@ -1,0 +1,41 @@
+# Lessons
+
+## README drift on code changes (2026-05-18)
+
+**Pattern**: After making a code change that affects user-facing behavior, I noticed the README would also need updating — and either asked permission ("want me to update the README?") or moved on without doing it. Result: README accumulated multiple inaccuracies over many commits before the user had to call it out.
+
+**Specific drift caused this session**:
+- Commit `47b7166` (Installed sub-tab → only assigned apps) — I explicitly flagged the stale README line but asked instead of fixing. Stale.
+- Commit `10d0098` (group search switched `startswith` → `$search`) — README still said `startswith` in two places.
+- Subtab count "Six sub-tabs" never updated as Drift, Remediation, and Assignments were added (commits `551ac5f`, `06c9fef`, `effd233`).
+- "Failed Install — the default view" stayed in README after Installed became default.
+
+**Rule**: When I make a code change, if any of these change, update README.md **in the same commit** — don't ask:
+- A sub-tab is added/removed/renamed
+- A sub-tab's data source, default sort, default filter, or column set changes
+- A Graph endpoint, scope, or auth behavior changes
+- A user-visible flow ("first thing you see is X") changes
+- A default value or fallback behavior changes
+
+**Pre-commit check**: grep README.md for references to the thing I changed (endpoint name, sub-tab name, scope, etc.). If matches exist and are now wrong, fix them in the same diff. The check is `Grep` — takes 5 seconds.
+
+**Anti-pattern to stop**: writing "README line X is now stale — want me to update it?" That phrasing means I noticed and chose not to. Just fix it.
+
+---
+
+## README drift, part 2: pre-existing staleness (2026-05-18)
+
+**Pattern**: My v1 rule said "grep for what I changed." That catches forward drift but misses *historical* drift — lines that were already wrong before today's commit. After shipping Assignments v2, the README still said "all four sub-tabs share the same session" — a leftover from when there were genuinely 4 sub-tabs. I'd already fixed "Six sub-tabs" → "Nine sub-tabs" elsewhere but missed this near-duplicate.
+
+**Stronger rule**:
+- When the user asks "is X up to date?" — verify **all** of X, including parts I didn't touch this session. Run a fresh grep over the whole doc for the canonical facts (sub-tab count, scope count, default sub-tab name, data source labels). Don't trust that earlier fixes were exhaustive.
+- When making any README edit, scan ±10 lines around the edit for related stale claims, *and* grep the rest of the doc for the same fact pattern (e.g. if I'm fixing one "Six sub-tabs", grep for `four|five|six|seven|eight|nine` near "sub-tab" in case the count is repeated elsewhere).
+
+**Canonical facts to recheck whenever a feature ships** (this list lives here so I have something to scan against):
+- Number of Intune sub-tabs (currently 9): grep `sub-tab` and verify every count or list.
+- Number of MSAL scopes (currently 7): grep `scope` and verify the consent + endpoint sections.
+- Default Intune sub-tab on sign-in (currently Installed): grep `default` and verify no "Failed Install — the default view" leftover.
+- Data source for each sub-tab (Drift = Defender KQL, Installed = mobileApps with assignments, etc.): grep on the endpoint or technology name.
+- "What the dashboard calls" endpoint list — match against actual `graphGet`/`graphPost` calls in `index.html`.
+
+**Process**: when user asks "readme up to date?" → run the canonical-facts scan above before answering "yes." When I'm about to claim something is current, that claim is a falsifiable statement and I owe a 30-second check.
