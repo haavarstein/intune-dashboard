@@ -715,6 +715,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <option value="">All</option>
             </select>
           </div>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--ink-2);">
+            <input type="checkbox" id="includePmpcFailed"> Include Patch My PC
+          </label>
           <button class="btn btn-ghost" id="btnReloadApps">↻ Reload apps</button>
         </div>
         <div class="app-list" id="appList">
@@ -792,6 +795,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <option value="">All</option>
               </select>
             </div>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--ink-2);">
+              <input type="checkbox" id="includePmpcInstalled"> Include Patch My PC
+            </label>
             <button class="btn btn-ghost" id="btnReloadInstalledApps">↻ Reload apps</button>
           </div>
           <div class="app-list no-scroll" id="installedAppList">
@@ -1969,6 +1975,45 @@ function clearUninstallError() { $('uninstallError').innerHTML = ''; }
 
 
 // --- App list: apps with install failures (matches Intune portal "Apps install status" view) ---
+// ============================================================
+// Shared Patch My PC (PMPC) detection
+// PMPC-created apps have notes starting with "PmpAppId". The
+// Installed sub-tab's mobileApps fetch returns notes by default;
+// the Failed sub-tab uses a report endpoint that doesn't return
+// notes, so it needs a separate lightweight fetch. Either path
+// populates the same shared Set.
+// ============================================================
+let pmpcAppIds = new Set();
+let pmpcAppIdsLoaded = false;
+let pmpcAppIdsPromise = null;
+
+function isPmpcApp(app) {
+  return (app && (app.notes || '')).startsWith('PmpAppId');
+}
+
+function populatePmpcFromMobileApps(apps) {
+  for (const a of apps) {
+    if (isPmpcApp(a)) pmpcAppIds.add(a.id);
+  }
+  pmpcAppIdsLoaded = true;
+}
+
+function ensurePmpcAppIdsLoaded() {
+  if (pmpcAppIdsLoaded) return Promise.resolve();
+  if (pmpcAppIdsPromise) return pmpcAppIdsPromise;
+  pmpcAppIdsPromise = (async () => {
+    try {
+      const apps = await graphGetAll('beta/deviceAppManagement/mobileApps?$select=id,notes');
+      populatePmpcFromMobileApps(apps);
+    } catch (e) {
+      console.warn('Failed to load PMPC app IDs:', e.message || e);
+    } finally {
+      pmpcAppIdsPromise = null;
+    }
+  })();
+  return pmpcAppIdsPromise;
+}
+
 async function loadApps() {
   failedAppsLoaded = true;
   clearIntuneError();
@@ -1983,7 +2028,10 @@ async function loadApps() {
       select: ['DisplayName', 'Publisher', 'Platform', 'AppVersion',
                'FailedDevicePercentage', 'FailedDeviceCount', 'ApplicationId']
     };
-    const data = await graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body);
+    const [data] = await Promise.all([
+      graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body),
+      ensurePmpcAppIdsLoaded()
+    ]);
     const rows = parseReport(data);
 
     // Normalize to the shape the rest of the UI expects (id, displayName, publisher)
@@ -2016,7 +2064,9 @@ function populateAppPlatformOptions() {
 function applyAppFilter() {
   const q = $('appFilter').value.toLowerCase();
   const platF = $('appPlatformFilter').value;
+  const includePmpc = $('includePmpcFailed').checked;
   intuneAppsFiltered = intuneApps.filter(a => {
+    if (!includePmpc && pmpcAppIds.has(a.id)) return false;
     if (platF && platformLabel(a.platform) !== platF) return false;
     if (q && !(
       (a.displayName || '').toLowerCase().includes(q) ||
@@ -2063,6 +2113,7 @@ $('appList').addEventListener('click', e => {
 
 $('appFilter').addEventListener('input', applyAppFilter);
 $('appPlatformFilter').addEventListener('change', applyAppFilter);
+$('includePmpcFailed').addEventListener('change', applyAppFilter);
 
 $('btnReloadApps').addEventListener('click', loadApps);
 
@@ -2224,6 +2275,11 @@ async function loadInstalledApps() {
       path = next ? next.replace('https://graph.microsoft.com/', '') : null;
     }
 
+    // PMPC detection: the mobileApps response already includes `notes` —
+    // populate the shared pmpcAppIds Set so Failed sub-tab can reuse it
+    // without a separate Graph call.
+    populatePmpcFromMobileApps(all);
+
     installedApps = all
       .filter(app => app.displayName
         && !/^update for/i.test(app.displayName)
@@ -2255,7 +2311,9 @@ function populateInstalledAppPlatformOptions() {
 function applyInstalledAppFilter() {
   const q = $('installedAppFilter').value.toLowerCase();
   const platF = $('installedAppPlatformFilter').value;
+  const includePmpc = $('includePmpcInstalled').checked;
   installedAppsFiltered = installedApps.filter(a => {
+    if (!includePmpc && pmpcAppIds.has(a.id)) return false;
     if (platF && platformLabel(a.platform) !== platF) return false;
     if (q && !(
       (a.displayName || '').toLowerCase().includes(q) ||
@@ -2324,6 +2382,7 @@ $('installedAppList').addEventListener('click', e => {
 
 $('installedAppFilter').addEventListener('input', applyInstalledAppFilter);
 $('installedAppPlatformFilter').addEventListener('change', applyInstalledAppFilter);
+$('includePmpcInstalled').addEventListener('change', applyInstalledAppFilter);
 $('btnReloadInstalledApps').addEventListener('click', loadInstalledApps);
 
 $('installedAppsPager').addEventListener('click', e => {
