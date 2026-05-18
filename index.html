@@ -1039,11 +1039,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubVulnerabilities -->
 
       <div id="intuneSubAssignments" style="display:none;">
-        <div class="table-card" style="padding:20px;">
+        <div class="table-card" style="padding:20px; overflow:visible;">
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <div style="position:relative; flex:1; min-width:280px;">
               <input type="text" class="search" id="assignmentsSearch" placeholder="Search Entra groups by name…" style="width:100%;" autocomplete="off">
-              <div id="assignmentsSearchResults" style="display:none; position:absolute; left:0; right:0; top:100%; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-top:4px; max-height:280px; overflow-y:auto; z-index:50; box-shadow:0 4px 16px rgba(0,0,0,.06);"></div>
+              <div id="assignmentsSearchResults" style="display:none; position:absolute; left:0; right:0; top:100%; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-top:4px; max-height:480px; overflow-y:auto; z-index:50; box-shadow:0 4px 16px rgba(0,0,0,.06);"></div>
             </div>
             <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAssignmentsRefresh">↻ Refresh</span>
           </div>
