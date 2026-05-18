@@ -703,7 +703,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
 
       <div class="subtabs">
-        <button class="subtab active" data-subtab="installed">Installed</button>
+        <button class="subtab active" data-subtab="overview">Overview</button>
+        <button class="subtab" data-subtab="installed">Installed</button>
         <button class="subtab" data-subtab="failed">Failed Install</button>
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
@@ -797,7 +798,65 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
       </div><!-- /intuneSubFailed -->
 
-      <div id="intuneSubInstalled">
+      <div id="intuneSubOverview">
+        <div class="tab-hint">Tenant health summary for customer-review meetings — totals, refresh attention, top failures, top drift. Auto-loaded on sign-in.</div>
+        <div id="overviewLoading" class="loading" style="padding:24px;">Loading overview…</div>
+        <div id="overviewError"></div>
+        <div id="overviewContent" style="display:none;">
+          <div class="tiles" style="grid-template-columns: repeat(4, 1fr); margin-bottom:24px;">
+            <div class="tile">
+              <div class="tile-label">Managed devices</div>
+              <div class="tile-value" id="ovTotalDevices">0</div>
+              <div class="tile-sub" id="ovTotalDevicesSub">across all platforms</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Needing attention</div>
+              <div class="tile-value accent" id="ovAttention">0</div>
+              <div class="tile-sub" id="ovAttentionSub">stale 90+ days or Win 10</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Apps with failures</div>
+              <div class="tile-value" id="ovFailedApps">0</div>
+              <div class="tile-sub" id="ovFailedAppsSub">FailedDeviceCount &gt; 0</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Drifted software (P2/E5)</div>
+              <div class="tile-value" id="ovDrift">0</div>
+              <div class="tile-sub" id="ovDriftSub">components with &gt;20% drift</div>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+            <div class="table-card">
+              <div class="table-toolbar">
+                <h2>Top failing apps</h2>
+                <div class="controls">
+                  <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" data-overview-jump="failed">View all →</span>
+                </div>
+              </div>
+              <table>
+                <thead><tr><th>App</th><th>Publisher</th><th>Failed devices</th></tr></thead>
+                <tbody id="ovFailedAppsList"></tbody>
+              </table>
+            </div>
+
+            <div class="table-card">
+              <div class="table-toolbar">
+                <h2>Top drifted software</h2>
+                <div class="controls">
+                  <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" data-overview-jump="drift">View all →</span>
+                </div>
+              </div>
+              <table>
+                <thead><tr><th>Software</th><th>Drift %</th><th>Drifted devices</th></tr></thead>
+                <tbody id="ovDriftList"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div><!-- /intuneSubOverview -->
+
+      <div id="intuneSubInstalled" style="display:none;">
         <div class="tab-hint">Find which devices have a given app, with per-device version and state. Export the device list for targeted upgrades or exclusion groups.</div>
         <!-- App picker (shown when no app selected) -->
         <div id="installedAppPicker" class="app-picker">
@@ -1816,7 +1875,7 @@ function onSignedIn(account) {
   $('intuneSignedOut').style.display = 'none';
   $('intuneSignedIn').style.display = '';
   $('userName').textContent = account.name || account.username;
-  loadInstalledApps();
+  loadOverview();
 }
 
 async function getToken() {
@@ -2965,6 +3024,8 @@ function switchSubtab(name) {
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
+  $('intuneSubOverview').style.display = name === 'overview' ? '' : 'none';
+  if (name === 'overview' && !overviewLoaded) loadOverview();
   if (name === 'drift' && !driftLoaded) loadDriftData();
   if (name === 'remediation' && !remediationLoaded) loadRemediation();
   if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
@@ -2975,6 +3036,131 @@ function switchSubtab(name) {
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
 }
+
+// ============================================================
+// Overview sub-tab — tenant-wide health summary.
+// 3 parallel lightweight calls, each individually catch'd so one
+// failure (e.g. Defender KQL on a non-P2 tenant) doesn't break
+// the other tiles.
+// ============================================================
+let overviewLoaded = false;
+let overviewLoading = false;
+
+async function loadOverview() {
+  if (overviewLoading || overviewLoaded) return;
+  overviewLoading = true;
+  $('overviewLoading').style.display = '';
+  $('overviewContent').style.display = 'none';
+  $('overviewError').innerHTML = '';
+
+  const hwSelect = encodeURIComponent('id,osVersion,operatingSystem,lastSyncDateTime');
+  const failedBody = {
+    top: 50, skip: 0,
+    filter: "(FailedDeviceCount gt '0')",
+    orderBy: ['FailedDeviceCount desc'],
+    search: '',
+    select: ['DisplayName', 'Publisher', 'Platform', 'FailedDeviceCount', 'ApplicationId']
+  };
+
+  const [hwAll, failedRaw, driftJson] = await Promise.all([
+    graphGetAll(`beta/deviceManagement/managedDevices?$select=${hwSelect}`)
+      .catch(e => { console.warn('Overview: hardware fetch failed', e.message || e); return null; }),
+    graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', failedBody)
+      .catch(e => { console.warn('Overview: failed-apps fetch failed', e.message || e); return null; }),
+    graphPost('v1.0/security/runHuntingQuery', { Query: DRIFT_KQL })
+      .catch(e => { console.warn('Overview: drift KQL failed (P2/E5 required?)', e.message || e); return null; })
+  ]);
+
+  // Hardware aggregates
+  if (hwAll) {
+    let win10 = 0, win11 = 0, stale = 0, attention = 0;
+    const platCounts = {};
+    for (const d of hwAll) {
+      const ov = d.osVersion || '';
+      const plat = d.operatingSystem || 'Unknown';
+      platCounts[plat] = (platCounts[plat] || 0) + 1;
+      const isW10 = ov.startsWith('10.0.19');
+      const isW11 = ov.startsWith('10.0.26');
+      if (isW10) win10++;
+      if (isW11) win11++;
+      const lastSync = d.lastSyncDateTime;
+      const isStaleDevice = !lastSync || (Date.now() - Date.parse(lastSync)) > STALE_THRESHOLD_MS;
+      if (isStaleDevice) stale++;
+      if (isW10 || isStaleDevice) attention++;
+    }
+    $('ovTotalDevices').textContent = hwAll.length;
+    const platSummary = Object.entries(platCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([p, c]) => `${p}: ${c}`).join(' · ');
+    $('ovTotalDevicesSub').textContent = platSummary || 'across all platforms';
+    $('ovAttention').textContent = attention;
+    $('ovAttentionSub').textContent = `${win10} Win10 · ${stale} stale`;
+  } else {
+    $('ovTotalDevices').textContent = '—';
+    $('ovTotalDevicesSub').textContent = 'managedDevices fetch failed';
+    $('ovAttention').textContent = '—';
+    $('ovAttentionSub').textContent = '—';
+  }
+
+  // Failed apps
+  if (failedRaw) {
+    const rows = parseReport(failedRaw).filter(r => r.DisplayName && !/^update for/i.test(r.DisplayName));
+    const totalFailedDevices = rows.reduce((s, r) => s + (Number(r.FailedDeviceCount) || 0), 0);
+    $('ovFailedApps').textContent = rows.length;
+    $('ovFailedAppsSub').textContent = `${totalFailedDevices} failed devices total`;
+    const top5 = rows.slice().sort((a, b) => (b.FailedDeviceCount || 0) - (a.FailedDeviceCount || 0)).slice(0, 5);
+    $('ovFailedAppsList').innerHTML = top5.length
+      ? top5.map(r => `<tr><td>${esc(r.DisplayName)}</td><td>${esc(r.Publisher) || '—'}</td><td>${r.FailedDeviceCount}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty">No apps with failures.</td></tr>';
+  } else {
+    $('ovFailedApps').textContent = '—';
+    $('ovFailedAppsSub').textContent = 'report fetch failed';
+    $('ovFailedAppsList').innerHTML = '<tr><td colspan="3" class="empty">—</td></tr>';
+  }
+
+  // Drift (Defender KQL — same grouping as Drift tab, simplified)
+  if (driftJson) {
+    const results = Array.isArray(driftJson.results) ? driftJson.results : [];
+    const bySoftware = new Map();
+    for (const r of results) {
+      const name = r.SoftwareName || '';
+      const vendor = r.SoftwareVendor || '';
+      const version = r.SoftwareVersion || '';
+      const count = Number(r.DeviceCount) || 0;
+      if (!name || !version || count === 0) continue;
+      const key = `${name}|${vendor}`;
+      if (!bySoftware.has(key)) bySoftware.set(key, { name: titleCase(name), versions: [] });
+      bySoftware.get(key).versions.push(count);
+    }
+    const drifted = [];
+    for (const s of bySoftware.values()) {
+      s.versions.sort((a, b) => b - a);
+      const total = s.versions.reduce((a, b) => a + b, 0);
+      const driftPct = total > 0 ? ((total - s.versions[0]) / total) * 100 : 0;
+      const driftedDevices = total - s.versions[0];
+      drifted.push({ name: s.name, driftPct, driftedDevices });
+    }
+    const overTwenty = drifted.filter(d => d.driftPct > 20).length;
+    $('ovDrift').textContent = overTwenty;
+    $('ovDriftSub').textContent = `${drifted.length} unique components scanned`;
+    const top5 = drifted.filter(d => d.driftPct > 0).sort((a, b) => b.driftPct - a.driftPct).slice(0, 5);
+    $('ovDriftList').innerHTML = top5.length
+      ? top5.map(d => `<tr><td>${esc(d.name)}</td><td>${d.driftPct.toFixed(1)}%</td><td>${d.driftedDevices}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty">No drift detected.</td></tr>';
+  } else {
+    $('ovDrift').textContent = '—';
+    $('ovDriftSub').textContent = 'Defender P2/E5 required';
+    $('ovDriftList').innerHTML = '<tr><td colspan="3" class="empty">Defender data unavailable.</td></tr>';
+  }
+
+  overviewLoaded = true;
+  overviewLoading = false;
+  $('overviewLoading').style.display = 'none';
+  $('overviewContent').style.display = '';
+}
+
+document.querySelectorAll('[data-overview-jump]').forEach(el => {
+  el.addEventListener('click', () => switchSubtab(el.dataset.overviewJump));
+});
 
 const GB = 1024 * 1024 * 1024;
 const toGB = b => (!b || b <= 0) ? 0 : b / GB;

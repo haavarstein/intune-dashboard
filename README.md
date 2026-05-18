@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Nine sub-tabs: Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Ten sub-tabs: Overview, Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — Claude API key and model selection for the optional AI features.
 
@@ -21,7 +21,14 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all nine sub-tabs share the same session.
+Sign in once with MSAL — all ten sub-tabs share the same session.
+
+**Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
+
+- Four KPI tiles: **Managed devices** (with top-3 platform breakdown), **Needing attention** (Win10 holdouts + stale-90d, deduplicated), **Apps with failures** (count + total failed-device-count subtitle), and **Drifted software** (components with >20% drift; requires Defender P2/E5).
+- **Top 5 failing apps** list + **Top 5 drifted software** list side-by-side, each with a "View all →" link that jumps to the underlying Failed Install or Drift & Compliance sub-tab.
+- Loads on sign-in. Three parallel lightweight calls — a `managedDevices` list with only `id,osVersion,operatingSystem,lastSyncDateTime` (no per-device RAM fan-out), the existing `getAppsInstallSummaryReport`, and the Defender drift KQL — each individually catch'd so one failure (e.g. P2/E5 not licensed) doesn't break the other tiles.
+- Tenants without Defender P2/E5: the Drift tile and list show `—` with a "P2/E5 required" subtitle; everything else still renders.
 
 **Failed Install** — apps with install failures across the fleet.
 - Lists all apps with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
@@ -36,7 +43,7 @@ Sign in once with MSAL — all nine sub-tabs share the same session.
 - Type to filter the list.
 - `Update for*` driver/firmware apps are excluded for a cleaner audit view.
 
-**Installed** *(default sub-tab)* — for any app, see the devices that report install status and the groups it's assigned to.
+**Installed** — for any app, see the devices that report install status and the groups it's assigned to.
 - Alphabetical list of apps that have at least one assignment (apps with no current assignment are excluded; data source is `mobileApps?$expand=assignments`, fully paginated — no 1000-app cap). Paginated 15 per page, with name/publisher search and a platform filter that defaults to *Windows*. `Update for*` driver/firmware apps are excluded.
 - **Include Patch My PC** checkbox (above the app list, default unchecked) — same behavior as Failed Install: PMPC-created apps (detected via `notes` starting with `PmpAppId`) are hidden by default and surface when the box is ticked.
 - Click an app to drill in. The app name is a link that opens the app's blade in the Intune admin center in a new tab.
@@ -118,8 +125,8 @@ Sign in once with MSAL — all nine sub-tabs share the same session.
 1. Click the **Intune** tab and **Sign in with Microsoft**
 2. A popup opens to `login.microsoftonline.com` — sign in with an account that has Intune read permissions
 3. Consent to the requested scopes (see below)
-4. The **Installed** sub-tab loads first, with the list of apps that have at least one assignment in your tenant
-5. Click an app to see device-level install status, or switch to any other sub-tab (Failed Install, Hardware, Assignments, etc.)
+4. The **Overview** sub-tab loads first, with the tenant health summary
+5. Click any other sub-tab — Installed, Failed Install, Hardware, Assignments, etc. — to drill in
 
 Everything runs in your browser. CSV data never leaves your machine. Intune data is fetched directly from `graph.microsoft.com` to your browser — it does not pass through any server.
 
@@ -149,7 +156,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceAppManagement/mobileApps/{id}?$expand=assignments` — assignments for the selected app in the Installed sub-tab
 - `GET /beta/deviceAppManagement/mobileApps/{id}` — full app object including the inline `rules` / `detectionRules` collection (Detection Rule Inspector modal, triggered from Installed and Failed sub-tabs)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
-- `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
+- `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
