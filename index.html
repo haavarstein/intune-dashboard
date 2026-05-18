@@ -729,7 +729,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="name" id="selAppName">—</div>
             <div class="meta" id="selAppMeta">—</div>
           </div>
-          <button class="btn btn-ghost" id="btnChangeApp">← Change app</button>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-ghost" id="btnDetectionRulesFailed">🔍 Detection rule</button>
+            <button class="btn btn-ghost" id="btnChangeApp">← Change app</button>
+          </div>
         </div>
 
         <div class="tiles" style="grid-template-columns: repeat(3, 1fr);">
@@ -803,7 +806,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="name" id="instAppName">—</div>
               <div class="meta" id="instAppMeta">—</div>
             </div>
-            <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-ghost" id="btnDetectionRulesInstalled">🔍 Detection rule</button>
+              <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
+            </div>
           </div>
 
           <div class="assignments-card" id="instAssignmentsCard">
@@ -1409,6 +1415,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <button class="close-btn" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body" id="mBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="detModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="detTitle">Detection rule</h3>
+        <div class="panel-sub" id="detSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeDetectionRulesModal()">×</button>
+    </div>
+    <div class="modal-body" id="detBody"></div>
   </div>
 </div>
 
@@ -2496,6 +2515,150 @@ $('btnChangeAppInstalled').addEventListener('click', () => {
   $('installedAppPicker').style.display = '';
   $('installedView').style.display = 'none';
 });
+
+// ============================================================
+// Detection Rule Inspector
+// Modal showing the Win32 detection rule(s) for the selected app.
+// Triggered from the selected-app header in Installed and Failed
+// sub-tabs. Read-only — uses existing DeviceManagementApps.Read.All
+// scope and the mobileApps/{id} endpoint we already call.
+// ============================================================
+
+const WIN32_OP_LABEL = {
+  equal: '=', notEqual: '≠',
+  greaterThan: '>', greaterThanOrEqual: '≥',
+  lessThan: '<', lessThanOrEqual: '≤',
+  exists: 'exists', doesNotExist: 'does not exist',
+  notConfigured: 'not configured'
+};
+const op = v => WIN32_OP_LABEL[v] || v || '—';
+
+function decodeBase64Utf8(b64) {
+  try {
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return b64; // not base64 — return as-is
+  }
+}
+
+function formatWin32Rule(r) {
+  const t = (r['@odata.type'] || '').replace('#microsoft.graph.', '');
+  const arch = r.check32BitOn64System ? ' <span style="color:var(--muted); font-size:11px;">(32-bit on 64-bit)</span>' : '';
+
+  if (t === 'win32LobAppProductCodeRule') {
+    const verPart = r.productVersion
+      ? `<div><strong>Version:</strong> ${esc(op(r.productVersionOperator))} <code>${esc(r.productVersion)}</code></div>`
+      : '';
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">MSI Product Code</div>
+        <div><strong>Product Code:</strong> <code>${esc(r.productCode || '—')}</code></div>
+        ${verPart}
+      </div>`;
+  }
+
+  if (t === 'win32LobAppFileSystemRule') {
+    const opType = r.operationType || r.detectionType || r.operator;
+    const valuePart = r.comparisonValue
+      ? `<div><strong>Comparison:</strong> ${esc(op(r.operator))} <code>${esc(r.comparisonValue)}</code></div>`
+      : '';
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">File / Folder${arch}</div>
+        <div><strong>Path:</strong> <code>${esc(r.path || '—')}</code></div>
+        <div><strong>Item:</strong> <code>${esc(r.fileOrFolderName || '—')}</code></div>
+        <div><strong>Check:</strong> ${esc(opType || '—')}</div>
+        ${valuePart}
+      </div>`;
+  }
+
+  if (t === 'win32LobAppRegistryRule') {
+    const valuePart = r.comparisonValue
+      ? `<div><strong>Comparison:</strong> ${esc(op(r.operator))} <code>${esc(r.comparisonValue)}</code></div>`
+      : '';
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">Registry${arch}</div>
+        <div><strong>Key:</strong> <code>${esc(r.keyPath || '—')}</code></div>
+        <div><strong>Value name:</strong> <code>${esc(r.valueName || '(default)')}</code></div>
+        <div><strong>Check:</strong> ${esc(r.operationType || r.detectionType || '—')}</div>
+        ${valuePart}
+      </div>`;
+  }
+
+  if (t === 'win32LobAppPowerShellScriptRule') {
+    const script = r.scriptContent ? decodeBase64Utf8(r.scriptContent) : '(no script content returned)';
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">PowerShell Script</div>
+        <div><strong>Name:</strong> ${esc(r.displayName || '—')}</div>
+        <div><strong>Run as:</strong> ${esc(r.runAsAccount || '—')} ${r.runAs32Bit ? '(32-bit)' : ''}</div>
+        <div><strong>Signature check:</strong> ${r.enforceSignatureCheck ? 'Yes' : 'No'}</div>
+        <div style="margin-top:8px;"><strong>Script:</strong></div>
+        <pre style="background:#f5f0e8; border:1px solid var(--line); border-radius:6px; padding:12px; font-family:ui-monospace,monospace; font-size:12px; max-height:360px; overflow:auto; white-space:pre-wrap; margin:6px 0 0;">${esc(script)}</pre>
+      </div>`;
+  }
+
+  return `<div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;"><div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">${esc(t)}</div><div class="meta">(unrecognized rule type)</div></div>`;
+}
+
+function renderDetectionRules(app) {
+  const t = (app['@odata.type'] || '').toLowerCase();
+
+  if (t.includes('win32lobapp')) {
+    // Prefer `rules` (current) filtered to detection; fall back to `detectionRules` (legacy)
+    let rules = (app.rules || []).filter(r => (r.ruleType || '').toLowerCase() === 'detection');
+    if (!rules.length && app.detectionRules) rules = app.detectionRules;
+    if (!rules.length) return '<div class="meta" style="padding:8px 0;">This Win32 app has no detection rules configured. Intune will treat the app as never-detected.</div>';
+    return rules.map(formatWin32Rule).join('');
+  }
+
+  if (t.includes('windowsmobilemsi') || t.includes('windowsmsi')) {
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">MSI (line-of-business)</div>
+        <div><strong>Product Code:</strong> <code>${esc(app.productCode || '—')}</code></div>
+        ${app.productVersion ? `<div><strong>Product Version:</strong> <code>${esc(app.productVersion)}</code></div>` : ''}
+        <div class="meta" style="margin-top:8px; font-size:12px;">Intune detects this app by matching the MSI ProductCode against installed MSI products on the device.</div>
+      </div>`;
+  }
+
+  if (t.includes('macoslobapp')) {
+    return `
+      <div style="padding:14px 16px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; line-height:1.7;">
+        <div style="font-weight:700; font-size:13px; color:var(--accent); margin-bottom:6px;">macOS LoB</div>
+        ${app.bundleId ? `<div><strong>Bundle ID:</strong> <code>${esc(app.bundleId)}</code></div>` : ''}
+        ${app.versionNumber ? `<div><strong>Version:</strong> <code>${esc(app.versionNumber)}</code></div>` : ''}
+        ${app.buildNumber ? `<div><strong>Build:</strong> <code>${esc(app.buildNumber)}</code></div>` : ''}
+      </div>`;
+  }
+
+  const friendlyType = t.replace('#microsoft.graph.', '');
+  return `<div class="meta" style="padding:8px 0;">Detection rules aren't exposed for this app type (<code>${esc(friendlyType)}</code>) — the platform handles detection internally (e.g. Store apps via the Microsoft Store, Office Suite via the C2R installer).</div>`;
+}
+
+async function openDetectionRulesModal(app) {
+  if (!app || !app.id) return;
+  $('detTitle').textContent = app.displayName || 'Detection rule';
+  $('detSubtitle').textContent = app.publisher || '';
+  $('detBody').innerHTML = '<div class="loading" style="padding:24px;">Loading detection rule…</div>';
+  $('detModal').classList.add('show');
+  try {
+    const full = await graphGet(`beta/deviceAppManagement/mobileApps/${encodeURIComponent(app.id)}`);
+    $('detBody').innerHTML = renderDetectionRules(full);
+  } catch (e) {
+    $('detBody').innerHTML = `<div class="error-banner">Failed to load detection rule: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function closeDetectionRulesModal() {
+  $('detModal').classList.remove('show');
+}
+
+$('btnDetectionRulesInstalled').addEventListener('click', () => openDetectionRulesModal(selectedApp));
+$('btnDetectionRulesFailed').addEventListener('click', () => openDetectionRulesModal(selectedApp));
+$('detModal').addEventListener('click', e => { if (e.target === $('detModal')) closeDetectionRulesModal(); });
 $('btnRefreshInstalled').addEventListener('click', () => {
   if (!selectedApp) return;
   loadInstalledAssignments();

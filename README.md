@@ -28,6 +28,7 @@ Sign in once with MSAL — all nine sub-tabs share the same session.
 - **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Click an app to drill in to every device's install state (Application · Version · Platform · Device · User · State · Error · Last modified).
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
+- **🔍 Detection rule** button in the selected-app header — opens a modal showing exactly what Intune is checking for on each device (MSI ProductCode + version operator, file/folder path + version comparison, registry key + value match, or the full PowerShell detection script — base64-decoded). Read-only. Most failed-install threads on r/Intune ultimately reduce to "what does the detection rule check, and why doesn't it match?" — this answers that without leaving the dashboard.
 
 **Required Install** — Win32 apps assigned as *Required* to *All Devices*.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
@@ -40,6 +41,7 @@ Sign in once with MSAL — all nine sub-tabs share the same session.
 - **Assigned to** panel shows the assignment groups for the app, each tagged by intent (*Required* / *Available* / *Uninstall*). Special targets like *All Devices* and *All Users* are labeled as such; exclusion groups are marked `(exclusion)`.
 - **Installed devices** table shows every device the install-status report returns: Device · User · Version · State · Platform · Last modified. The **State** dropdown defaults to whichever value starts with `installed` so you immediately see the install set; switch to *All states* to see failed, pending, etc.
 - **⧉ Copy device names** copies the currently filtered list to the clipboard, newline-separated — paste straight into an Entra group, an exclusion list, or a Feature Update assignment. **⬇ Export CSV** downloads the same list (Device · User · Version · State · Platform · LastModified). Built for the use case of "give me the group of devices that have App X" — targeted upgrades and Feature Update exclusions.
+- **🔍 Detection rule** button in the selected-app header — same Detection Rule Inspector as on Failed Install. Shows the per-app detection logic that Intune evaluates on every device: MSI ProductCode + version operator, file/folder + version comparison, registry key + value match, or the full PowerShell detection script (base64-decoded). Supports Win32 LoB, Windows MSI LoB, and macOS LoB; other types show a "not applicable for this app type" message.
 
 **Required Uninstall** — apps assigned with intent *Uninstall* to a group.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
@@ -142,6 +144,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status (used by both the Failed drill-in and the Installed devices view)
 - `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — apps with assignments. Win32-filtered server-side for Required Install; all platforms (no `$filter`, paginated) for Required Uninstall *and* the Installed sub-tab, with client-side platform filtering.
 - `GET /beta/deviceAppManagement/mobileApps/{id}?$expand=assignments` — assignments for the selected app in the Installed sub-tab
+- `GET /beta/deviceAppManagement/mobileApps/{id}` — full app object including the inline `rules` / `detectionRules` collection (Detection Rule Inspector modal, triggered from Installed and Failed sub-tabs)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
