@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all four sub-tabs share the same session.
+Sign in once with MSAL — all nine sub-tabs share the same session.
 
 **Failed Install** — apps with install failures across the fleet.
 - Lists all apps with `FailedDeviceCount > 0`, sorted by failure count. `Update for*` driver/firmware apps are excluded.
