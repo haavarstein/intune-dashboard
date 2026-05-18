@@ -1067,7 +1067,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile">
               <div class="tile-label">Configuration profiles</div>
               <div class="tile-value" id="kAssignmentsConfigs">0</div>
-              <div class="tile-sub">deviceConfigurations</div>
+              <div class="tile-sub">deviceConfigurations (legacy)</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Settings catalog</div>
+              <div class="tile-value" id="kAssignmentsSettingsCatalog">0</div>
+              <div class="tile-sub">configurationPolicies</div>
             </div>
             <div class="tile">
               <div class="tile-label">Compliance policies</div>
@@ -1075,9 +1080,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="tile-sub">platform compliance rules</div>
             </div>
             <div class="tile">
+              <div class="tile-label">PowerShell scripts</div>
+              <div class="tile-value" id="kAssignmentsPsScripts">0</div>
+              <div class="tile-sub">deviceManagementScripts</div>
+            </div>
+            <div class="tile">
               <div class="tile-label">Remediations</div>
               <div class="tile-value" id="kAssignmentsRemediations">0</div>
               <div class="tile-sub">deviceHealthScripts</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Windows Update profiles</div>
+              <div class="tile-value" id="kAssignmentsUpdates">0</div>
+              <div class="tile-sub">feature · quality · driver</div>
             </div>
           </div>
 
@@ -1135,7 +1150,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             </table>
           </div>
 
-          <div class="table-card">
+          <div class="table-card" style="margin-bottom:16px;">
             <div class="table-toolbar">
               <h2>Remediations <span class="meta" style="font-weight:400; font-size:13px;" id="aRemediationsCount">(0)</span></h2>
             </div>
@@ -1149,6 +1164,60 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 </tr>
               </thead>
               <tbody id="aRemediationsRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card" style="margin-bottom:16px;">
+            <div class="table-toolbar">
+              <h2>Settings catalog <span class="meta" style="font-weight:400; font-size:13px;" id="aSettingsCatalogCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Platform</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aSettingsCatalogRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card" style="margin-bottom:16px;">
+            <div class="table-toolbar">
+              <h2>PowerShell scripts <span class="meta" style="font-weight:400; font-size:13px;" id="aPsScriptsCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Run as</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aPsScriptsRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2>Windows Update profiles <span class="meta" style="font-weight:400; font-size:13px;" id="aUpdatesCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aUpdatesRows"></tbody>
             </table>
           </div>
         </div>
@@ -1638,7 +1707,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementScripts.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -3441,7 +3510,7 @@ document.querySelectorAll('#intuneSubRemediation th[data-rsort]').forEach(th => 
 // ============================================================
 let assignmentsPoliciesLoaded = false;
 let assignmentsPoliciesLoading = false;
-let assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [] };
+let assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
 let assignmentsSelectedGroup = null;
 let assignmentsSearchTimer = null;
 
@@ -3460,6 +3529,14 @@ async function graphGetAll(initialPath) {
   return all;
 }
 
+// Graph endpoints can 403/404 in tenants without specific licensing
+// (e.g. windowsDriverUpdateProfiles needs Autopatch). One failing endpoint
+// shouldn't take down the whole Assignments load — log and continue.
+async function safeGraphGetAll(path, label) {
+  try { return await graphGetAll(path); }
+  catch (e) { console.warn(`Assignments: ${label} fetch failed:`, e.message || e); return []; }
+}
+
 async function loadAssignmentsPolicies(force = false) {
   if (assignmentsPoliciesLoading) return;
   if (assignmentsPoliciesLoaded && !force) return;
@@ -3468,15 +3545,25 @@ async function loadAssignmentsPolicies(force = false) {
   $('assignmentsLoadStatus').textContent = 'Loading policies (apps · configs · compliance · remediations)…';
 
   try {
-    const [apps, configs, compliance, healthScripts] = await Promise.all([
-      graphGetAll('beta/deviceAppManagement/mobileApps?$expand=assignments'),
-      graphGetAll('beta/deviceManagement/deviceConfigurations?$expand=assignments'),
-      graphGetAll('beta/deviceManagement/deviceCompliancePolicies?$expand=assignments'),
-      graphGetAll('beta/deviceManagement/deviceHealthScripts?$expand=assignments')
+    const [apps, configs, compliance, healthScripts, settingsCatalog, psScripts, featureUpdates, qualityUpdates, driverUpdates] = await Promise.all([
+      safeGraphGetAll('beta/deviceAppManagement/mobileApps?$expand=assignments', 'apps'),
+      safeGraphGetAll('beta/deviceManagement/deviceConfigurations?$expand=assignments', 'configs'),
+      safeGraphGetAll('beta/deviceManagement/deviceCompliancePolicies?$expand=assignments', 'compliance'),
+      safeGraphGetAll('beta/deviceManagement/deviceHealthScripts?$expand=assignments', 'remediations'),
+      safeGraphGetAll('beta/deviceManagement/configurationPolicies?$expand=assignments', 'settingsCatalog'),
+      safeGraphGetAll('beta/deviceManagement/deviceManagementScripts?$expand=assignments', 'psScripts'),
+      safeGraphGetAll('beta/deviceManagement/windowsFeatureUpdateProfiles?$expand=assignments', 'featureUpdates'),
+      safeGraphGetAll('beta/deviceManagement/windowsQualityUpdateProfiles?$expand=assignments', 'qualityUpdates'),
+      safeGraphGetAll('beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments', 'driverUpdates')
     ]);
-    assignmentsRaw = { apps, configs, compliance, healthScripts };
+    const updateProfiles = [
+      ...featureUpdates.map(p => ({ ...p, _updateType: 'Feature' })),
+      ...qualityUpdates.map(p => ({ ...p, _updateType: 'Quality' })),
+      ...driverUpdates.map(p => ({ ...p, _updateType: 'Driver' }))
+    ];
+    assignmentsRaw = { apps, configs, compliance, healthScripts, settingsCatalog, psScripts, updateProfiles };
     assignmentsPoliciesLoaded = true;
-    $('assignmentsLoadStatus').textContent = `Indexed ${apps.length} apps · ${configs.length} configs · ${compliance.length} compliance · ${healthScripts.length} remediations. Type a group name above.`;
+    $('assignmentsLoadStatus').textContent = `Indexed ${apps.length} apps · ${configs.length} configs · ${settingsCatalog.length} settings catalog · ${compliance.length} compliance · ${psScripts.length} scripts · ${healthScripts.length} remediations · ${updateProfiles.length} update profiles. Type a group name above.`;
     if (assignmentsSelectedGroup) renderAssignmentsForGroup();
   } catch (e) {
     console.error('Assignments policies load failed', e);
@@ -3533,8 +3620,7 @@ function selectAssignmentsGroup(group) {
   if (assignmentsPoliciesLoaded) {
     renderAssignmentsForGroup();
   } else {
-    // policies still loading — show a quick placeholder; renderer will be called by loader on completion
-    for (const id of ['aAppsRows', 'aConfigsRows', 'aComplianceRows', 'aRemediationsRows']) {
+    for (const id of ['aAppsRows', 'aConfigsRows', 'aComplianceRows', 'aRemediationsRows', 'aSettingsCatalogRows', 'aPsScriptsRows', 'aUpdatesRows']) {
       $(id).innerHTML = `<tr><td colspan="5" class="loading">Waiting for policy index to finish…</td></tr>`;
     }
   }
@@ -3691,6 +3777,54 @@ function renderAssignmentsForGroup() {
       <td class="date">${fmtIsoDate(m.lastModified)}</td>
     </tr>
   `);
+
+  // Settings catalog (configurationPolicies) — note: uses `name` not `displayName`
+  const settingsCatalogMatches = [];
+  for (const p of assignmentsRaw.settingsCatalog) {
+    const r = findGroupAssignment(p, gid);
+    if (r.matched) settingsCatalogMatches.push({ id: p.id, name: p.name || '—', platform: p.platforms || '—', lastModified: p.lastModifiedDateTime, ...r });
+  }
+  renderSection('aSettingsCatalogRows', 'aSettingsCatalogCount', 'kAssignmentsSettingsCatalog', settingsCatalogMatches, 5, m => `
+    <tr>
+      <td><a href="https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/configuration" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.platform)}</td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+
+  // PowerShell scripts (deviceManagementScripts, distinct from health scripts)
+  const psScriptMatches = [];
+  for (const s of assignmentsRaw.psScripts) {
+    const r = findGroupAssignment(s, gid);
+    if (r.matched) psScriptMatches.push({ id: s.id, name: s.displayName || '—', runAs: s.runAsAccount || '—', lastModified: s.lastModifiedDateTime, ...r });
+  }
+  renderSection('aPsScriptsRows', 'aPsScriptsCount', 'kAssignmentsPsScripts', psScriptMatches, 5, m => `
+    <tr>
+      <td><a href="https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesWindowsMenu/~/scripts" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.runAs)}</td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+
+  // Windows Update profiles — Feature / Quality / Driver merged
+  const updateMatches = [];
+  for (const p of assignmentsRaw.updateProfiles) {
+    const r = findGroupAssignment(p, gid);
+    if (r.matched) updateMatches.push({ id: p.id, name: p.displayName || '—', updateType: p._updateType, lastModified: p.lastModifiedDateTime, ...r });
+  }
+  renderSection('aUpdatesRows', 'aUpdatesCount', 'kAssignmentsUpdates', updateMatches, 5, m => `
+    <tr>
+      <td><a href="https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/windows10Updates" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.updateType)}</td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
 }
 
 $('assignmentsSearch').addEventListener('input', e => {
@@ -3708,7 +3842,7 @@ $('assignmentsSearch').addEventListener('focus', () => {
   if (q.length >= 2) searchGroupsForAssignments(q);
 });
 $('btnAssignmentsRefresh').addEventListener('click', () => {
-  assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [] };
+  assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
   loadAssignmentsPolicies(true);
 });
 

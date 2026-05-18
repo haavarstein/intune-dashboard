@@ -76,13 +76,13 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
 - Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
 
-**Assignments** — group-centric reverse lookup. Pick an Entra group → see every policy targeting it, across four types: apps, configuration profiles, compliance policies, and proactive remediation scripts.
+**Assignments** — group-centric reverse lookup. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
 
 - Type-ahead **group search** against `groups?$search="displayName:…"` (debounced 300ms, substring/token match). Pick a result to inspect.
-- KPI tiles for the four counts (apps · configs · compliance · remediations).
-- Per-section tables show the policy name (linked to the relevant admin-center page), policy-specific column (intent for apps, type for configs, platform for compliance, schedule for remediations), the assignment filter ID if present, an *Excluded* badge if the assignment is an exclusion-group target, and the last-modified timestamp.
-- Policy index is fetched once per session — 4 paginated Graph calls run in parallel on first tab open and cached. Picking different groups after that is a client-side filter, no extra Graph traffic. Use **↻ Refresh** to invalidate the cache and re-fetch.
-- Out of scope for v1: settings catalog (`configurationPolicies`), PowerShell scripts (`deviceManagementScripts`), update rings, MAM/app-protection policies, Autopilot profiles, endpoint security intents, and device/user-centric reverse lookup.
+- KPI tiles for the seven counts.
+- Per-section tables show the policy name (linked to the relevant admin-center page), a type-specific column (intent for apps, type for configs, platform for settings catalog / compliance, run-as for PowerShell scripts, schedule for remediations, type for update profiles), the assignment filter ID if present, an *Excluded* badge if the assignment is an exclusion-group target, and the last-modified timestamp.
+- Policy index is fetched once per session — 9 paginated Graph calls run in parallel on first tab open and cached. Per-endpoint failures (e.g. driver-update profiles on tenants without the licensing) are logged to the console but don't take down the rest of the load. Picking different groups after that is a client-side filter, no extra Graph traffic. Use **↻ Refresh** to invalidate the cache and re-fetch.
+- Still out of scope: MAM/app-protection policies (different assignment shape), Autopilot profiles, endpoint security intents, and device/user-centric reverse lookup.
 
 **Remediation** — proactive remediation scripts (`deviceHealthScripts`) and their schedules.
 
@@ -129,9 +129,10 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
-- `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab)
+- `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
+- `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 
-**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt when `DeviceManagementScripts.Read.All` is requested for the first time.
+**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementConfiguration.Read.All` for the expanded Assignments coverage).
 
 **Token storage.** Access tokens are held in browser session storage by MSAL and refreshed silently. Click **Sign out** to clear them.
 
@@ -147,8 +148,13 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
 - `GET /v1.0/groups?$search="displayName:…"` — Entra group type-ahead search (Assignments sub-tab; sent with `ConsistencyLevel: eventual` header)
-- `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles with their assignments (Assignments sub-tab)
+- `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles (legacy) with their assignments (Assignments sub-tab)
 - `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments` — compliance policies with their assignments (Assignments sub-tab)
+- `GET /beta/deviceManagement/configurationPolicies?$expand=assignments` — settings catalog policies (Assignments sub-tab)
+- `GET /beta/deviceManagement/deviceManagementScripts?$expand=assignments` — PowerShell scripts (Assignments sub-tab)
+- `GET /beta/deviceManagement/windowsFeatureUpdateProfiles?$expand=assignments` — Windows Feature Update profiles (Assignments sub-tab)
+- `GET /beta/deviceManagement/windowsQualityUpdateProfiles?$expand=assignments` — Windows Quality Update profiles (Assignments sub-tab)
+- `GET /beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments` — Windows Driver Update profiles (Assignments sub-tab; requires Autopatch licensing in some tenants — silently skipped if 403)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 
