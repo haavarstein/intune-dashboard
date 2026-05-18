@@ -695,6 +695,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
@@ -1036,6 +1037,122 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubVulnerabilities -->
+
+      <div id="intuneSubAssignments" style="display:none;">
+        <div class="table-card" style="padding:20px;">
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div style="position:relative; flex:1; min-width:280px;">
+              <input type="text" class="search" id="assignmentsSearch" placeholder="Search Entra groups by name…" style="width:100%;" autocomplete="off">
+              <div id="assignmentsSearchResults" style="display:none; position:absolute; left:0; right:0; top:100%; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-top:4px; max-height:280px; overflow-y:auto; z-index:50; box-shadow:0 4px 16px rgba(0,0,0,.06);"></div>
+            </div>
+            <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAssignmentsRefresh">↻ Refresh</span>
+          </div>
+          <div id="assignmentsLoadStatus" class="meta" style="margin-top:10px; font-size:12px;"></div>
+        </div>
+
+        <div id="assignmentsEmpty" class="meta" style="margin-top:16px; padding:24px; text-align:center;">Type a group name above to see what's assigned to it.</div>
+
+        <div id="assignmentsView" style="display:none; margin-top:16px;">
+          <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:20px;" id="assignmentsGroupName">—</h2>
+            <span class="meta" id="assignmentsGroupMeta" style="font-size:12px;"></span>
+          </div>
+
+          <div class="tiles" style="grid-template-columns: repeat(4, 1fr); margin-bottom:16px;">
+            <div class="tile">
+              <div class="tile-label">Apps</div>
+              <div class="tile-value" id="kAssignmentsApps">0</div>
+              <div class="tile-sub">mobile apps assigned</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Configuration profiles</div>
+              <div class="tile-value" id="kAssignmentsConfigs">0</div>
+              <div class="tile-sub">deviceConfigurations</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Compliance policies</div>
+              <div class="tile-value" id="kAssignmentsCompliance">0</div>
+              <div class="tile-sub">platform compliance rules</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Remediations</div>
+              <div class="tile-value" id="kAssignmentsRemediations">0</div>
+              <div class="tile-sub">deviceHealthScripts</div>
+            </div>
+          </div>
+
+          <div class="table-card" style="margin-bottom:16px;">
+            <div class="table-toolbar">
+              <h2>Apps <span class="meta" style="font-weight:400; font-size:13px;" id="aAppsCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Intent</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aAppsRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card" style="margin-bottom:16px;">
+            <div class="table-toolbar">
+              <h2>Configuration profiles <span class="meta" style="font-weight:400; font-size:13px;" id="aConfigsCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aConfigsRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card" style="margin-bottom:16px;">
+            <div class="table-toolbar">
+              <h2>Compliance policies <span class="meta" style="font-weight:400; font-size:13px;" id="aComplianceCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Platform</th>
+                  <th>Filter</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aComplianceRows"></tbody>
+            </table>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2>Remediations <span class="meta" style="font-weight:400; font-size:13px;" id="aRemediationsCount">(0)</span></h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Schedule</th>
+                  <th>Exclusion</th>
+                  <th>Last modified</th>
+                </tr>
+              </thead>
+              <tbody id="aRemediationsRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /intuneSubAssignments -->
 
       <div id="intuneSubDrift" style="display:none;">
         <h2 style="margin: 0 0 16px 0; font-size: 22px;">Software Version Drift &amp; Compliance</h2>
@@ -2526,8 +2643,10 @@ function switchSubtab(name) {
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
+  $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
   if (name === 'drift' && !driftLoaded) loadDriftData();
   if (name === 'remediation' && !remediationLoaded) loadRemediation();
+  if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
@@ -3311,6 +3430,281 @@ document.querySelectorAll('#intuneSubRemediation th[data-rsort]').forEach(th => 
     else { remediationSortKey = key; remediationSortDir = 'asc'; }
     renderRemediation();
   });
+});
+
+// ============================================================
+// Assignments Explorer sub-tab
+// Group-centric: search an Entra group → see every policy with an
+// assignment targeting that group, across 4 types (apps, configs,
+// compliance, remediation scripts).
+// Requires: Group.Read.All (already requested).
+// ============================================================
+let assignmentsPoliciesLoaded = false;
+let assignmentsPoliciesLoading = false;
+let assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [] };
+let assignmentsSelectedGroup = null;
+let assignmentsSearchTimer = null;
+
+const GROUP_TARGET_TYPE = '#microsoft.graph.groupAssignmentTarget';
+const EXCLUSION_TARGET_TYPE = '#microsoft.graph.exclusionGroupAssignmentTarget';
+
+async function graphGetAll(initialPath) {
+  let path = initialPath;
+  const all = [];
+  while (path) {
+    const data = await graphGet(path);
+    if (data.value) all.push(...data.value);
+    const next = data['@odata.nextLink'];
+    path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+  }
+  return all;
+}
+
+async function loadAssignmentsPolicies(force = false) {
+  if (assignmentsPoliciesLoading) return;
+  if (assignmentsPoliciesLoaded && !force) return;
+
+  assignmentsPoliciesLoading = true;
+  $('assignmentsLoadStatus').textContent = 'Loading policies (apps · configs · compliance · remediations)…';
+
+  try {
+    const [apps, configs, compliance, healthScripts] = await Promise.all([
+      graphGetAll('beta/deviceAppManagement/mobileApps?$expand=assignments'),
+      graphGetAll('beta/deviceManagement/deviceConfigurations?$expand=assignments'),
+      graphGetAll('beta/deviceManagement/deviceCompliancePolicies?$expand=assignments'),
+      graphGetAll('beta/deviceManagement/deviceHealthScripts?$expand=assignments')
+    ]);
+    assignmentsRaw = { apps, configs, compliance, healthScripts };
+    assignmentsPoliciesLoaded = true;
+    $('assignmentsLoadStatus').textContent = `Indexed ${apps.length} apps · ${configs.length} configs · ${compliance.length} compliance · ${healthScripts.length} remediations. Type a group name above.`;
+    if (assignmentsSelectedGroup) renderAssignmentsForGroup();
+  } catch (e) {
+    console.error('Assignments policies load failed', e);
+    $('assignmentsLoadStatus').innerHTML = `<span style="color:#c0392b;">Failed to load policies: ${esc(e.message || String(e))}</span>`;
+  } finally {
+    assignmentsPoliciesLoading = false;
+  }
+}
+
+async function searchGroupsForAssignments(query) {
+  if (!query || query.length < 2) {
+    $('assignmentsSearchResults').style.display = 'none';
+    return;
+  }
+  try {
+    const path = `v1.0/groups?$filter=startswith(displayName,'${encodeURIComponent(query.replace(/'/g, "''"))}')&$top=20&$select=id,displayName,description&$orderby=displayName`;
+    const data = await graphGet(path);
+    const groups = data.value || [];
+    const box = $('assignmentsSearchResults');
+    if (!groups.length) {
+      box.innerHTML = `<div class="meta" style="padding:12px;">No groups match "${esc(query)}"</div>`;
+    } else {
+      box.innerHTML = groups.map(g => `
+        <div class="app-row" data-group-id="${esc(g.id)}" data-group-name="${esc(g.displayName)}" style="cursor:pointer;">
+          <div style="flex:1; min-width:0;">
+            <div class="name">${esc(g.displayName)}</div>
+            <div class="meta">${esc(g.description || g.id)}</div>
+          </div>
+        </div>
+      `).join('');
+      box.querySelectorAll('[data-group-id]').forEach(row => {
+        row.addEventListener('click', () => selectAssignmentsGroup({ id: row.dataset.groupId, displayName: row.dataset.groupName }));
+      });
+    }
+    box.style.display = '';
+  } catch (e) {
+    console.error('Group search failed', e);
+  }
+}
+
+function selectAssignmentsGroup(group) {
+  assignmentsSelectedGroup = group;
+  $('assignmentsSearch').value = group.displayName;
+  $('assignmentsSearchResults').style.display = 'none';
+  $('assignmentsEmpty').style.display = 'none';
+  $('assignmentsView').style.display = '';
+  $('assignmentsGroupName').textContent = group.displayName;
+  $('assignmentsGroupMeta').textContent = `id: ${group.id}`;
+  if (assignmentsPoliciesLoaded) {
+    renderAssignmentsForGroup();
+  } else {
+    // policies still loading — show a quick placeholder; renderer will be called by loader on completion
+    for (const id of ['aAppsRows', 'aConfigsRows', 'aComplianceRows', 'aRemediationsRows']) {
+      $(id).innerHTML = `<tr><td colspan="5" class="loading">Waiting for policy index to finish…</td></tr>`;
+    }
+  }
+}
+
+// Find the assignment on a policy that targets the selected group (include or exclude),
+// returning { matched: bool, isExclusion: bool, filterId: string|null, raw: assignment }
+function findGroupAssignment(policy, groupId) {
+  for (const a of (policy.assignments || [])) {
+    const t = a.target || {};
+    const ttype = t['@odata.type'] || '';
+    const tgid = t.groupId;
+    if (tgid === groupId) {
+      const isExclusion = ttype === EXCLUSION_TARGET_TYPE;
+      const filterId = t.deviceAndAppManagementAssignmentFilterId || null;
+      return { matched: true, isExclusion, filterId, raw: a };
+    }
+  }
+  return { matched: false };
+}
+
+function fmtIsoDate(s) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleString(); } catch { return s; }
+}
+
+function appsBladeUrl(id) {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(id)}`;
+}
+
+function configurationProfileBladeUrl(id) {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/configuration`;
+}
+
+function compliancePolicyBladeUrl(id) {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/compliance`;
+}
+
+function platformFromCompliancePolicyType(p) {
+  const t = (p['@odata.type'] || '').toLowerCase();
+  if (t.includes('windows')) return 'Windows';
+  if (t.includes('android')) return 'Android';
+  if (t.includes('ios')) return 'iOS';
+  if (t.includes('macos')) return 'macOS';
+  return '—';
+}
+
+function configurationProfileType(p) {
+  const t = (p['@odata.type'] || '').replace('#microsoft.graph.', '');
+  return t || '—';
+}
+
+function renderAssignmentsForGroup() {
+  if (!assignmentsSelectedGroup) return;
+  const gid = assignmentsSelectedGroup.id;
+
+  const renderSection = (rowsId, countId, kpiId, matches, colspan, rowFn) => {
+    $(countId).textContent = `(${matches.length})`;
+    if (kpiId) $(kpiId).textContent = matches.length;
+    if (!matches.length) {
+      $(rowsId).innerHTML = `<tr><td colspan="${colspan}" class="empty">No policies of this type assigned to this group.</td></tr>`;
+    } else {
+      $(rowsId).innerHTML = matches.map(rowFn).join('');
+    }
+  };
+
+  const exclTag = a => a.isExclusion
+    ? `<span style="display:inline-block; padding:1px 8px; border-radius:4px; font-size:11px; font-weight:600; background:#fcdede; color:#992020;">Excluded</span>`
+    : '—';
+  const filterTag = a => a.filterId
+    ? `<code style="font-size:11px;">${esc(a.filterId)}</code>`
+    : '—';
+
+  // Apps
+  const appMatches = [];
+  for (const app of assignmentsRaw.apps) {
+    if (!app.assignments) continue;
+    for (const a of app.assignments) {
+      const t = a.target || {};
+      if (t.groupId === gid) {
+        appMatches.push({
+          id: app.id, name: app.displayName, lastModified: app.lastModifiedDateTime,
+          intent: a.intent || '—',
+          filterId: t.deviceAndAppManagementAssignmentFilterId || null,
+          isExclusion: (t['@odata.type'] || '') === EXCLUSION_TARGET_TYPE
+        });
+      }
+    }
+  }
+  renderSection('aAppsRows', 'aAppsCount', 'kAssignmentsApps', appMatches, 5, m => `
+    <tr>
+      <td><a href="${appsBladeUrl(m.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.intent)}</td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+
+  // Configurations
+  const configMatches = [];
+  for (const p of assignmentsRaw.configs) {
+    const r = findGroupAssignment(p, gid);
+    if (r.matched) configMatches.push({ id: p.id, name: p.displayName || '—', type: configurationProfileType(p), lastModified: p.lastModifiedDateTime, ...r });
+  }
+  renderSection('aConfigsRows', 'aConfigsCount', 'kAssignmentsConfigs', configMatches, 5, m => `
+    <tr>
+      <td><a href="${configurationProfileBladeUrl(m.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td><code style="font-size:11px;">${esc(m.type)}</code></td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+
+  // Compliance
+  const complianceMatches = [];
+  for (const p of assignmentsRaw.compliance) {
+    const r = findGroupAssignment(p, gid);
+    if (r.matched) complianceMatches.push({ id: p.id, name: p.displayName || '—', platform: platformFromCompliancePolicyType(p), lastModified: p.lastModifiedDateTime, ...r });
+  }
+  renderSection('aComplianceRows', 'aComplianceCount', 'kAssignmentsCompliance', complianceMatches, 5, m => `
+    <tr>
+      <td><a href="${compliancePolicyBladeUrl(m.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.platform)}</td>
+      <td>${filterTag(m)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+
+  // Remediations (deviceHealthScripts) — schedule comes from THIS group's assignment
+  const remediationMatches = [];
+  for (const s of assignmentsRaw.healthScripts) {
+    for (const a of (s.assignments || [])) {
+      const t = a.target || {};
+      if (t.groupId === gid) {
+        const sched = scheduleLabelFromAssignment(a) || '—';
+        remediationMatches.push({
+          id: s.id, name: s.displayName || '—', schedule: sched,
+          isGlobalScript: !!s.isGlobalScript,
+          lastModified: s.lastModifiedDateTime,
+          isExclusion: (t['@odata.type'] || '') === EXCLUSION_TARGET_TYPE
+        });
+        break;
+      }
+    }
+  }
+  renderSection('aRemediationsRows', 'aRemediationsCount', 'kAssignmentsRemediations', remediationMatches, 4, m => `
+    <tr>
+      <td><a href="${remediationBladeUrl({ id: m.id, displayName: m.name, isGlobalScript: m.isGlobalScript })}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(m.name)}</a></td>
+      <td>${esc(m.schedule)}</td>
+      <td>${exclTag(m)}</td>
+      <td class="date">${fmtIsoDate(m.lastModified)}</td>
+    </tr>
+  `);
+}
+
+$('assignmentsSearch').addEventListener('input', e => {
+  clearTimeout(assignmentsSearchTimer);
+  const q = e.target.value.trim();
+  if (!q) { $('assignmentsSearchResults').style.display = 'none'; return; }
+  assignmentsSearchTimer = setTimeout(() => searchGroupsForAssignments(q), 300);
+});
+$('assignmentsSearch').addEventListener('blur', () => {
+  // delay so click on result registers first
+  setTimeout(() => { $('assignmentsSearchResults').style.display = 'none'; }, 200);
+});
+$('assignmentsSearch').addEventListener('focus', () => {
+  const q = $('assignmentsSearch').value.trim();
+  if (q.length >= 2) searchGroupsForAssignments(q);
+});
+$('btnAssignmentsRefresh').addEventListener('click', () => {
+  assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [] };
+  loadAssignmentsPolicies(true);
 });
 
 let uploadedLogs = [];

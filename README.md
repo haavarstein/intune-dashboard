@@ -76,6 +76,14 @@ Sign in once with MSAL — all four sub-tabs share the same session.
 - Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
 - Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
 
+**Assignments** — group-centric reverse lookup. Pick an Entra group → see every policy targeting it, across four types: apps, configuration profiles, compliance policies, and proactive remediation scripts.
+
+- Type-ahead **group search** against `groups?$filter=startswith(displayName,'…')` (debounced). Pick a result to inspect.
+- KPI tiles for the four counts (apps · configs · compliance · remediations).
+- Per-section tables show the policy name (linked to the relevant admin-center page), policy-specific column (intent for apps, type for configs, platform for compliance, schedule for remediations), the assignment filter ID if present, an *Excluded* badge if the assignment is an exclusion-group target, and the last-modified timestamp.
+- Policy index is fetched once per session — 4 paginated Graph calls run in parallel on first tab open and cached. Picking different groups after that is a client-side filter, no extra Graph traffic. Use **↻ Refresh** to invalidate the cache and re-fetch.
+- Out of scope for v1: settings catalog (`configurationPolicies`), PowerShell scripts (`deviceManagementScripts`), update rings, MAM/app-protection policies, Autopilot profiles, endpoint security intents, and device/user-centric reverse lookup.
+
 **Remediation** — proactive remediation scripts (`deviceHealthScripts`) and their schedules.
 
 - Sortable table with **Script name**, **Publisher**, **Schedule**, **Assigned groups** (count), and **Last modified**. Default sort is Schedule with **Hourly** first, then **Daily**, then **Run once**, then **Unassigned**, tie-broken by script name A→Z.
@@ -137,7 +145,10 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list (for the Hardware sub-tab)
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
-- `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab)
+- `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
+- `GET /v1.0/groups?$filter=startswith(displayName,…)` — Entra group type-ahead search (Assignments sub-tab)
+- `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles with their assignments (Assignments sub-tab)
+- `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments` — compliance policies with their assignments (Assignments sub-tab)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 
