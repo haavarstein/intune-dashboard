@@ -905,7 +905,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubUninstall -->
 
       <div id="intuneSubHardware" style="display:none;">
-        <div class="tab-hint">Managed-device inventory for Windows 11 readiness and refresh planning. Click any KPI tile to filter the table.</div>
+        <div class="tab-hint">Managed-device inventory for Win11 readiness, post-EOS Win10 cleanup, and stale-device refresh planning. Tile filters + CSV export for Entra-group import.</div>
         <div id="hwLoading" class="loading">Loading devices…</div>
         <div id="hwError"></div>
         <div id="hwContent" style="display:none;">
@@ -914,12 +914,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="tile clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
                 <div class="tile-label">Windows 10</div>
                 <div class="tile-value" id="hwWin10">0</div>
-                <div class="tile-sub">&nbsp;</div>
+                <div class="tile-sub">Past EOS · Oct 2025</div>
               </div>
               <div class="tile clickable" id="hwWin11Tile" title="Click to filter to Windows 11 devices">
                 <div class="tile-label">Windows 11</div>
                 <div class="tile-value" id="hwWin11">0</div>
                 <div class="tile-sub">&nbsp;</div>
+              </div>
+              <div class="tile clickable" id="hwStaleTile" title="Click to filter to devices not synced in 90+ days">
+                <div class="tile-label">Stale 90+ days</div>
+                <div class="tile-value" id="hwStale">0</div>
+                <div class="tile-sub">no check-in for 90 days+</div>
               </div>
               <div class="tile clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
                 <div class="tile-label">4GB RAM</div>
@@ -974,6 +979,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="controls">
                 <input type="text" class="search" id="hwFilter" placeholder="Search device, user, model…">
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnHwClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnHwExport" title="Export currently filtered rows to CSV">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnHwRefresh">↻ Refresh</span>
               </div>
             </div>
@@ -1471,6 +1477,10 @@ let sortDir = 'asc';
 
 const $ = id => document.getElementById(id);
 const esc = s => s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const escCsv = v => {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 const fmtDate = d => (!d || d.length !== 8) ? '—' : `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
 const isX86 = r => (r.RegistryPath || '').includes('WOW6432Node');
 const isHKCU = r => (r.RegistryPath || '').toUpperCase().startsWith('HKEY_CURRENT_USER') || (r.RegistryPath || '').toUpperCase().startsWith('HKCU');
@@ -2575,10 +2585,6 @@ function copyInstalledNames() {
 function exportInstalledCSV() {
   const rows = window.__installedFiltered || installedRows;
   const header = ['Device', 'User', 'Version', 'InstallState', 'Platform', 'LastModified'];
-  const escCsv = v => {
-    const s = v == null ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
   const lines = [header.join(',')].concat(
     rows.map(r => [r.DeviceName, r.UserPrincipalName, r.AppVersion, r.InstallState, r.Platform, r.LastModifiedDateTime].map(escCsv).join(','))
   );
@@ -3062,6 +3068,14 @@ function storageBucket(gb) {
   return 'other';
 }
 
+const STALE_THRESHOLD_MS = 90 * 24 * 60 * 60 * 1000;
+function isStale(d) {
+  if (!d.lastSync) return true; // never synced → counts as stale
+  const t = Date.parse(d.lastSync);
+  if (Number.isNaN(t)) return false;
+  return (Date.now() - t) > STALE_THRESHOLD_MS;
+}
+
 function filterHw() {
   const q = $('hwFilter').value.toLowerCase();
   const ramF = $('hwRamFilter').value;
@@ -3075,6 +3089,7 @@ function filterHw() {
       if (kind === 'ram' && ramBucket(d.ramGB) !== val) return false;
       if (kind === 'stor' && storageBucket(d.totalGB) !== val) return false;
       if (kind === 'win' && winBucket(d.osVersion) !== val) return false;
+      if (kind === 'stale' && !isStale(d)) return false;
     }
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
@@ -3095,13 +3110,16 @@ function renderHardware() {
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
   const winCounts = { win10: 0, win11: 0 };
+  let staleCount = 0;
   platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
     const wb = winBucket(d.osVersion); if (wb) winCounts[wb]++;
+    if (isStale(d)) staleCount++;
   });
   $('hwWin10').textContent = winCounts.win10;
   $('hwWin11').textContent = winCounts.win11;
+  $('hwStale').textContent = staleCount;
   $('hwRam4').textContent = ramCounts.le4;
   $('hwRam8').textContent = ramCounts['8'];
   $('hwRam16').textContent = ramCounts['16'];
@@ -3206,6 +3224,7 @@ $('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardwa
 const hwTileMap = {
   hwWin10Tile: 'win:win10',
   hwWin11Tile: 'win:win11',
+  hwStaleTile: 'stale:1',
   hwRam4Tile: 'ram:le4',
   hwRam8Tile: 'ram:8',
   hwRam16Tile: 'ram:16',
@@ -3234,6 +3253,22 @@ $('btnHwClearKpi').addEventListener('click', () => {
   hwTileFilter = null;
   syncHwTileUi();
   renderHardware();
+});
+
+$('btnHwExport').addEventListener('click', () => {
+  const rows = filterHw();
+  const header = ['DeviceName', 'Manufacturer', 'Model', 'RAM_GB', 'Total_GB', 'Free_GB', 'Windows', 'LastCheckIn'];
+  const lines = [header.join(',')];
+  for (const d of rows) {
+    lines.push([d.deviceName, d.manufacturer, d.model, d.ramGB, d.totalGB, d.freeGB, d.osVersion, d.lastSync].map(escCsv).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hardware-inventory.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 });
 
 document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {

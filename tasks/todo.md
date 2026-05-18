@@ -1,27 +1,52 @@
-# Helper hints across tabs
+# Hardware: stale-device + Windows 10 post-EOS surfacing
 
 ## Goal
-Make each tab self-describing at a glance. New users (and returning users on rarely-used tabs) immediately know what the tab is for, what data it pulls, and the distinctive feature/constraint.
+Surface two refresh/lifecycle problems that the Intune portal hides:
+1. **Stale devices** — managed devices that haven't checked in for 90+ days. Often the long tail of unmaintained hardware that should be retired/wiped/refreshed.
+2. **Windows 10 post-EOS** — Windows 10 mainstream support ended 2025-10-14. The fleet count is the urgency number for refresh planning.
+
+Plus add a CSV export so a filtered tile selection (e.g. "show Win 10 devices") can be dropped straight into an Entra group for refresh batches.
 
 ## Tasks
-- [x] Add `.tab-hint` CSS class
-- [x] Hints in `viewLocal`, `viewAnalyze`, `viewSettings`
-- [x] Hints in all 9 Intune sub-tabs
-- [x] Canonical-facts scan: no README changes triggered (sub-tab count, scope count, default sub-tab, endpoints all unchanged)
+- [x] Stale 90+ days tile added between Win11 and 4GB RAM
+- [x] Windows 10 tile sub-text now reads "Past EOS · Oct 2025"
+- [x] `isStale` helper + 90-day threshold constant
+- [x] Filter integration: `kind === 'stale'` branch in `filterHw`
+- [x] `hwTileMap` extended with `hwStaleTile: 'stale:1'`
+- [x] Export CSV button + handler
+- [x] Updated Hardware tab hint to mention new features
+- [x] README Hardware section updated (11 tiles, EOS framing, export)
+- [x] Canonical-facts scan: no stale "ten KPI buckets" left
+- [x] Bonus pre-existing bug fix: lifted `escCsv` to module scope (was function-local inside `exportInstalledCSV`; Drift and Hardware CSV exports would have ReferenceError'd otherwise)
 
-## Verification
-- All 12 hints render at the top of their respective tabs.
-- Hint styling consistent everywhere.
-- No layout breakage on the tabs that have pickers/tiles immediately below.
+## Notes
+- Stale threshold: 90 days (a single hard line in v1; we can expose 30/60/90 dropdowns later if asked)
+- Date math: use `Date.now() - 90 * 24 * 3600 * 1000` against the parsed `lastSyncDateTime`
+- Devices with empty `lastSync` (never synced): treat as stale? — Yes, they're at least as suspicious as 90+ days
+- No new endpoint or scope needed — `lastSyncDateTime` already in the existing `$select`
+
+## Verifiable success
+1. Stale tile renders with a count > 0 on any tenant with old devices
+2. Click stale tile → table shows only those devices
+3. Click again → un-filters
+4. ⬇ Export CSV downloads the currently filtered rows
+5. Win10 tile reads "Past EOS · Oct 2025" subtext
 
 ## Review
 
-**Net diff**: 1 CSS rule (~11 lines) + 12 one-line hint insertions in `index.html`. Zero behavior changes, zero data-source changes, zero README impact.
+**Net diff**: ~30 lines added to `index.html`, ~3 lines changed in `README.md`. No new endpoints, no new scopes. The `lastSyncDateTime` field was already in the existing `$select`, so the stale detection is free.
 
-**Design**: `.tab-hint` styled as a subtle accent-tinted info box with a 3px left border and 6px right radius. Sits at the top of each tab content area, before any pickers/tiles/tables.
+**Design**:
+- Single stale threshold (90 days) in v1. If 30/60/90 segmentation becomes useful, expose as a dropdown later.
+- Never-synced devices (`lastSync === ''`) count as stale — they're at least as suspicious as 90+ days idle.
+- CSV export reuses the toolbar pattern from Installed sub-tab; same `escCsv` helper (now module-scoped).
 
-**Hint coverage**: 3 main tabs (Local, Analyze, Settings) + 9 Intune sub-tabs = 12 total. The Intune main tab itself doesn't get a hint — its sub-tabs each carry their own and a wrapper hint would be redundant.
+**Pre-existing bug caught**: `escCsv` was declared `const` inside `exportInstalledCSV()`, but referenced from `exportDriftCSV()` at module scope. Drift CSV export would have thrown `ReferenceError: escCsv is not defined` whenever invoked. Lifted to module scope; removed the duplicate. Fix shipped in this same commit because finding it while writing the Hardware export means I own it now.
 
-**Skipped**: no dismissal mechanism in v1. If hints become noisy, add a "Hide hints" toggle in Settings later. Per CLAUDE.md "no features beyond what was asked".
-
-**Live verification**: load each tab and confirm the hint renders at the top, doesn't break layout adjacent to pickers/tiles, and reads cleanly.
+**Live verification needed**:
+1. Hardware → Stale 90+ days tile shows a count.
+2. Click tile → table filters to stale devices only.
+3. Click again → un-filters.
+4. Click ⬇ Export CSV with stale tile active → downloads `hardware-inventory.csv` with just those rows.
+5. Click Win10 tile → filters to Win10 devices; sub-text reads "Past EOS · Oct 2025".
+6. Sanity check Drift's CSV export — should now work too.
