@@ -698,6 +698,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
     <div id="intuneSignedIn" style="display:none;">
       <div class="auth-bar">
+        <div id="customerSwitcher" style="display:none; position:relative;">
+          <button id="customerSwitcherToggle" class="btn btn-ghost" style="display:inline-flex; align-items:center; gap:6px; font-weight:700;">
+            <span id="customerSwitcherActive">—</span>
+            <span style="font-size:9px;">▾</span>
+          </button>
+          <div id="customerSwitcherMenu" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--card); border:1px solid var(--line); border-radius:10px; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.08); z-index:200; padding:4px 0; overflow:hidden;"></div>
+        </div>
         <div class="auth-user"><strong id="userName">—</strong></div>
         <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
       </div>
@@ -1460,8 +1467,24 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 
   <div id="viewSettings" style="display:none;">
-    <div class="tab-hint">Configure the Claude API key and model used for the optional AI features. Stored in your browser's localStorage only.</div>
+    <div class="tab-hint">Configure customers (for MSPs managing multiple tenants) and the Claude API key for the optional AI features. Everything stored in your browser's localStorage only.</div>
     <div class="table-card" style="display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px;">
+
+      <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, optional label, and the login email are stored; no tokens. The dropdown appears once you've added two or more.</div>
+
+        <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
+
+        <div style="display:grid; grid-template-columns: 90px 1fr 1.4fr auto; gap:8px; align-items:center;">
+          <input type="text" id="customerCodeInput" placeholder="Code" maxlength="4" class="search" style="text-transform:uppercase;">
+          <input type="text" id="customerLabelInput" placeholder="Label (optional)" class="search">
+          <input type="email" id="customerEmailInput" placeholder="user@customer.com" class="search">
+          <button class="btn" id="btnAddCustomer">Add</button>
+        </div>
+        <div id="customerAddStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+      </div>
+
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used to analyze Intune error codes with AI. Stored in your browser's localStorage — never sent to any server other than api.anthropic.com.</div>
@@ -1875,8 +1898,193 @@ function onSignedIn(account) {
   $('intuneSignedOut').style.display = 'none';
   $('intuneSignedIn').style.display = '';
   $('userName').textContent = account.name || account.username;
+  renderCustomerSwitcher();
   loadOverview();
 }
+
+// ============================================================
+// Multi-customer (MSP) tenant switcher
+// Stores only {code, label?, email} per customer in localStorage.
+// MSAL still uses sessionStorage (no refresh tokens persisted).
+// Switching uses loginPopup({ loginHint }) first time per session,
+// then setActiveAccount silently for return visits.
+// ============================================================
+
+const CUSTOMERS_KEY = 'intuneDashboard:customers';
+
+function loadCustomers() {
+  try {
+    const raw = localStorage.getItem(CUSTOMERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveCustomers(list) {
+  localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(list));
+}
+
+function getActiveCustomerCode() {
+  if (!msalApp) return null;
+  const account = msalApp.getActiveAccount();
+  if (!account) return null;
+  const upn = (account.username || '').toLowerCase();
+  const match = loadCustomers().find(c => (c.email || '').toLowerCase() === upn);
+  return match ? match.code : null;
+}
+
+function renderCustomerSwitcher() {
+  const customers = loadCustomers();
+  const switcher = $('customerSwitcher');
+  if (customers.length < 2) {
+    switcher.style.display = 'none';
+    return;
+  }
+  switcher.style.display = '';
+  const activeCode = getActiveCustomerCode();
+  $('customerSwitcherActive').textContent = activeCode || '—';
+
+  $('customerSwitcherMenu').innerHTML = customers.map(c => {
+    const isActive = c.code === activeCode;
+    const labelLine = c.label ? `<div class="meta" style="font-size:11px;">${esc(c.label)}</div>` : '';
+    return `<div class="customer-menu-item" data-customer-code="${esc(c.code)}" style="padding:10px 14px; cursor:pointer; ${isActive ? 'background:var(--accent-soft);' : ''} border-bottom:1px solid var(--line);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-weight:700; min-width:32px;">${esc(c.code)}</span>
+        <span style="font-size:12px; color:var(--ink-2); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(c.email)}</span>
+        ${isActive ? '<span style="color:var(--accent); font-weight:600; font-size:11px;">active</span>' : ''}
+      </div>
+      ${labelLine}
+    </div>`;
+  }).join('');
+}
+
+function renderCustomersList() {
+  const customers = loadCustomers();
+  const box = $('customersList');
+  if (!customers.length) {
+    box.innerHTML = `<div class="meta" style="padding:14px 16px; font-size:12px;">No customers configured. Add one below.</div>`;
+    return;
+  }
+  box.innerHTML = customers.map((c, i) => `
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
+      <span style="font-weight:700; min-width:36px;">${esc(c.code)}</span>
+      <span style="flex:1; font-size:13px;">${esc(c.label || '')}</span>
+      <span class="meta" style="font-size:12px;">${esc(c.email)}</span>
+      <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px;" data-customer-delete="${esc(c.code)}" title="Remove">🗑</span>
+    </div>
+  `).join('');
+}
+
+function addCustomer() {
+  const code = ($('customerCodeInput').value || '').trim().toUpperCase();
+  const label = ($('customerLabelInput').value || '').trim();
+  const email = ($('customerEmailInput').value || '').trim().toLowerCase();
+  const status = $('customerAddStatus');
+  if (!code || code.length > 4) { status.textContent = 'Code is required (max 4 chars).'; return; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { status.textContent = 'Email looks invalid.'; return; }
+  const customers = loadCustomers();
+  if (customers.some(c => c.code === code)) { status.textContent = `Code "${code}" is already used.`; return; }
+  customers.push({ code, label, email });
+  saveCustomers(customers);
+  $('customerCodeInput').value = '';
+  $('customerLabelInput').value = '';
+  $('customerEmailInput').value = '';
+  status.textContent = `Added ${code}.`;
+  setTimeout(() => { status.textContent = ''; }, 2000);
+  renderCustomersList();
+  renderCustomerSwitcher();
+}
+
+function deleteCustomer(code) {
+  const customers = loadCustomers().filter(c => c.code !== code);
+  saveCustomers(customers);
+  renderCustomersList();
+  renderCustomerSwitcher();
+}
+
+// Clear every sub-tab's cached state. Called when switching tenants
+// so the next tab open re-fetches against the new tenant.
+function resetTenantState() {
+  // Hardware
+  hwLoaded = false; hwDevices = []; hwTileFilter = null;
+  // Installed
+  installedAppsLoaded = false; installedApps = []; installedAppsFiltered = [];
+  selectedApp = null; installedRows = [];
+  if ($('installedAppPicker')) $('installedAppPicker').style.display = '';
+  if ($('installedView')) $('installedView').style.display = 'none';
+  // Failed
+  failedAppsLoaded = false; intuneApps = []; intuneAppsFiltered = []; failedRows = [];
+  if ($('appPicker')) $('appPicker').style.display = '';
+  if ($('failedView')) $('failedView').style.display = 'none';
+  // Required / Uninstall
+  requiredLoaded = false; requiredApps = [];
+  uninstallLoaded = false; uninstallApps = [];
+  // Assignments
+  assignmentsPoliciesLoaded = false;
+  assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
+  assignmentsSelectedGroup = null;
+  // Remediation / Vulnerabilities
+  remediationLoaded = false; remediationRows = [];
+  vulnLoaded = false; vulnRows = [];
+  // Drift
+  driftLoaded = false; driftLoading = false; driftApps = []; driftFiltered = [];
+  if (driftChartInstance) { driftChartInstance.destroy(); driftChartInstance = null; }
+  // Overview
+  overviewLoaded = false; overviewLoading = false;
+  // PMPC
+  pmpcAppIds = new Set(); pmpcAppIdsLoaded = false; pmpcAppIdsPromise = null;
+}
+
+async function switchToCustomer(code) {
+  const customer = loadCustomers().find(c => c.code === code);
+  if (!customer || !msalApp) return;
+
+  const accounts = msalApp.getAllAccounts();
+  const cached = accounts.find(a => (a.username || '').toLowerCase() === customer.email.toLowerCase());
+
+  try {
+    if (cached) {
+      msalApp.setActiveAccount(cached);
+    } else {
+      const result = await msalApp.loginPopup({ scopes: SCOPES, loginHint: customer.email });
+      msalApp.setActiveAccount(result.account);
+    }
+    resetTenantState();
+    onSignedIn(msalApp.getActiveAccount());
+    switchSubtab('overview');
+  } catch (e) {
+    console.error('Customer switch failed', e);
+    showIntuneError('Switch failed: ' + (e.message || e));
+  }
+}
+
+$('btnAddCustomer').addEventListener('click', addCustomer);
+$('customerEmailInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
+$('customersList').addEventListener('click', e => {
+  const code = e.target.dataset && e.target.dataset.customerDelete;
+  if (code) deleteCustomer(code);
+});
+
+$('customerSwitcherToggle').addEventListener('click', e => {
+  e.stopPropagation();
+  const menu = $('customerSwitcherMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+});
+document.addEventListener('click', e => {
+  if (!$('customerSwitcher').contains(e.target)) {
+    $('customerSwitcherMenu').style.display = 'none';
+  }
+});
+$('customerSwitcherMenu').addEventListener('click', e => {
+  const item = e.target.closest('[data-customer-code]');
+  if (!item) return;
+  $('customerSwitcherMenu').style.display = 'none';
+  switchToCustomer(item.dataset.customerCode);
+});
+
+// Render the customers list on page load so Settings reflects state immediately
+renderCustomersList();
 
 async function getToken() {
   try {

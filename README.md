@@ -5,7 +5,7 @@ A clean, client-side dashboard with four tabs:
 1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
 2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Ten sub-tabs: Overview, Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
-4. **Settings** — Claude API key and model selection for the optional AI features.
+4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)
 
@@ -170,6 +170,29 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments` — Windows Driver Update profiles (Assignments sub-tab; requires Autopatch licensing in some tenants — silently skipped if 403)
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
+
+## Multi-customer (MSP) workflow
+
+The dashboard supports a lightweight tenant switcher for consultants and MSPs juggling several Intune tenants.
+
+**Configure your customers** in **Settings → Customers**. For each tenant you'll add:
+
+- **Code** — required, 2–4 letters (e.g. `DB`, `XB`). The code is the *only* identifier that shows up in the dashboard's top-right tenant dropdown, so customer names stay off screenshots, recordings, and over-the-shoulder views.
+- **Label** — optional friendly name, visible in Settings and as a subtitle inside the dropdown. Not shown in the always-visible header.
+- **Email** — the account UPN you sign in with for that tenant (e.g. `consultant@customer.onmicrosoft.com`).
+
+The customer list lives in `localStorage` under `intuneDashboard:customers`. **No tokens or refresh material is persisted** — MSAL continues to use `sessionStorage` exactly as before, so the only thing stored across sessions is the mapping itself.
+
+**Switching tenants.** Once you have **two or more** customers configured, a dropdown appears next to the user name in the top-right auth bar. Pick a code → the dashboard:
+
+- finds an MSAL account for that email in the current session and switches silently (`setActiveAccount`), or
+- runs `loginPopup({ scopes, loginHint: email })` so the Microsoft sign-in popup arrives with the account pre-filled — typically one click to confirm, often no MFA prompt if the cookie is still valid.
+
+After the switch the dashboard clears every sub-tab's cached state (`hwDevices`, `intuneApps`, `driftApps`, `assignmentsRaw`, `pmpcAppIds`, etc.) and re-renders against the new tenant, landing you on the **Overview** sub-tab as a customer-review starting point.
+
+**Privacy/screenshot intent.** The dropdown shows only the short code — never the email or label. Open the dropdown to see emails; close it before screenshotting.
+
+**With 0 or 1 customers configured**, the dashboard behaves exactly as it did before this feature existed — no dropdown appears, sign-in is a single-tenant workflow.
 
 ## AI error analysis (optional)
 
