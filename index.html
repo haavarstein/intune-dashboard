@@ -1503,13 +1503,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, optional label, the login email, and an optional approver list are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, and an optional approver list are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
 
-        <div style="display:grid; grid-template-columns: 90px 1fr 1.4fr auto; gap:8px; align-items:center;">
+        <div style="display:grid; grid-template-columns: 90px 1fr auto; gap:8px; align-items:center;">
           <input type="text" id="customerCodeInput" placeholder="Code" maxlength="4" class="search" style="text-transform:uppercase;">
-          <input type="text" id="customerLabelInput" placeholder="Label (optional)" class="search">
           <input type="email" id="customerEmailInput" placeholder="user@customer.com" class="search">
           <button class="btn" id="btnAddCustomer">Add</button>
         </div>
@@ -2089,14 +2088,12 @@ function renderCustomerSwitcher() {
 
   $('customerSwitcherMenu').innerHTML = customers.map(c => {
     const isActive = c.code === activeCode;
-    const labelLine = c.label ? `<div class="meta" style="font-size:11px;">${esc(c.label)}</div>` : '';
     return `<div class="customer-menu-item" data-customer-code="${esc(c.code)}" style="padding:10px 14px; cursor:pointer; ${isActive ? 'background:var(--accent-soft);' : ''} border-bottom:1px solid var(--line);">
       <div style="display:flex; align-items:center; gap:8px;">
         <span style="font-weight:700; min-width:32px;">${esc(c.code)}</span>
         <span style="font-size:12px; color:var(--ink-2); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(c.email)}</span>
         ${isActive ? '<span style="color:var(--accent); font-weight:600; font-size:11px;">active</span>' : ''}
       </div>
-      ${labelLine}
     </div>`;
   }).join('');
 }
@@ -2126,8 +2123,7 @@ function renderCustomersList() {
     <div style="padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
       <div style="display:flex; align-items:center; gap:12px;">
         <span style="font-weight:700; min-width:36px;">${esc(c.code)}</span>
-        <span style="flex:1; font-size:13px;">${esc(c.label || '')}</span>
-        <span class="meta" style="font-size:12px;">${esc(c.email)}</span>
+        <span class="meta" style="flex:1; font-size:13px;">${esc(c.email)}</span>
         <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px;" data-customer-delete="${esc(c.code)}" title="Remove">🗑</span>
       </div>
       <div style="font-size:11px; margin-top:4px; padding-left:48px;">${approverLine}</div>
@@ -2172,7 +2168,6 @@ function saveApprovers(code) {
 
 function addCustomer() {
   const code = ($('customerCodeInput').value || '').trim().toUpperCase();
-  const label = ($('customerLabelInput').value || '').trim();
   const email = ($('customerEmailInput').value || '').trim().toLowerCase();
   const approvers = parseApprovers($('customerApproversInput').value);
   const status = $('customerAddStatus');
@@ -2182,10 +2177,9 @@ function addCustomer() {
   if (invalidApprover) { status.textContent = `Approver "${invalidApprover}" looks invalid.`; return; }
   const customers = loadCustomers();
   if (customers.some(c => c.code === code)) { status.textContent = `Code "${code}" is already used.`; return; }
-  customers.push({ code, label, email, approvers });
+  customers.push({ code, email, approvers });
   saveCustomers(customers);
   $('customerCodeInput').value = '';
-  $('customerLabelInput').value = '';
   $('customerEmailInput').value = '';
   $('customerApproversInput').value = '';
   status.textContent = `Added ${code}.`;
@@ -2339,7 +2333,7 @@ async function graphDelete(path, opts = {}) {
 async function sendApprovalNotification({ app, approvalCode, justification, approvers, customer, requester }) {
   const token = await getToken();
   const customerLine = customer
-    ? `${esc(customer.code)}${customer.label ? ' — ' + esc(customer.label) : ''}`
+    ? esc(customer.code)
     : '(no customer matched the signed-in account)';
   const codeBlock = approvalCode
     ? `<tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Approval code</strong></td><td style="padding:6px 0; font-family:ui-monospace,monospace;">${esc(approvalCode)}</td></tr>`

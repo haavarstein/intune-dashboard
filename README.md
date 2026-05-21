@@ -187,7 +187,6 @@ The dashboard supports a lightweight tenant switcher for consultants and MSPs ju
 **Configure your customers** in **Settings → Customers**. For each tenant you'll add:
 
 - **Code** — required, 2–4 letters (e.g. `DB`, `XB`). The code is the *only* identifier that shows up in the dashboard's top-right tenant dropdown, so customer names stay off screenshots, recordings, and over-the-shoulder views.
-- **Label** — optional friendly name, visible in Settings and as a subtitle inside the dropdown. Not shown in the always-visible header.
 - **Email** — the account UPN you sign in with for that tenant (e.g. `consultant@customer.onmicrosoft.com`).
 - **Approvers** — optional comma-separated list of approver emails for that customer's MAA queue. When you submit an app delete on an MAA-enabled tenant, the dashboard immediately emails this list from your mailbox (subject: *[Intune MAA] App delete needs approval: …*) with the app name, approval code, and justification — closing the gap that Intune itself sends no notifications. Empty list = no email sent. Edit the list later by clicking the `📧 …` line inside the customer's row.
 
@@ -200,7 +199,7 @@ The customer list lives in `localStorage` under `intuneDashboard:customers`. **N
 
 After the switch the dashboard clears every sub-tab's cached state (`hwDevices`, `intuneApps`, `driftApps`, `assignmentsRaw`, `pmpcAppIds`, etc.) and re-renders against the new tenant, landing you on the **Overview** sub-tab as a customer-review starting point.
 
-**Privacy/screenshot intent.** The dropdown shows only the short code — never the email or label. Open the dropdown to see emails; close it before screenshotting.
+**Privacy/screenshot intent.** The dropdown shows only the short code — never the email. Open the dropdown to see emails; close it before screenshotting.
 
 **With 0 or 1 customers configured**, the dashboard behaves exactly as it did before this feature existed — no dropdown appears, sign-in is a single-tenant workflow.
 
