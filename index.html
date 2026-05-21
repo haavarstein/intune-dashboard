@@ -3320,6 +3320,68 @@ function openDeleteModal(app) {
 
 function closeDeleteModal() {
   $('delModal').classList.remove('show');
+  if (activeApprovalPoll) { activeApprovalPoll.stop(); activeApprovalPoll = null; }
+}
+
+// Tracks the currently-running approval-status poll so we can stop it
+// when the modal closes or a new approval is submitted on top.
+let activeApprovalPoll = null;
+
+const APPROVAL_POLL_INTERVAL_MS = 30000;
+const APPROVAL_TERMINAL_STATES = ['approved', 'rejected', 'cancelled', 'expired', 'completed'];
+
+function pollApprovalStatus(code, onUpdate) {
+  let stopped = false;
+  let consecutiveErrors = 0;
+  async function tick() {
+    if (stopped) return;
+    try {
+      const data = await graphGet('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(code));
+      consecutiveErrors = 0;
+      onUpdate({ kind: 'status', request: data });
+      const status = (data.status || '').toLowerCase();
+      if (APPROVAL_TERMINAL_STATES.includes(status)) {
+        stopped = true;
+        return;
+      }
+    } catch (e) {
+      consecutiveErrors++;
+      if (consecutiveErrors >= 3) onUpdate({ kind: 'error', error: e.message || String(e) });
+    }
+    if (!stopped) setTimeout(tick, APPROVAL_POLL_INTERVAL_MS);
+  }
+  // Fire once immediately so the user sees the first status without waiting 30s.
+  tick();
+  return { stop: () => { stopped = true; } };
+}
+
+function renderApprovalStatusRow(state) {
+  const row = $('delStatusRow');
+  if (!row) return;
+  if (state.kind === 'error') {
+    row.innerHTML = `<div style="font-size:12px; color:var(--muted);">⚠ Couldn't refresh status (${esc(state.error)}). Check the admin center.</div>`;
+    return;
+  }
+  const req = state.request || {};
+  const status = (req.status || '').toLowerCase();
+  const approverName = req.approver?.user?.displayName || req.approver?.application?.displayName || '';
+  const approvalJust = req.approvalJustification || '';
+  const lastMod = req.lastModifiedDateTime ? new Date(req.lastModifiedDateTime).toLocaleString() : '';
+  let html = '';
+  if (status === 'needsapproval' || status === 'pending' || status === '') {
+    html = `<div class="notice-banner" style="background:#fff8e6; border-color:#f0d090; color:#704500;">⏳ <strong>Pending approval.</strong> Polling every 30 s…</div>`;
+  } else if (status === 'approved' || status === 'completed') {
+    html = `<div class="notice-banner">✓ <strong>${esc(status === 'completed' ? 'Completed' : 'Approved')}${approverName ? ' by ' + approverName : ''}.</strong> ${status === 'completed' ? 'The delete has finished.' : 'Intune is executing the delete now.'}${approvalJust ? `<br><em>Approver note:</em> ${esc(approvalJust)}` : ''}${lastMod ? `<br><span style="font-size:11px; color:var(--ink-2);">${lastMod}</span>` : ''}</div>`;
+    // Auto-refresh the picker so the deleted app disappears.
+    if (typeof loadInstalledApps === 'function') loadInstalledApps();
+  } else if (status === 'rejected') {
+    html = `<div class="error-banner">✗ <strong>Rejected${approverName ? ' by ' + approverName : ''}.</strong>${approvalJust ? `<br><em>Reason:</em> ${esc(approvalJust)}` : ''}${lastMod ? `<br><span style="font-size:11px;">${lastMod}</span>` : ''}</div>`;
+  } else if (status === 'cancelled' || status === 'expired') {
+    html = `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500;">⊘ <strong>${esc(status[0].toUpperCase() + status.slice(1))}.</strong>${lastMod ? `<br><span style="font-size:11px;">${lastMod}</span>` : ''}</div>`;
+  } else {
+    html = `<div style="font-size:12px; color:var(--muted);">Status: ${esc(status)}</div>`;
+  }
+  row.innerHTML = html;
 }
 
 // CORS hides the x-msft-approval-code response header from the browser,
@@ -3390,6 +3452,8 @@ async function confirmDelete(app, justification) {
 }
 
 function renderApprovalSubmitted(app, code, alreadyPending, notification) {
+  // Tear down any prior poll before starting a new one
+  if (activeApprovalPoll) { activeApprovalPoll.stop(); activeApprovalPoll = null; }
   const heading = alreadyPending
     ? 'An approval request is already pending for this app.'
     : 'Approval request submitted.';
@@ -3410,11 +3474,17 @@ function renderApprovalSubmitted(app, code, alreadyPending, notification) {
       <div style="background:var(--bg); border:1px solid var(--line); padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:16px; user-select:all; word-break:break-all;">${esc(code)}</div>
     ` : ''}
     ${notifBlock}
-    <p style="margin-top:16px;">An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. Once approved, Intune will execute the delete. Refresh the Installed sub-tab afterwards to see the app disappear.</p>
+    <div id="delStatusRow" style="margin-top:16px;"></div>
+    <p style="margin-top:16px;">An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. The dashboard polls Intune every 30 seconds — once approved, the picker auto-refreshes and the app disappears.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
       <button class="btn btn-danger" onclick="closeDeleteModal()">Close</button>
     </div>
   `;
+  // Start polling for status. Requires DeviceManagementConfiguration.Read.All
+  // (already in SCOPES). Stops on terminal state or modal close.
+  if (code) {
+    activeApprovalPoll = pollApprovalStatus(code, renderApprovalStatusRow);
+  }
 }
 
 $('btnDeleteApp').addEventListener('click', () => openDeleteModal(selectedApp));
