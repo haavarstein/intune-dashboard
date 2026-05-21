@@ -51,6 +51,7 @@ Sign in once with MSAL — all ten sub-tabs share the same session.
 - **Installed devices** table shows every device the install-status report returns: Device · User · Version · State · Platform · Last modified. The **State** dropdown defaults to whichever value starts with `installed` so you immediately see the install set; switch to *All states* to see failed, pending, etc.
 - **⧉ Copy device names** copies the currently filtered list to the clipboard, newline-separated — paste straight into an Entra group, an exclusion list, or a Feature Update assignment. **⬇ Export CSV** downloads the same list (Device · User · Version · State · Platform · LastModified). Built for the use case of "give me the group of devices that have App X" — targeted upgrades and Feature Update exclusions.
 - **🔍 Detection rule** button in the selected-app header — same Detection Rule Inspector as on Failed Install. Shows the per-app detection logic that Intune evaluates on every device: MSI ProductCode + version operator, file/folder + version comparison, registry key + value match, or the full PowerShell detection script (base64-decoded). Supports Win32 LoB, Windows MSI LoB, and macOS LoB; other types show a "not applicable for this app type" message.
+- **🗑 Delete from Intune** button in the selected-app header — permanently removes the app from this tenant via Graph `DELETE /deviceAppManagement/mobileApps/{id}`. Requires typing the exact app name to confirm (case-sensitive). Existing installs on devices are not uninstalled, but Intune stops managing and reporting on the app. This is the **only write action** in the dashboard — everything else is read-only. Requires the `DeviceManagementApps.ReadWrite.All` scope (admin consent may be needed in stricter tenants).
 
 **Required Uninstall** — apps assigned with intent *Uninstall* to a group.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
@@ -134,15 +135,18 @@ Everything runs in your browser. CSV data never leaves your machine. Intune data
 
 When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a login popup against the multi-tenant endpoint (`login.microsoftonline.com/common`). The app is pre-registered in Azure AD, so you do **not** need to create your own app registration.
 
-**Scopes requested (delegated, read-only):**
+**Scopes requested (delegated):**
 
 - `DeviceManagementManagedDevices.Read.All` — read managed device data
 - `DeviceManagementApps.Read.All` — read Intune app data and install reports
+- `DeviceManagementApps.ReadWrite.All` — **write scope** for deleting apps from Intune (Installed sub-tab → 🗑 Delete from Intune); the only write capability in the dashboard
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
+
+`DeviceManagementApps.ReadWrite.All` is the only write scope. Stricter tenants may require admin consent — if you can't consent yourself, an Intune admin needs to grant it before the 🗑 Delete from Intune action will work.
 
 **First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementConfiguration.Read.All` for the expanded Assignments coverage).
 
@@ -155,6 +159,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — apps with assignments. Win32-filtered server-side for Required Install; all platforms (no `$filter`, paginated) for Required Uninstall *and* the Installed sub-tab, with client-side platform filtering. Also called with `?$select=id,notes` (paginated) by the Failed Install sub-tab to build the shared Patch My PC app-id set used by both filters.
 - `GET /beta/deviceAppManagement/mobileApps/{id}?$expand=assignments` — assignments for the selected app in the Installed sub-tab
 - `GET /beta/deviceAppManagement/mobileApps/{id}` — full app object including the inline `rules` / `detectionRules` collection (Detection Rule Inspector modal, triggered from Installed and Failed sub-tabs)
+- `DELETE /beta/deviceAppManagement/mobileApps/{id}` — permanently delete an app from the tenant (Installed sub-tab → 🗑 Delete from Intune)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)

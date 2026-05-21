@@ -16,6 +16,8 @@
     --accent: #e8743b;
     --accent-soft: #f5e3d6;
     --dark: #0f0f10;
+    --danger: #b42318;
+    --danger-soft: #fdecec;
   }
   * { box-sizing: border-box; }
   body {
@@ -393,6 +395,10 @@
     border: 1px solid var(--line);
   }
   .btn-ghost:hover { background: var(--bg); color: var(--ink); }
+  .btn-danger {
+    background: var(--danger); color: #fff; border: 1px solid var(--danger);
+  }
+  .btn-danger:hover:not(:disabled) { background: #8a1a12; border-color: #8a1a12; }
 
   .signin-prompt {
     background: var(--card);
@@ -527,6 +533,10 @@
   .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
   .error-banner {
     background: #fdecec; border: 1px solid #f5b5b5; color: #8a2020;
+    padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px;
+  }
+  .notice-banner {
+    background: #e7f6ec; border: 1px solid #a7d7b5; color: #1f5d33;
     padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px;
   }
 
@@ -693,7 +703,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -723,6 +733,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
 
       <div id="intuneError"></div>
+      <div id="intuneNotice"></div>
 
       <div id="intuneSubFailed" style="display:none;">
         <div class="tab-hint">Apps with install failures across the fleet, sorted by failure count. Click any error code for an AI-powered diagnosis.</div>
@@ -894,6 +905,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             </div>
             <div style="display:flex; gap:8px;">
               <button class="btn btn-ghost" id="btnDetectionRulesInstalled">🔍 Detection rule</button>
+              <button class="btn btn-danger" id="btnDeleteApp">🗑 Delete from Intune</button>
               <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
             </div>
           </div>
@@ -1548,6 +1560,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 </div>
 
+<div class="modal-backdrop" id="delModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3>Delete app from Intune</h3>
+        <div class="panel-sub" id="delSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeDeleteModal()">×</button>
+    </div>
+    <div class="modal-body" id="delBody"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1848,7 +1873,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -2116,10 +2141,25 @@ async function graphPost(path, body) {
   return res.json();
 }
 
+async function graphDelete(path) {
+  const token = await getToken();
+  const res = await fetch('https://graph.microsoft.com/' + path, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (res.ok || res.status === 404) return;
+  throw new Error('Graph ' + res.status + ': ' + await res.text());
+}
+
 function showIntuneError(msg) {
   $('intuneError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
 }
 function clearIntuneError() { $('intuneError').innerHTML = ''; }
+
+function showIntuneNotice(msg) {
+  $('intuneNotice').innerHTML = `<div class="notice-banner">${esc(msg)}</div>`;
+}
+function clearIntuneNotice() { $('intuneNotice').innerHTML = ''; }
 
 // ============================================================
 // Required Apps subtab (under Intune)
@@ -2696,6 +2736,7 @@ $('installedAppsPager').addEventListener('click', e => {
 
 function selectAppInstalled(app) {
   selectedApp = app;
+  clearIntuneNotice();
   $('installedAppPicker').style.display = 'none';
   $('installedView').style.display = '';
   const portalUrl = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(app.id)}`;
@@ -2869,6 +2910,7 @@ $('btnChangeAppInstalled').addEventListener('click', () => {
   installedRows = [];
   $('installedAppPicker').style.display = '';
   $('installedView').style.display = 'none';
+  clearIntuneNotice();
 });
 
 // ============================================================
@@ -3014,6 +3056,67 @@ function closeDetectionRulesModal() {
 $('btnDetectionRulesInstalled').addEventListener('click', () => openDetectionRulesModal(selectedApp));
 $('btnDetectionRulesFailed').addEventListener('click', () => openDetectionRulesModal(selectedApp));
 $('detModal').addEventListener('click', e => { if (e.target === $('detModal')) closeDetectionRulesModal(); });
+
+// ============================================================
+// Delete app from Intune (Installed sub-tab)
+// Hard delete via DELETE /deviceAppManagement/mobileApps/{id}.
+// Requires DeviceManagementApps.ReadWrite.All. Typed-confirmation
+// modal — user must type the exact displayName before the confirm
+// button enables. Only write action in the dashboard.
+// ============================================================
+function openDeleteModal(app) {
+  if (!app) return;
+  $('delSubtitle').textContent = app.publisher || '';
+  $('delBody').innerHTML = `
+    <p style="margin-top:0;">This permanently removes the app from this Intune tenant. Existing installs on devices are not uninstalled — but Intune will no longer manage or report on them.</p>
+    <p>To confirm, type the app name exactly:</p>
+    <div style="background:var(--danger-soft); border:1px solid #f5b5b5; color:#8a2020; padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:12px; word-break:break-word;">${esc(app.displayName || '')}</div>
+    <input type="text" id="delConfirmInput" class="search" placeholder="Type app name to confirm" autocomplete="off" style="width:100%; margin-bottom:16px;">
+    <div id="delError"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" id="delConfirmBtn" disabled>Delete permanently</button>
+    </div>
+  `;
+  const input = $('delConfirmInput');
+  const btn = $('delConfirmBtn');
+  input.addEventListener('input', () => {
+    btn.disabled = input.value !== app.displayName;
+  });
+  btn.addEventListener('click', () => confirmDelete(app));
+  $('delModal').classList.add('show');
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeDeleteModal() {
+  $('delModal').classList.remove('show');
+}
+
+async function confirmDelete(app) {
+  const btn = $('delConfirmBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  $('delError').innerHTML = '';
+  try {
+    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id));
+    const deletedName = app.displayName;
+    closeDeleteModal();
+    selectedApp = null;
+    installedRows = [];
+    $('installedAppPicker').style.display = '';
+    $('installedView').style.display = 'none';
+    showIntuneNotice('Deleted ' + deletedName + ' from Intune.');
+    loadInstalledApps();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = originalText;
+    $('delError').innerHTML = `<div class="error-banner">Failed to delete: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+$('btnDeleteApp').addEventListener('click', () => openDeleteModal(selectedApp));
+$('delModal').addEventListener('click', e => { if (e.target === $('delModal')) closeDeleteModal(); });
 $('btnRefreshInstalled').addEventListener('click', () => {
   if (!selectedApp) return;
   loadInstalledAssignments();
