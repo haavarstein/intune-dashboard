@@ -3106,8 +3106,9 @@ async function confirmDelete(app, justification) {
   btn.textContent = 'Deleting…';
   $('delError').innerHTML = '';
   try {
+    const justB64 = btoa(String.fromCharCode(...new TextEncoder().encode(justification)));
     await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), {
-      headers: { 'x-msft-approval-justification': justification }
+      headers: { 'x-msft-approval-justification': justB64 }
     });
     const deletedName = app.displayName;
     closeDeleteModal();
