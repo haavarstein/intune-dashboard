@@ -28,7 +28,7 @@
     font-size: 14px;
     line-height: 1.5;
   }
-  .container { max-width: 1400px; margin: 0 auto; padding: 40px 32px; }
+  .container { max-width: 2100px; margin: 0 auto; padding: 40px 32px; }
 
   .eyebrow {
     color: var(--accent);
@@ -996,8 +996,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="controls">
               <input type="text" class="search" id="approvalsFilter" placeholder="Search requestor, justification, type…">
               <select class="filter-select" id="approvalsStatusFilter">
-                <option value="">All statuses</option>
-                <option value="needsApproval" selected>Pending</option>
+                <option value="" selected>All statuses</option>
+                <option value="needsApproval">Pending</option>
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
                 <option value="cancelled">Cancelled</option>
