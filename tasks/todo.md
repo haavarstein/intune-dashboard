@@ -86,6 +86,7 @@ From the Installed sub-tab's selected-app view, allow deleting an app from Intun
 - [x] Add `showIntuneNotice()` / `clearIntuneNotice()` helpers
 - [x] Add `openDeleteModal()` / `closeDeleteModal()` / `confirmDelete()` functions
 - [x] Wire button click + backdrop-click-to-close
+- [x] Required justification textarea (gates confirm button alongside typed name); sent as `x-msft-approval-justification` header — required by tenants with multi-admin approval / privileged operations, harmless elsewhere
 - [x] Clear notice on `← Change app` and on drilling into a new app (not in `loadInstalledApps` — would clobber post-delete banner)
 - [x] README: soften "read-only" claim, add new scope bullet + admin-consent note, add Installed delete bullet, add DELETE endpoint line
 - [x] README: grep `read-only` to confirm no false claims remain

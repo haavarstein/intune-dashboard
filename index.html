@@ -2141,11 +2141,13 @@ async function graphPost(path, body) {
   return res.json();
 }
 
-async function graphDelete(path) {
+async function graphDelete(path, opts = {}) {
   const token = await getToken();
+  const headers = { Authorization: 'Bearer ' + token };
+  if (opts.headers) Object.assign(headers, opts.headers);
   const res = await fetch('https://graph.microsoft.com/' + path, {
     method: 'DELETE',
-    headers: { Authorization: 'Bearer ' + token }
+    headers
   });
   if (res.ok || res.status === 404) return;
   throw new Error('Graph ' + res.status + ': ' + await res.text());
@@ -3072,6 +3074,8 @@ function openDeleteModal(app) {
     <p>To confirm, type the app name exactly:</p>
     <div style="background:var(--danger-soft); border:1px solid #f5b5b5; color:#8a2020; padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:12px; word-break:break-word;">${esc(app.displayName || '')}</div>
     <input type="text" id="delConfirmInput" class="search" placeholder="Type app name to confirm" autocomplete="off" style="width:100%; margin-bottom:16px;">
+    <p style="margin-bottom:6px;">Justification <span style="color:var(--muted); font-weight:400;">(required by tenants with multi-admin approval; recorded in the Intune audit log)</span>:</p>
+    <textarea id="delJustification" class="search" rows="3" placeholder="e.g. Retiring superseded app — replaced by v2 in package XYZ" style="width:100%; margin-bottom:16px; font-family:inherit; resize:vertical;"></textarea>
     <div id="delError"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
@@ -3079,11 +3083,14 @@ function openDeleteModal(app) {
     </div>
   `;
   const input = $('delConfirmInput');
+  const justification = $('delJustification');
   const btn = $('delConfirmBtn');
-  input.addEventListener('input', () => {
-    btn.disabled = input.value !== app.displayName;
-  });
-  btn.addEventListener('click', () => confirmDelete(app));
+  const update = () => {
+    btn.disabled = input.value !== app.displayName || justification.value.trim() === '';
+  };
+  input.addEventListener('input', update);
+  justification.addEventListener('input', update);
+  btn.addEventListener('click', () => confirmDelete(app, justification.value.trim()));
   $('delModal').classList.add('show');
   setTimeout(() => input.focus(), 0);
 }
@@ -3092,14 +3099,16 @@ function closeDeleteModal() {
   $('delModal').classList.remove('show');
 }
 
-async function confirmDelete(app) {
+async function confirmDelete(app, justification) {
   const btn = $('delConfirmBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Deleting…';
   $('delError').innerHTML = '';
   try {
-    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id));
+    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), {
+      headers: { 'x-msft-approval-justification': justification }
+    });
     const deletedName = app.displayName;
     closeDeleteModal();
     selectedApp = null;
