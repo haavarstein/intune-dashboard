@@ -703,7 +703,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · Mail.Send · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -1484,7 +1484,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, optional label, and the login email are stored; no tokens. The dropdown appears once you've added two or more.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, optional label, the login email, and an optional approver list are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
 
@@ -1494,6 +1494,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <input type="email" id="customerEmailInput" placeholder="user@customer.com" class="search">
           <button class="btn" id="btnAddCustomer">Add</button>
         </div>
+        <input type="text" id="customerApproversInput" placeholder="Approvers — comma-separated emails (optional, for MAA delete notifications)" class="search" style="width:100%; margin-top:8px;">
         <div id="customerAddStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
 
@@ -1873,7 +1874,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -1984,6 +1985,15 @@ function renderCustomerSwitcher() {
   }).join('');
 }
 
+const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function parseApprovers(raw) {
+  return (raw || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(s => s.length > 0);
+}
+
 function renderCustomersList() {
   const customers = loadCustomers();
   const box = $('customersList');
@@ -1991,30 +2001,77 @@ function renderCustomersList() {
     box.innerHTML = `<div class="meta" style="padding:14px 16px; font-size:12px;">No customers configured. Add one below.</div>`;
     return;
   }
-  box.innerHTML = customers.map((c, i) => `
-    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
-      <span style="font-weight:700; min-width:36px;">${esc(c.code)}</span>
-      <span style="flex:1; font-size:13px;">${esc(c.label || '')}</span>
-      <span class="meta" style="font-size:12px;">${esc(c.email)}</span>
-      <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px;" data-customer-delete="${esc(c.code)}" title="Remove">🗑</span>
+  box.innerHTML = customers.map((c, i) => {
+    const approvers = c.approvers || [];
+    const approverLine = approvers.length
+      ? `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2);" title="Click to edit">📧 ${approvers.length} approver${approvers.length === 1 ? '' : 's'} — ${esc(approvers.join(', '))}</span>`
+      : `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">📧 No approvers (click to add)</span>`;
+    return `
+    <div style="padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-weight:700; min-width:36px;">${esc(c.code)}</span>
+        <span style="flex:1; font-size:13px;">${esc(c.label || '')}</span>
+        <span class="meta" style="font-size:12px;">${esc(c.email)}</span>
+        <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px;" data-customer-delete="${esc(c.code)}" title="Remove">🗑</span>
+      </div>
+      <div style="font-size:11px; margin-top:4px; padding-left:48px;">${approverLine}</div>
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
+
+function editApprovers(code) {
+  const customers = loadCustomers();
+  const customer = customers.find(c => c.code === code);
+  if (!customer) return;
+  const current = (customer.approvers || []).join(', ');
+  const span = document.querySelector(`[data-customer-approvers="${code}"]`);
+  if (!span) return;
+  span.outerHTML = `
+    <span data-editing-approvers="${esc(code)}" style="display:inline-flex; gap:6px; align-items:center; width:100%;">
+      <input type="text" id="editApprovers_${esc(code)}" class="search" style="flex:1; font-size:12px; padding:4px 8px;" value="${esc(current)}" placeholder="Comma-separated emails (leave empty to clear)">
+      <button class="btn" data-save-approvers="${esc(code)}" style="padding:4px 10px; font-size:11px;">Save</button>
+      <button class="btn btn-ghost" data-cancel-approvers="${esc(code)}" style="padding:4px 10px; font-size:11px;">Cancel</button>
+    </span>
+  `;
+  setTimeout(() => $('editApprovers_' + code)?.focus(), 0);
+}
+
+function saveApprovers(code) {
+  const input = $('editApprovers_' + code);
+  if (!input) return;
+  const approvers = parseApprovers(input.value);
+  const invalid = approvers.find(a => !EMAIL_RX.test(a));
+  if (invalid) {
+    alert(`"${invalid}" doesn't look like a valid email address.`);
+    return;
+  }
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === code);
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], approvers };
+  saveCustomers(customers);
+  renderCustomersList();
 }
 
 function addCustomer() {
   const code = ($('customerCodeInput').value || '').trim().toUpperCase();
   const label = ($('customerLabelInput').value || '').trim();
   const email = ($('customerEmailInput').value || '').trim().toLowerCase();
+  const approvers = parseApprovers($('customerApproversInput').value);
   const status = $('customerAddStatus');
   if (!code || code.length > 4) { status.textContent = 'Code is required (max 4 chars).'; return; }
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { status.textContent = 'Email looks invalid.'; return; }
+  if (!EMAIL_RX.test(email)) { status.textContent = 'Email looks invalid.'; return; }
+  const invalidApprover = approvers.find(a => !EMAIL_RX.test(a));
+  if (invalidApprover) { status.textContent = `Approver "${invalidApprover}" looks invalid.`; return; }
   const customers = loadCustomers();
   if (customers.some(c => c.code === code)) { status.textContent = `Code "${code}" is already used.`; return; }
-  customers.push({ code, label, email });
+  customers.push({ code, label, email, approvers });
   saveCustomers(customers);
   $('customerCodeInput').value = '';
   $('customerLabelInput').value = '';
   $('customerEmailInput').value = '';
+  $('customerApproversInput').value = '';
   status.textContent = `Added ${code}.`;
   setTimeout(() => { status.textContent = ''; }, 2000);
   renderCustomersList();
@@ -2086,9 +2143,13 @@ async function switchToCustomer(code) {
 
 $('btnAddCustomer').addEventListener('click', addCustomer);
 $('customerEmailInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
+$('customerApproversInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customersList').addEventListener('click', e => {
-  const code = e.target.dataset && e.target.dataset.customerDelete;
-  if (code) deleteCustomer(code);
+  const ds = e.target.dataset || {};
+  if (ds.customerDelete) { deleteCustomer(ds.customerDelete); return; }
+  if (ds.customerApprovers) { editApprovers(ds.customerApprovers); return; }
+  if (ds.saveApprovers) { saveApprovers(ds.saveApprovers); return; }
+  if (ds.cancelApprovers) { renderCustomersList(); return; }
 });
 
 $('customerSwitcherToggle').addEventListener('click', e => {
@@ -2155,6 +2216,54 @@ async function graphDelete(path, opts = {}) {
   err.status = res.status;
   err.body = body;
   throw err;
+}
+
+// Microsoft Graph /me/sendMail returns 202 with empty body — use direct fetch
+// since graphPost calls .json() and would throw on the empty response.
+async function sendApprovalNotification({ app, approvalCode, justification, approvers, customer, requester }) {
+  const token = await getToken();
+  const customerLine = customer
+    ? `${esc(customer.code)}${customer.label ? ' — ' + esc(customer.label) : ''}`
+    : '(no customer matched the signed-in account)';
+  const codeBlock = approvalCode
+    ? `<tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Approval code</strong></td><td style="padding:6px 0; font-family:ui-monospace,monospace;">${esc(approvalCode)}</td></tr>`
+    : '';
+  const html = `
+    <div style="font-family:Segoe UI, Arial, sans-serif; color:#222; max-width:640px;">
+      <h2 style="margin:0 0 12px 0; font-size:18px;">Intune app delete needs approval</h2>
+      <p>An Intune admin has submitted a request to delete an app. This tenant has multi-admin approval enabled, so a second admin must approve the request before Intune executes the delete.</p>
+      <table style="border-collapse:collapse; margin:16px 0; font-size:14px;">
+        <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Requester</strong></td><td style="padding:6px 0;">${esc(requester.name)} &lt;${esc(requester.email)}&gt;</td></tr>
+        <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Customer</strong></td><td style="padding:6px 0;">${customerLine}</td></tr>
+        <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>App</strong></td><td style="padding:6px 0;">${esc(app.displayName || '(no name)')}</td></tr>
+        ${app.publisher ? `<tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Publisher</strong></td><td style="padding:6px 0;">${esc(app.publisher)}</td></tr>` : ''}
+        <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>App ID</strong></td><td style="padding:6px 0; font-family:ui-monospace,monospace; font-size:12px;">${esc(app.id)}</td></tr>
+        ${codeBlock}
+        <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Submitted</strong></td><td style="padding:6px 0;">${esc(new Date().toISOString())}</td></tr>
+      </table>
+      <h3 style="margin:18px 0 6px 0; font-size:14px;">Justification</h3>
+      <blockquote style="margin:0; padding:12px 16px; background:#f5f3ee; border-left:3px solid #888; font-size:14px; white-space:pre-wrap;">${esc(justification)}</blockquote>
+      <p style="margin-top:20px;">Open <a href="https://intune.microsoft.com/">Intune admin center</a> → <strong>Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve or reject it. Once approved, Intune will execute the delete automatically.</p>
+      <p style="margin-top:24px; padding-top:12px; border-top:1px solid #eee; font-size:11px; color:#888;">Sent automatically by the Intune Dashboard at the moment the delete was submitted. Reply directly to this email to reach the requester.</p>
+    </div>
+  `;
+  const message = {
+    message: {
+      subject: `[Intune MAA] App delete needs approval: ${app.displayName || app.id}`,
+      body: { contentType: 'HTML', content: html },
+      toRecipients: approvers.map(addr => ({ emailAddress: { address: addr } }))
+    },
+    saveToSentItems: true
+  };
+  const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(message)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error('sendMail ' + res.status + ': ' + body);
+  }
 }
 
 function showIntuneError(msg) {
@@ -3138,7 +3247,30 @@ async function confirmDelete(app, justification) {
     const isSubmitted = e.status === 412;
     const isAlreadyPending = e.status === 409 && /active Approval Request/i.test(e.body || '');
     if (isSubmitted || isAlreadyPending) {
-      renderApprovalSubmitted(app, extractApprovalCode(e.body), isAlreadyPending);
+      const code = extractApprovalCode(e.body);
+      // Auto-notify approvers if this customer has any configured. Failure must
+      // not block the success panel — the delete request is already submitted server-side.
+      const account = msalApp && msalApp.getActiveAccount();
+      const upn = (account?.username || '').toLowerCase();
+      const customer = loadCustomers().find(c => (c.email || '').toLowerCase() === upn) || null;
+      const approvers = (customer && customer.approvers) || [];
+      let notification = { status: 'none' };
+      if (approvers.length) {
+        try {
+          await sendApprovalNotification({
+            app,
+            approvalCode: code,
+            justification,
+            approvers,
+            customer,
+            requester: { name: account?.name || upn, email: upn }
+          });
+          notification = { status: 'sent', approvers };
+        } catch (mailErr) {
+          notification = { status: 'failed', approvers, error: mailErr.message || String(mailErr) };
+        }
+      }
+      renderApprovalSubmitted(app, code, isAlreadyPending, notification);
       return;
     }
     btn.disabled = false;
@@ -3147,10 +3279,18 @@ async function confirmDelete(app, justification) {
   }
 }
 
-function renderApprovalSubmitted(app, code, alreadyPending) {
+function renderApprovalSubmitted(app, code, alreadyPending, notification) {
   const heading = alreadyPending
     ? 'An approval request is already pending for this app.'
     : 'Approval request submitted.';
+  let notifBlock = '';
+  if (notification?.status === 'sent') {
+    notifBlock = `<div class="notice-banner" style="margin-top:16px;">✓ Notified ${esc(notification.approvers.join(', '))}.</div>`;
+  } else if (notification?.status === 'failed') {
+    notifBlock = `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500; margin-top:16px;">⚠ Email notification failed: ${esc(notification.error)}. Notify ${esc(notification.approvers.join(', '))} manually.</div>`;
+  } else {
+    notifBlock = `<p style="margin-top:16px; color:var(--muted); font-size:12px;">No approvers configured for this customer — set them in Settings → Customers to auto-notify on future submissions.</p>`;
+  }
   $('delBody').innerHTML = `
     <div class="notice-banner" style="margin-top:0;">
       <strong>✓ ${esc(heading)}</strong> This tenant has multi-admin approval enabled for app deletion. The dashboard's part is done — an approver needs to take it from here.
@@ -3159,7 +3299,8 @@ function renderApprovalSubmitted(app, code, alreadyPending) {
       <p style="margin-top:16px; margin-bottom:6px;"><strong>Approval code:</strong></p>
       <div style="background:var(--bg); border:1px solid var(--line); padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:16px; user-select:all; word-break:break-all;">${esc(code)}</div>
     ` : ''}
-    <p>An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. Once approved, Intune will execute the delete. Refresh the Installed sub-tab afterwards to see the app disappear.</p>
+    ${notifBlock}
+    <p style="margin-top:16px;">An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. Once approved, Intune will execute the delete. Refresh the Installed sub-tab afterwards to see the app disappear.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
       <button class="btn btn-danger" onclick="closeDeleteModal()">Close</button>
     </div>

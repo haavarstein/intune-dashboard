@@ -88,6 +88,62 @@ From the Installed sub-tab's selected-app view, allow deleting an app from Intun
 - [x] Wire button click + backdrop-click-to-close
 - [x] Required justification textarea (gates confirm button alongside typed name); sent base64-encoded as `x-msft-approval-justification` header — required by tenants with multi-admin approval / privileged operations, harmless elsewhere
 - [x] Multi-admin approval: on HTTP 412 (request submitted) or HTTP 409 "active Approval Request already exists" (already pending), show a success-style "request submitted, an approver needs to act on it in admin center" panel with the approval code (parsed from the response body since CORS hides the response header). No retry button — the dashboard's job ends at submission; Intune executes the delete itself once an approver approves. **Lesson:** initial implementation added a Retry button that caused the user to re-submit and trip the 409 — over-engineering. Submission is success.
+
+---
+
+# MAA approver email notifications
+
+## Goal
+Close Intune's #1 documented MAA pain point — *no notifications when a request lands in the queue*. The dashboard already sees the moment a delete is submitted (the 412/409). Email the configured approver list for that customer the instant we see it, from the requester's mailbox via Graph `POST /v1.0/me/sendMail`. No Logic App, no Power Automate, no 15-30 minute audit-log lag (per the Recast warning).
+
+## Design decisions (user-confirmed via AskUserQuestion)
+- **Per-customer approvers** — matches the existing MSP model. Each customer entry gets an optional `approvers` array. Empty = no email sent.
+- **Fire-and-forget v1** — no polling for approved/rejected status. Static "submitted" panel.
+- **Always-on when approvers configured** — no per-submission opt-out checkbox in the modal.
+
+## Tasks
+- [x] Add `Mail.Send` to `SCOPES` array (single source of truth, all 4 call sites reuse)
+- [x] Add `Mail.Send` to the visible scope strip on the signed-out prompt
+- [x] Extend customer schema with optional `approvers: string[]` (lowercase emails)
+- [x] Settings UI: add approvers input row to the add-customer form
+- [x] Settings UI: render `📧 N approvers — list…` line under each customer row with click-to-edit inline editor
+- [x] `addCustomer()` reads + validates approver emails (same regex as the customer email)
+- [x] `parseApprovers()` helper (split, trim, lowercase, drop empties)
+- [x] `editApprovers(code)` swaps the line to an inline input + Save/Cancel buttons
+- [x] `saveApprovers(code)` validates and persists
+- [x] `sendApprovalNotification()` helper next to `graphDelete` — POSTs structured HTML email via `/v1.0/me/sendMail`. Uses direct `fetch` (sendMail returns 202 with empty body; `graphPost` would throw on `.json()`).
+- [x] `confirmDelete` 412/409 catch: look up active customer, check `customer.approvers`, await `sendApprovalNotification`, capture sent/failed/none into a `notification` object.
+- [x] `renderApprovalSubmitted` takes the notification object and renders one of three lines: green ✓ Notified, amber ⚠ failed, or muted "no approvers configured" hint.
+- [x] README: scope list with Mail.Send + two-write-scopes framing, Installed bullet extended, Multi-customer Approvers field documented, sendMail endpoint added.
+
+## Out of scope (v1)
+- Polling `/operationApprovalRequests` for approved/rejected status updates (would change the panel from static to live).
+- Teams channel webhook as an alternative delivery channel (would need per-customer webhook URL config + Power Automate setup; deprecated incoming-webhook story complicates this).
+- Catching deletes performed outside this dashboard (admin-center-direct deletes still produce no notification — out of our reach).
+- Editing customer email or label inline (still requires delete + re-add for those fields; only the approvers field gets inline editing in v1).
+- Custom email subject/body templating per customer (one fixed template; can revisit if requested).
+
+## Verifiable success
+1. Sign in → re-consent popup includes `Mail.Send`. Cancel still leaves read scopes usable, but delete submissions will surface the email-failed warning.
+2. Settings → Customers: add a new customer with approver emails. Row shows `📧 N approvers — list…`.
+3. Click the approvers line on an existing customer → inline editor → Save → list updates.
+4. MAA-enabled tenant: trigger a delete → 412 returns → success panel shows the approval code AND a green `✓ Notified <emails>` line. Approver inbox: structured HTML email arrives within seconds (requester · customer · app · publisher · app ID · approval code · timestamp · justification · admin-center pointer).
+5. MAA-enabled tenant without approvers configured for that customer: panel shows the muted "No approvers configured…" hint instead of the green line.
+6. sendMail failure (e.g. revoked Mail.Send consent): panel shows amber `⚠ Email notification failed: <reason>. Notify <emails> manually.` — delete request is still submitted server-side regardless.
+7. Non-MAA tenant: delete completes immediately (green snackbar). No email goes out (we only notify on 412/409).
+8. Per-customer isolation: switch to a second customer with a different approvers list → trigger a delete → only that customer's approvers receive the email.
+9. `grep read-only README.md` — three legitimate uses (Detection Rule Inspector, "two write actions" framing line 54, "everything else is read-only" line 150). No false claims.
+
+## Review
+
+**Net diff**: ~120 lines added in `index.html` (parseApprovers/EMAIL_RX helpers, renderCustomersList rewrite with approver line + inline editor, editApprovers/saveApprovers functions, sendApprovalNotification helper with HTML template, confirmDelete hook, renderApprovalSubmitted notification block). ~10 lines in `README.md` (Mail.Send scope bullet, two-write-scopes paragraph, Installed bullet extension, Approvers field bullet, sendMail endpoint line).
+
+**Why this closes the gap**: the dashboard fires the email at the exact moment the request enters the queue. Server-side workarounds (Logic Apps, Power Automate) all watch the Intune audit log, which the Recast post warns lags 15-30 min — by the time those notifications go out, an urgent device-wipe approval may already be 30 min stale. Client-side notification from inside the requesting session is the only zero-lag option.
+
+**Security tradeoff**: `Mail.Send` is a privacy-meaningful delegated scope. We use it only from `confirmDelete` after a 412/409 (never preemptively), and only to recipients explicitly listed in the customer's own approver field. Email is from the requester's mailbox (delegated — Graph won't let us spoof anyone), so the audit trail is on the requester, not a shared service account. Empty approver list = no Graph call at all.
+
+**MSP fit**: per-customer approvers is the natural extension of the existing customer-switcher design. Each customer's governance is independent.
+
 - [x] Clear notice on `← Change app` and on drilling into a new app (not in `loadInstalledApps` — would clobber post-delete banner)
 - [x] README: soften "read-only" claim, add new scope bullet + admin-consent note, add Installed delete bullet, add DELETE endpoint line
 - [x] README: grep `read-only` to confirm no false claims remain
