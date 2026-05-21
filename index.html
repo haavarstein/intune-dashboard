@@ -681,13 +681,9 @@
     <div class="ps-helper">
 
       <div style="margin-bottom:28px;">
-        <div class="ps-helper-head">
-          <div>
-            <div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">Option A · PowerShell on the device</div>
-            <div style="font-size:11px; color:var(--muted);">Full picture — HKLM 32-bit, HKLM 64-bit, <strong>and per-user HKCU</strong>. Use this when you have remote PowerShell or console access to the machine.</div>
-          </div>
-          <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px; flex-shrink:0;">Copy</button>
-        </div>
+        <div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">Option A · PowerShell on the device</div>
+        <div style="font-size:11px; color:var(--muted); margin-bottom:10px;">Full picture — HKLM 32-bit, HKLM 64-bit, <strong>and per-user HKCU</strong>. Use this when you have remote PowerShell or console access to the machine.</div>
+        <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px; margin-bottom:8px;">Copy</button>
 <pre id="psSnippet">$paths = @(
   'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
   'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
