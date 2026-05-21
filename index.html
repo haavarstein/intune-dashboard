@@ -583,7 +583,7 @@
   </div>
 
   <div id="viewLocal">
-  <div class="tab-hint">Drop a Windows uninstall-registry CSV from one machine for offline analysis. Architecture-aware dedup and one-click silent-uninstall strings.</div>
+  <div class="tab-hint">Drop a Windows uninstall-registry export from one machine for offline analysis — a PowerShell-generated CSV, or the .reg files from an Intune <em>Collect diagnostics</em> bundle. Architecture-aware dedup and one-click silent-uninstall strings.</div>
   <div id="dashboard" style="display:none;">
     <div class="tiles">
       <div class="tile">
@@ -651,7 +651,7 @@
           <input type="text" class="search" id="filter" placeholder="Search by name or publisher…">
           <label class="toggle"><input type="checkbox" id="hideSystem" checked> Hide system</label>
           <label class="toggle"><input type="checkbox" id="dedupe" checked> Collapse 32/64-bit duplicates</label>
-          <label class="toggle"><input type="file" id="csvFile2" accept=".csv" style="display:none;"><span style="cursor:pointer; color:var(--accent); font-weight:600;" onclick="document.getElementById('csvFile2').click()">↻ Replace CSV</span></label>
+          <label class="toggle"><input type="file" id="csvFile2" accept=".csv,.reg" multiple style="display:none;"><span style="cursor:pointer; color:var(--accent); font-weight:600;" onclick="document.getElementById('csvFile2').click()">↻ Replace / add files</span></label>
         </div>
       </div>
       <table>
@@ -673,13 +673,13 @@
 
   <div id="uploadPrompt" class="upload-prompt">
     <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
-    <div>Drop your Uninstall-Export.csv to get started</div>
-    <input type="file" id="csvFile" accept=".csv">
-    <label for="csvFile">Select CSV</label>
+    <div>Drop a CSV or one-or-more .reg files to get started</div>
+    <input type="file" id="csvFile" accept=".csv,.reg" multiple>
+    <label for="csvFile">Select files</label>
 
     <div class="ps-helper">
       <div class="ps-helper-head">
-        <span>Need a CSV? Run this PowerShell on a target machine:</span>
+        <span>Need an export? Run this PowerShell on a target machine:</span>
         <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px;">Copy</button>
       </div>
 <pre id="psSnippet">$paths = @(
@@ -694,6 +694,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 UninstallString, QuietUninstallString, SystemComponent,
                 PSChildName, @{n='RegistryPath';e={$_.PSPath -replace 'Microsoft.PowerShell.Core\\Registry::',''}} |
   Export-Csv -Path "$desktop\Uninstall-Export.csv" -NoTypeInformation -Encoding UTF8</pre>
+      <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;">
+        <strong>Or from Intune:</strong> trigger <em>Collect diagnostics</em> on a device, extract the resulting ZIP, and drop these two files here:
+        <code>(18) RegistryKey HKLM_Software_…_Uninstall export.reg</code> and
+        <code>(21) RegistryKey HKLM_SOFTWARE_WOW6432Node_…_Uninstall export.reg</code>.
+        Note: Intune diagnostics doesn't include the per-user HKCU hive, so the <em>Per-user</em> tile will show 0 — use the PowerShell snippet above if you need HKCU.
+      </div>
     </div>
   </div>
   </div><!-- /viewLocal -->
@@ -1787,22 +1793,119 @@ function showDetail(row) {
 
 function closeModal() { $('modal').classList.remove('show'); }
 
-function handleCSV(file) {
-  Papa.parse(file, {
-    header: true,
-    skipEmptyLines: true,
-    complete: (results) => {
-      rawRows = results.data.filter(r => r.DisplayName && r.DisplayName.trim());
-      $('uploadPrompt').style.display = 'none';
-      $('dashboard').style.display = 'block';
-      computeKPIs();
-      renderTable();
+// Parse a Windows .reg file into the same row shape as the CSV pipeline.
+// Sections become rows; only string/dword values we care about are extracted.
+// Input is the decoded text (caller handles UTF-16 LE decoding).
+function parseRegFile(text) {
+  const rows = [];
+  // Strip BOM if it survived decoding
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  // Stitch line-continuations (lines ending in backslash-then-newline are continued)
+  const stitched = text.replace(/\\\r?\n[ \t]*/g, '');
+  const lines = stitched.split(/\r?\n/);
+  let current = null;
+  for (let raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith(';')) continue;
+    if (line.startsWith('[') && line.endsWith(']')) {
+      if (current) rows.push(current);
+      const path = line.slice(1, -1);
+      // Only keep Uninstall keys
+      if (!/\\Uninstall\\/i.test(path) && !/\\Uninstall$/i.test(path)) {
+        current = null;
+        continue;
+      }
+      const lastSlash = path.lastIndexOf('\\');
+      current = {
+        RegistryPath: path,
+        PSChildName: lastSlash >= 0 ? path.slice(lastSlash + 1) : path
+      };
+      continue;
     }
+    if (!current) continue;
+    // "name"="string" or "name"=dword:hex or "name"=hex(2):...
+    const m = line.match(/^"([^"]+)"=(.*)$/);
+    if (!m) continue;
+    const name = m[1];
+    const rawVal = m[2];
+    let value = null;
+    if (rawVal.startsWith('"')) {
+      // String — unescape \\ and \"
+      const end = rawVal.lastIndexOf('"');
+      if (end > 0) {
+        value = rawVal.slice(1, end).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      }
+    } else if (rawVal.startsWith('dword:')) {
+      const hex = rawVal.slice(6).trim();
+      const n = parseInt(hex, 16);
+      value = Number.isFinite(n) ? String(n) : null;
+    }
+    // Multi-string / hex / etc — ignored for now (uninstall keys don't need them)
+    if (value == null) continue;
+    // Map to the same field names the CSV uses
+    const FIELDS = ['DisplayName','DisplayVersion','Publisher','InstallDate','UninstallString','QuietUninstallString','SystemComponent'];
+    if (FIELDS.includes(name)) current[name] = value;
+  }
+  if (current) rows.push(current);
+  return rows.filter(r => r.DisplayName && r.DisplayName.trim());
+}
+
+// Decode bytes from a .reg file. Most are UTF-16 LE with a 0xFF 0xFE BOM
+// (Windows default). Fall back to UTF-8 if no BOM is present.
+function decodeRegBytes(buffer) {
+  const view = new Uint8Array(buffer);
+  if (view.length >= 2 && view[0] === 0xFF && view[1] === 0xFE) {
+    return new TextDecoder('utf-16le').decode(view.subarray(2));
+  }
+  if (view.length >= 2 && view[0] === 0xFE && view[1] === 0xFF) {
+    return new TextDecoder('utf-16be').decode(view.subarray(2));
+  }
+  if (view.length >= 3 && view[0] === 0xEF && view[1] === 0xBB && view[2] === 0xBF) {
+    return new TextDecoder('utf-8').decode(view.subarray(3));
+  }
+  return new TextDecoder('utf-8').decode(view);
+}
+
+function detectFormat(file) {
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.reg')) return 'reg';
+  if (name.endsWith('.csv')) return 'csv';
+  return 'csv'; // default
+}
+
+function parseCsvAsync(file) {
+  return new Promise(resolve => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: results => resolve(results.data.filter(r => r.DisplayName && r.DisplayName.trim()))
+    });
   });
 }
 
-$('csvFile').addEventListener('change', e => e.target.files[0] && handleCSV(e.target.files[0]));
-$('csvFile2').addEventListener('change', e => e.target.files[0] && handleCSV(e.target.files[0]));
+function parseRegAsync(file) {
+  return file.arrayBuffer().then(buf => parseRegFile(decodeRegBytes(buf)));
+}
+
+async function handleFiles(fileList, mode) {
+  // mode: 'replace' on first drop, 'append' on subsequent drops via "Replace / add files"
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  let collected = [];
+  for (const f of files) {
+    const fmt = detectFormat(f);
+    if (fmt === 'reg') collected = collected.concat(await parseRegAsync(f));
+    else collected = collected.concat(await parseCsvAsync(f));
+  }
+  rawRows = mode === 'append' ? rawRows.concat(collected) : collected;
+  $('uploadPrompt').style.display = 'none';
+  $('dashboard').style.display = 'block';
+  computeKPIs();
+  renderTable();
+}
+
+$('csvFile').addEventListener('change', e => e.target.files.length && handleFiles(e.target.files, 'replace'));
+$('csvFile2').addEventListener('change', e => e.target.files.length && handleFiles(e.target.files, rawRows.length ? 'append' : 'replace'));
 $('filter').addEventListener('input', renderTable);
 $('hideSystem').addEventListener('change', () => { computeKPIs(); renderTable(); });
 $('dedupe').addEventListener('change', renderTable);

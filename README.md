@@ -2,7 +2,7 @@
 
 A clean, client-side dashboard with four tabs:
 
-1. **Local** — visualize Microsoft Intune uninstall registry exports from a CSV.
+1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
 2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Ten sub-tabs: Overview, Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
@@ -116,9 +116,11 @@ Sign in once with MSAL — all ten sub-tabs share the same session.
 
 ### Local tab
 
-1. Export the uninstall hive on a target machine (see snippet below)
+1. Get an uninstall-registry export from a target machine. Two options:
+   - **PowerShell** (CSV, includes HKLM 32/64-bit *and* HKCU) — run the snippet at the bottom of this README on the target machine.
+   - **Intune Collect diagnostics** (REG, HKLM only) — trigger the *Collect diagnostics* remote action on a device, extract the ZIP, and use the files numbered `(18) RegistryKey HKLM_Software_…_Uninstall export.reg` and `(21) RegistryKey HKLM_SOFTWARE_WOW6432Node_…_Uninstall export.reg`. Note: Intune diagnostics doesn't export the per-user HKCU hive, so the *Per-user* tile will show 0.
 2. Open the [dashboard](https://haavarstein.github.io/intune-dashboard/)
-3. Drop or select the `Uninstall-Export.csv` file
+3. Drop or select the file(s) — `.csv` or one-or-more `.reg`. The **↻ Replace / add files** link in the toolbar lets you drop more `.reg` files later to merge.
 4. Click any row for full details and uninstall commands
 
 ### Intune tab
@@ -221,6 +223,11 @@ Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the s
 **Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com`. The request uses the `anthropic-dangerous-direct-browser-access` header, which means **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 
 ## Exporting the registry (for the Local tab)
+
+You can feed the Local tab either format:
+
+- **PowerShell CSV** — covers HKLM 32-bit, HKLM 64-bit, and HKCU (per-user installs). Run the snippet below on a target machine.
+- **Intune diagnostics REG files** — produced by the *Collect diagnostics* remote action. Specifically files `(18)` (HKLM 64-bit) and `(21)` (HKLM WOW6432Node 32-bit) from the bundle. Drop both at once for a complete HKLM picture. HKCU is not included in the Intune diagnostics export, so use the PowerShell route if you need per-user installs.
 
 Run this PowerShell snippet on a target machine to generate the CSV:
 
