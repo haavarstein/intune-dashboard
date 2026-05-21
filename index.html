@@ -583,7 +583,7 @@
   </div>
 
   <div id="viewLocal">
-  <div class="tab-hint">Drop a Windows uninstall-registry export from one machine for offline analysis — a PowerShell-generated CSV, or the .reg files from an Intune <em>Collect diagnostics</em> bundle. Architecture-aware dedup and one-click silent-uninstall strings.</div>
+  <div class="tab-hint">Inspect the uninstall registry from a single Windows machine — 32 vs 64-bit detection, install dates, publishers, and copy-pasteable silent uninstall strings. Useful before refresh, migration, or building a cleanup script.</div>
   <div id="dashboard" style="display:none;">
     <div class="tiles">
       <div class="tile">
@@ -673,15 +673,21 @@
 
   <div id="uploadPrompt" class="upload-prompt">
     <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
-    <div>Drop a CSV or one-or-more .reg files to get started</div>
+    <div style="font-size:18px; font-weight:700; color:var(--ink);">Drop a registry export to start</div>
+    <div style="font-size:13px; margin-top:6px;">A PowerShell-generated CSV, or one-or-more <code>.reg</code> files from Intune <em>Collect diagnostics</em>.</div>
     <input type="file" id="csvFile" accept=".csv,.reg" multiple>
     <label for="csvFile">Select files</label>
 
     <div class="ps-helper">
-      <div class="ps-helper-head">
-        <span>Need an export? Run this PowerShell on a target machine:</span>
-        <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px;">Copy</button>
-      </div>
+
+      <div style="margin-bottom:28px;">
+        <div class="ps-helper-head">
+          <div>
+            <div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">Option A · PowerShell on the device</div>
+            <div style="font-size:11px; color:var(--muted);">Full picture — HKLM 32-bit, HKLM 64-bit, <strong>and per-user HKCU</strong>. Use this when you have remote PowerShell or console access to the machine.</div>
+          </div>
+          <button id="copyPs" class="btn btn-ghost" style="font-size:11px; padding:2px 10px; flex-shrink:0;">Copy</button>
+        </div>
 <pre id="psSnippet">$paths = @(
   'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
   'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -694,12 +700,23 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 UninstallString, QuietUninstallString, SystemComponent,
                 PSChildName, @{n='RegistryPath';e={$_.PSPath -replace 'Microsoft.PowerShell.Core\\Registry::',''}} |
   Export-Csv -Path "$desktop\Uninstall-Export.csv" -NoTypeInformation -Encoding UTF8</pre>
-      <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.5;">
-        <strong>Or from Intune:</strong> trigger <em>Collect diagnostics</em> on a device, extract the resulting ZIP, and drop these two files here:
-        <code>(18) RegistryKey HKLM_Software_…_Uninstall export.reg</code> and
-        <code>(21) RegistryKey HKLM_SOFTWARE_WOW6432Node_…_Uninstall export.reg</code>.
-        Note: Intune diagnostics doesn't include the per-user HKCU hive, so the <em>Per-user</em> tile will show 0 — use the PowerShell snippet above if you need HKCU.
       </div>
+
+      <div>
+        <div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">Option B · Intune Collect diagnostics</div>
+        <div style="font-size:11px; color:var(--muted); margin-bottom:10px;">HKLM only — the fastest path when you only have Intune access. Per-user HKCU is <strong>not</strong> in the diagnostics bundle, so the <em>Per-user</em> tile will show 0; use Option A if you need HKCU.</div>
+        <ol style="font-size:12px; padding-left:20px; margin:0; color:var(--ink-2); line-height:1.7;">
+          <li>In the Intune admin center, run <strong>Collect diagnostics</strong> on the target device.</li>
+          <li>Download and extract the resulting ZIP.</li>
+          <li>Drop both of these files into the dashboard:
+            <ul style="padding-left:18px; margin-top:4px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; line-height:1.6;">
+              <li>(18) RegistryKey HKLM_Software_…_Uninstall export.reg</li>
+              <li>(21) RegistryKey HKLM_SOFTWARE_WOW6432Node_…_Uninstall export.reg</li>
+            </ul>
+          </li>
+        </ol>
+      </div>
+
     </div>
   </div>
   </div><!-- /viewLocal -->
