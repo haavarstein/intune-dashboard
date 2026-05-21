@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Ten sub-tabs: Overview, Installed, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Eleven sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all ten sub-tabs share the same session.
+Sign in once with MSAL — all eleven sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -52,6 +52,15 @@ Sign in once with MSAL — all ten sub-tabs share the same session.
 - **⧉ Copy device names** copies the currently filtered list to the clipboard, newline-separated — paste straight into an Entra group, an exclusion list, or a Feature Update assignment. **⬇ Export CSV** downloads the same list (Device · User · Version · State · Platform · LastModified). Built for the use case of "give me the group of devices that have App X" — targeted upgrades and Feature Update exclusions.
 - **🔍 Detection rule** button in the selected-app header — same Detection Rule Inspector as on Failed Install. Shows the per-app detection logic that Intune evaluates on every device: MSI ProductCode + version operator, file/folder + version comparison, registry key + value match, or the full PowerShell detection script (base64-decoded). Supports Win32 LoB, Windows MSI LoB, and macOS LoB; other types show a "not applicable for this app type" message.
 - **🗑 Delete from Intune** button in the selected-app header — permanently removes the app from this tenant via Graph `DELETE /deviceAppManagement/mobileApps/{id}`. Requires typing the exact app name to confirm (case-sensitive) **and** a free-text justification (sent base64-encoded as the `x-msft-approval-justification` header — recorded in the Intune audit log; required by tenants with multi-admin approval / privileged operations, ignored elsewhere). Existing installs on devices are not uninstalled, but Intune stops managing and reporting on the app. Delete is one of two write actions in the dashboard (the other is the MAA approver email below — everything else is read-only). Requires the `DeviceManagementApps.ReadWrite.All` scope (admin consent may be needed in stricter tenants). **Multi-admin approval:** if the tenant requires a second admin to approve app deletes, the request enters a pending queue (HTTP 412 with an approval code) — the dashboard shows the approval code and tells you to have an approver act on the request in *Tenant administration → Multi Admin Approval → Access requests*. Once approved there, Intune executes the delete on its own; the dashboard does not need to retry. (HTTP 409 "active Approval Request already exists" is treated the same — request is already pending; nothing to do but wait for approval.) **Auto-notify approvers:** when the customer has an approver list configured in Settings → Customers, the dashboard sends an email from your mailbox to those approvers at the moment of submission — closing the gap that Intune itself doesn't send notifications when MAA requests are created. Uses the `Mail.Send` scope and Graph `POST /v1.0/me/sendMail`. Empty approver list = no email sent. **Live status polling:** after submission, the modal polls `GET /beta/deviceManagement/operationApprovalRequests/{id}` every 30 s and updates a status row inline — *⏳ Pending → ✓ Approved by <name> (with approver note) → picker auto-refreshes* — or shows *✗ Rejected by <name>* with the reason. Uses the existing `DeviceManagementConfiguration.Read.All` scope. Polling stops on terminal state or when you close the modal.
+
+**Approvals** — Multi-Admin Approval queue for this tenant. Every pending and recent request across apps, scripts, configuration profiles, and device actions — approve or reject inline without leaving the dashboard.
+
+- **KPI tiles**: Pending (current), Approved / Rejected / Expired (last 7 days). Click a tile to filter the table.
+- **Status + Type filters** plus free-text search across requestor, approver, justification, and ID.
+- **Sortable table**: Requestor · Type · Status · Requested · Last updated · Justification · Actions. Pending rows expose **Approve** and **Reject** buttons; non-pending rows show a Details button.
+- **Approve / Reject modal** shows the requester's justification, asks for your own justification (required, ≤ 1024 chars, recorded in the audit log), and POSTs to `operationApprovalRequests/{id}/approve` or `/reject`. Picker auto-refreshes on success.
+- **No new scope** — `operationApprovalRequests` list, approve, and reject all accept the existing `DeviceManagementConfiguration.Read.All` scope.
+- **Closes Intune's notification gap**: this is the queue Intune itself doesn't notify approvers about. Bookmark this tab for a single-pane-of-glass view of pending work. Paired with the auto-email-on-delete feature (Installed sub-tab → 🗑) you get the full loop: requester submits → approvers get an email + see it here → click Approve.
 
 **Required Uninstall** — apps assigned with intent *Uninstall* to a group.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
@@ -165,6 +174,8 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `DELETE /beta/deviceAppManagement/mobileApps/{id}` — permanently delete an app from the tenant (Installed sub-tab → 🗑 Delete from Intune)
 - `POST /v1.0/me/sendMail` — send the MAA approver-notification email from your mailbox when a delete submission triggers HTTP 412/409 and the active customer has approvers configured
 - `GET /beta/deviceManagement/operationApprovalRequests/{id}` — live status polling for an in-flight MAA delete request (30 s cadence while the modal is open; stops on approved/rejected/cancelled/expired/completed)
+- `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)
+- `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)

@@ -741,6 +741,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div class="subtabs">
         <button class="subtab active" data-subtab="overview">Overview</button>
         <button class="subtab" data-subtab="installed">Installed</button>
+        <button class="subtab" data-subtab="approvals">Approvals</button>
         <button class="subtab" data-subtab="failed">Failed Install</button>
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
@@ -964,6 +965,72 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubInstalled -->
+
+      <div id="intuneSubApprovals" style="display:none;">
+        <div class="tab-hint">Multi-Admin Approval queue for this tenant — every pending and recent approval request across apps, scripts, configurations, and device actions. Approve or reject inline; no admin-center context switch.</div>
+        <div class="tiles">
+          <div class="tile" data-approvals-tile="needsApproval" style="cursor:pointer;">
+            <div class="tile-label">Pending</div>
+            <div class="tile-value accent" id="apTilePending">0</div>
+            <div class="tile-sub">needs approval</div>
+          </div>
+          <div class="tile" data-approvals-tile="approved" style="cursor:pointer;">
+            <div class="tile-label">Approved</div>
+            <div class="tile-value" id="apTileApproved">0</div>
+            <div class="tile-sub">last 7 days</div>
+          </div>
+          <div class="tile" data-approvals-tile="rejected" style="cursor:pointer;">
+            <div class="tile-label">Rejected</div>
+            <div class="tile-value" id="apTileRejected">0</div>
+            <div class="tile-sub">last 7 days</div>
+          </div>
+          <div class="tile" data-approvals-tile="expired" style="cursor:pointer;">
+            <div class="tile-label">Expired</div>
+            <div class="tile-value" id="apTileExpired">0</div>
+            <div class="tile-sub">last 7 days</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Approval queue</h2>
+            <div class="controls">
+              <input type="text" class="search" id="approvalsFilter" placeholder="Search requestor, justification, type…">
+              <select class="filter-select" id="approvalsStatusFilter">
+                <option value="">All statuses</option>
+                <option value="needsApproval" selected>Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="expired">Expired</option>
+                <option value="completed">Completed</option>
+              </select>
+              <select class="filter-select" id="approvalsTypeFilter">
+                <option value="">All types</option>
+              </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnApprovalsRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="approvalsLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading approval queue…</div>
+          <div id="approvalsError"></div>
+          <div id="approvalsContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-asort="requestor">Requestor <span class="arrow">▼</span></th>
+                  <th data-asort="type">Type <span class="arrow">▼</span></th>
+                  <th data-asort="status">Status <span class="arrow">▼</span></th>
+                  <th data-asort="requestDateTime">Requested <span class="arrow">▼</span></th>
+                  <th data-asort="lastModifiedDateTime">Last updated <span class="arrow">▼</span></th>
+                  <th>Justification</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="approvalsRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="approvalsCount">0</span> requests shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubApprovals -->
 
       <div id="intuneSubRequired" style="display:none;">
         <div class="tab-hint">Audit view of Win32 apps assigned as Required to All Devices — what's being actively pushed to every machine.</div>
@@ -1592,6 +1659,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 </div>
 
+<div class="modal-backdrop" id="approvalActionModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="apaTitle">Approval action</h3>
+        <div class="panel-sub" id="apaSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeApprovalActionModal()">×</button>
+    </div>
+    <div class="modal-body" id="apaBody"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -2216,6 +2296,8 @@ function resetTenantState() {
   assignmentsPoliciesLoaded = false;
   assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
   assignmentsSelectedGroup = null;
+  // Approvals
+  approvalsLoaded = false; approvalsRaw = [];
   // Remediation / Vulnerabilities
   remediationLoaded = false; remediationRows = [];
   vulnLoaded = false; vulnRows = [];
@@ -3701,6 +3783,7 @@ function switchSubtab(name) {
   $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
   $('intuneSubRequired').style.display = name === 'required' ? '' : 'none';
   $('intuneSubInstalled').style.display = name === 'installed' ? '' : 'none';
+  $('intuneSubApprovals').style.display = name === 'approvals' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
@@ -3717,6 +3800,7 @@ function switchSubtab(name) {
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
+  if (name === 'approvals' && !approvalsLoaded) loadApprovals();
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
 }
 
@@ -4656,6 +4740,247 @@ document.querySelectorAll('#intuneSubRemediation th[data-rsort]').forEach(th => 
     renderRemediation();
   });
 });
+
+// ============================================================
+// Approvals sub-tab — Multi-Admin Approval queue
+// GET /beta/deviceManagement/operationApprovalRequests (List)
+// POST .../{id}/approve and .../{id}/reject (Action)
+// All endpoints accept the DeviceManagementConfiguration.Read.All
+// scope which is already in SCOPES — no re-consent required.
+// ============================================================
+let approvalsLoaded = false;
+let approvalsRaw = [];
+let approvalsSortKey = 'requestDateTime';
+let approvalsSortDir = 'desc';
+const APPROVALS_TERMINAL = new Set(['approved', 'rejected', 'cancelled', 'expired', 'completed']);
+
+function approvalRequestor(r) {
+  return r?.requestor?.user?.displayName
+      || r?.requestor?.application?.displayName
+      || r?.requestor?.device?.displayName
+      || '—';
+}
+function approvalApprover(r) {
+  return r?.approver?.user?.displayName
+      || r?.approver?.application?.displayName
+      || r?.approver?.device?.displayName
+      || '';
+}
+function approvalType(r) {
+  const arr = r?.requiredOperationApprovalPolicyTypes;
+  if (Array.isArray(arr) && arr.length) return arr.join(', ');
+  return '—';
+}
+function approvalStatusBadge(status) {
+  const s = (status || '').toLowerCase();
+  const map = {
+    needsapproval: { label: 'Pending', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    approved:      { label: 'Approved', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
+    completed:     { label: 'Completed', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
+    rejected:      { label: 'Rejected', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    cancelled:     { label: 'Cancelled', bg: '#f5f1ea', border: '#ece8e1', color: '#4a4a4f' },
+    expired:       { label: 'Expired', bg: '#f5f1ea', border: '#ece8e1', color: '#4a4a4f' }
+  };
+  const m = map[s] || { label: status || '—', bg: '#f5f1ea', border: '#ece8e1', color: '#4a4a4f' };
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+}
+
+async function loadApprovals(force = false) {
+  if (approvalsLoaded && !force) return;
+  $('approvalsLoading').style.display = '';
+  $('approvalsContent').style.display = 'none';
+  $('approvalsError').innerHTML = '';
+  try {
+    let path = 'beta/deviceManagement/operationApprovalRequests';
+    const all = [];
+    while (path) {
+      const data = await graphGet(path);
+      if (data.value) all.push(...data.value);
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+    }
+    approvalsRaw = all;
+    approvalsLoaded = true;
+    populateApprovalsTypeFilter();
+    $('approvalsLoading').style.display = 'none';
+    $('approvalsContent').style.display = '';
+    renderApprovalsTiles();
+    renderApprovalsTable();
+  } catch (e) {
+    console.error('Approvals load failed', e);
+    $('approvalsLoading').style.display = 'none';
+    $('approvalsError').innerHTML = `<div class="error-banner">Failed to load approval queue: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function populateApprovalsTypeFilter() {
+  const types = new Set();
+  approvalsRaw.forEach(r => {
+    (r.requiredOperationApprovalPolicyTypes || []).forEach(t => types.add(t));
+  });
+  const sel = $('approvalsTypeFilter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All types</option>' +
+    [...types].sort().map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  if ([...types].includes(current)) sel.value = current;
+}
+
+function renderApprovalsTiles() {
+  const now = Date.now();
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  let pending = 0, approved = 0, rejected = 0, expired = 0;
+  approvalsRaw.forEach(r => {
+    const s = (r.status || '').toLowerCase();
+    const lastMod = r.lastModifiedDateTime ? new Date(r.lastModifiedDateTime).getTime() : 0;
+    const recent = lastMod >= sevenDaysAgo;
+    if (s === 'needsapproval') pending++;
+    else if (recent && (s === 'approved' || s === 'completed')) approved++;
+    else if (recent && s === 'rejected') rejected++;
+    else if (recent && s === 'expired') expired++;
+  });
+  $('apTilePending').textContent = pending;
+  $('apTileApproved').textContent = approved;
+  $('apTileRejected').textContent = rejected;
+  $('apTileExpired').textContent = expired;
+}
+
+function applyApprovalsFilters(rows) {
+  const q = ($('approvalsFilter').value || '').toLowerCase().trim();
+  const statusFilter = ($('approvalsStatusFilter').value || '').toLowerCase();
+  const typeFilter = $('approvalsTypeFilter').value || '';
+  return rows.filter(r => {
+    const s = (r.status || '').toLowerCase();
+    if (statusFilter && s !== statusFilter) return false;
+    if (typeFilter && !(r.requiredOperationApprovalPolicyTypes || []).includes(typeFilter)) return false;
+    if (q) {
+      const hay = [approvalRequestor(r), approvalApprover(r), approvalType(r), r.requestJustification, r.approvalJustification, r.id]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderApprovalsTable() {
+  let rows = applyApprovalsFilters(approvalsRaw);
+  const dir = approvalsSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (approvalsSortKey === 'requestor') { av = approvalRequestor(a).toLowerCase(); bv = approvalRequestor(b).toLowerCase(); }
+    else if (approvalsSortKey === 'type') { av = approvalType(a).toLowerCase(); bv = approvalType(b).toLowerCase(); }
+    else if (approvalsSortKey === 'status') { av = (a.status || '').toLowerCase(); bv = (b.status || '').toLowerCase(); }
+    else { av = a[approvalsSortKey] || ''; bv = b[approvalsSortKey] || ''; }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+
+  const body = $('approvalsRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No approval requests match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const s = (r.status || '').toLowerCase();
+      const isPending = s === 'needsapproval';
+      const justification = (r.requestJustification || '').trim();
+      const truncated = justification.length > 80 ? justification.slice(0, 80) + '…' : justification;
+      const actions = isPending
+        ? `<button class="btn" data-approve="${esc(r.id)}" style="padding:4px 10px; font-size:11px; margin-right:4px;">Approve</button><button class="btn btn-danger" data-reject="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Reject</button>`
+        : `<button class="btn btn-ghost" data-approval-details="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Details</button>`;
+      return `
+        <tr>
+          <td>${esc(approvalRequestor(r))}</td>
+          <td><span style="font-family:ui-monospace,monospace; font-size:11px;">${esc(approvalType(r))}</span></td>
+          <td>${approvalStatusBadge(r.status)}</td>
+          <td class="date">${r.requestDateTime ? new Date(r.requestDateTime).toLocaleString() : '—'}</td>
+          <td class="date">${r.lastModifiedDateTime ? new Date(r.lastModifiedDateTime).toLocaleString() : '—'}</td>
+          <td title="${esc(justification)}" style="max-width:280px; overflow:hidden; text-overflow:ellipsis;">${esc(truncated) || '—'}</td>
+          <td>${actions}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  $('approvalsCount').textContent = rows.length;
+}
+
+function openApprovalActionModal(id, action) {
+  const req = approvalsRaw.find(r => r.id === id);
+  if (!req) return;
+  const isApprove = action === 'approve';
+  $('apaTitle').textContent = isApprove ? 'Approve request' : 'Reject request';
+  $('apaSubtitle').textContent = `${approvalRequestor(req)} · ${approvalType(req)}`;
+  $('apaBody').innerHTML = `
+    <p style="margin-top:0;">${isApprove ? 'Approve this request? Intune will execute the operation as soon as approval is recorded.' : 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.'}</p>
+    ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote style="margin:0 0 16px 0; padding:10px 14px; background:#f5f3ee; border-left:3px solid #888; font-size:13px; white-space:pre-wrap;">${esc(req.requestJustification)}</blockquote>` : ''}
+    <p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>
+    <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="e.g. ${isApprove ? 'Reviewed change ticket CHG-12345' : 'Out of policy — see governance doc'}"></textarea>
+    <div id="apaError"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+      <button class="btn btn-ghost" onclick="closeApprovalActionModal()">Cancel</button>
+      <button class="btn ${isApprove ? '' : 'btn-danger'}" id="apaSubmitBtn" disabled style="${isApprove ? 'background:#1f5d33; border-color:#1f5d33;' : ''}">${isApprove ? 'Approve' : 'Reject'}</button>
+    </div>
+  `;
+  const input = $('apaJustification');
+  const btn = $('apaSubmitBtn');
+  input.addEventListener('input', () => { btn.disabled = input.value.trim() === ''; });
+  btn.addEventListener('click', () => submitApprovalAction(id, action, input.value.trim()));
+  $('approvalActionModal').classList.add('show');
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeApprovalActionModal() {
+  $('approvalActionModal').classList.remove('show');
+}
+
+async function submitApprovalAction(id, action, justification) {
+  const btn = $('apaSubmitBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = action === 'approve' ? 'Approving…' : 'Rejecting…';
+  $('apaError').innerHTML = '';
+  try {
+    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, {
+      justification,
+      approvalSource: 'adminConsole'
+    });
+    closeApprovalActionModal();
+    loadApprovals(true);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = originalText;
+    $('apaError').innerHTML = `<div class="error-banner">Failed to ${esc(action)}: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+$('approvalsFilter').addEventListener('input', renderApprovalsTable);
+$('approvalsStatusFilter').addEventListener('change', renderApprovalsTable);
+$('approvalsTypeFilter').addEventListener('change', renderApprovalsTable);
+$('btnApprovalsRefresh').addEventListener('click', () => loadApprovals(true));
+
+document.querySelectorAll('[data-approvals-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const v = tile.dataset.approvalsTile;
+    $('approvalsStatusFilter').value = v;
+    renderApprovalsTable();
+  });
+});
+
+$('approvalsRowsBody').addEventListener('click', e => {
+  const ds = e.target.dataset || {};
+  if (ds.approve) openApprovalActionModal(ds.approve, 'approve');
+  else if (ds.reject) openApprovalActionModal(ds.reject, 'reject');
+});
+
+document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.asort;
+    if (approvalsSortKey === key) approvalsSortDir = approvalsSortDir === 'asc' ? 'desc' : 'asc';
+    else { approvalsSortKey = key; approvalsSortDir = 'desc'; }
+    renderApprovalsTable();
+  });
+});
+
+$('approvalActionModal').addEventListener('click', e => { if (e.target === $('approvalActionModal')) closeApprovalActionModal(); });
 
 // ============================================================
 // Assignments Explorer sub-tab
