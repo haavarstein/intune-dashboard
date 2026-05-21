@@ -2150,7 +2150,11 @@ async function graphDelete(path, opts = {}) {
     headers
   });
   if (res.ok || res.status === 404) return;
-  throw new Error('Graph ' + res.status + ': ' + await res.text());
+  const body = await res.text();
+  const err = new Error('Graph ' + res.status + ': ' + body);
+  err.status = res.status;
+  err.body = body;
+  throw err;
 }
 
 function showIntuneError(msg) {
@@ -3099,17 +3103,28 @@ function closeDeleteModal() {
   $('delModal').classList.remove('show');
 }
 
-async function confirmDelete(app, justification) {
-  const btn = $('delConfirmBtn');
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Deleting…';
-  $('delError').innerHTML = '';
+// CORS typically hides the x-msft-approval-code response header from the
+// browser, but Intune embeds the value inside the error body too. Pull it
+// from the body so the retry can supply it.
+function extractApprovalCode(body) {
+  if (!body) return null;
+  const m = body.match(/x-msft-approval-code["'\s:\\]+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+  return m ? m[1] : null;
+}
+
+async function confirmDelete(app, justification, approvalCode) {
+  const btn = $('delConfirmBtn') || $('delRetryBtn');
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = approvalCode ? 'Retrying…' : 'Deleting…';
+  }
+  if ($('delError')) $('delError').innerHTML = '';
   try {
     const justB64 = btoa(String.fromCharCode(...new TextEncoder().encode(justification)));
-    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), {
-      headers: { 'x-msft-approval-justification': justB64 }
-    });
+    const headers = { 'x-msft-approval-justification': justB64 };
+    if (approvalCode) headers['x-msft-approval-code'] = approvalCode;
+    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), { headers });
     const deletedName = app.displayName;
     closeDeleteModal();
     selectedApp = null;
@@ -3119,10 +3134,37 @@ async function confirmDelete(app, justification) {
     showIntuneNotice('Deleted ' + deletedName + ' from Intune.');
     loadInstalledApps();
   } catch (e) {
-    btn.disabled = false;
-    btn.textContent = originalText;
-    $('delError').innerHTML = `<div class="error-banner">Failed to delete: ${esc(e.message || String(e))}</div>`;
+    if (e.status === 412) {
+      const code = extractApprovalCode(e.body) || approvalCode;
+      if (code) {
+        renderApprovalPending(app, justification, code, approvalCode ? 'Still waiting on approval. Once approved, click Retry again.' : null);
+        return;
+      }
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+    if ($('delError')) $('delError').innerHTML = `<div class="error-banner">Failed to delete: ${esc(e.message || String(e))}</div>`;
   }
+}
+
+function renderApprovalPending(app, justification, code, hint) {
+  $('delBody').innerHTML = `
+    <div class="notice-banner" style="margin-top:0;">
+      <strong>Approval required.</strong> This tenant has multi-admin approval enabled for app deletion. Your request has been submitted — an approver must review and approve it before the delete can complete.
+    </div>
+    <p style="margin-top:16px; margin-bottom:6px;"><strong>Approval code:</strong></p>
+    <div style="background:var(--bg); border:1px solid var(--line); padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:16px; user-select:all; word-break:break-all;">${esc(code)}</div>
+    <p style="margin-bottom:16px;">An approver needs to open <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve it. Once approved, click <strong>Retry</strong> below.</p>
+    ${hint ? `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500;">${esc(hint)}</div>` : ''}
+    <div id="delError"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Close</button>
+      <button class="btn btn-danger" id="delRetryBtn">Retry</button>
+    </div>
+  `;
+  $('delRetryBtn').addEventListener('click', () => confirmDelete(app, justification, code));
 }
 
 $('btnDeleteApp').addEventListener('click', () => openDeleteModal(selectedApp));
