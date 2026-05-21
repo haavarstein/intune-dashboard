@@ -3103,28 +3103,27 @@ function closeDeleteModal() {
   $('delModal').classList.remove('show');
 }
 
-// CORS typically hides the x-msft-approval-code response header from the
-// browser, but Intune embeds the value inside the error body too. Pull it
-// from the body so the retry can supply it.
+// CORS hides the x-msft-approval-code response header from the browser,
+// but Intune embeds the value in the error body too. Pull it from the body
+// so we can show it to the user.
 function extractApprovalCode(body) {
   if (!body) return null;
   const m = body.match(/x-msft-approval-code["'\s:\\]+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
   return m ? m[1] : null;
 }
 
-async function confirmDelete(app, justification, approvalCode) {
-  const btn = $('delConfirmBtn') || $('delRetryBtn');
-  const originalText = btn ? btn.textContent : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = approvalCode ? 'Retrying…' : 'Deleting…';
-  }
-  if ($('delError')) $('delError').innerHTML = '';
+async function confirmDelete(app, justification) {
+  const btn = $('delConfirmBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+  $('delError').innerHTML = '';
   try {
     const justB64 = btoa(String.fromCharCode(...new TextEncoder().encode(justification)));
-    const headers = { 'x-msft-approval-justification': justB64 };
-    if (approvalCode) headers['x-msft-approval-code'] = approvalCode;
-    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), { headers });
+    await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), {
+      headers: { 'x-msft-approval-justification': justB64 }
+    });
+    // Tenant without multi-admin approval — the delete completed.
     const deletedName = app.displayName;
     closeDeleteModal();
     selectedApp = null;
@@ -3134,37 +3133,37 @@ async function confirmDelete(app, justification, approvalCode) {
     showIntuneNotice('Deleted ' + deletedName + ' from Intune.');
     loadInstalledApps();
   } catch (e) {
-    if (e.status === 412) {
-      const code = extractApprovalCode(e.body) || approvalCode;
-      if (code) {
-        renderApprovalPending(app, justification, code, approvalCode ? 'Still waiting on approval. Once approved, click Retry again.' : null);
-        return;
-      }
+    // 412 = approval request submitted; 409 + "active Approval Request" = already pending.
+    // Both mean the dashboard's job is done — an approver acts on it from the admin center.
+    const isSubmitted = e.status === 412;
+    const isAlreadyPending = e.status === 409 && /active Approval Request/i.test(e.body || '');
+    if (isSubmitted || isAlreadyPending) {
+      renderApprovalSubmitted(app, extractApprovalCode(e.body), isAlreadyPending);
+      return;
     }
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-    if ($('delError')) $('delError').innerHTML = `<div class="error-banner">Failed to delete: ${esc(e.message || String(e))}</div>`;
+    btn.disabled = false;
+    btn.textContent = originalText;
+    $('delError').innerHTML = `<div class="error-banner">Failed to delete: ${esc(e.message || String(e))}</div>`;
   }
 }
 
-function renderApprovalPending(app, justification, code, hint) {
+function renderApprovalSubmitted(app, code, alreadyPending) {
+  const heading = alreadyPending
+    ? 'An approval request is already pending for this app.'
+    : 'Approval request submitted.';
   $('delBody').innerHTML = `
     <div class="notice-banner" style="margin-top:0;">
-      <strong>Approval required.</strong> This tenant has multi-admin approval enabled for app deletion. Your request has been submitted — an approver must review and approve it before the delete can complete.
+      <strong>✓ ${esc(heading)}</strong> This tenant has multi-admin approval enabled for app deletion. The dashboard's part is done — an approver needs to take it from here.
     </div>
-    <p style="margin-top:16px; margin-bottom:6px;"><strong>Approval code:</strong></p>
-    <div style="background:var(--bg); border:1px solid var(--line); padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:16px; user-select:all; word-break:break-all;">${esc(code)}</div>
-    <p style="margin-bottom:16px;">An approver needs to open <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve it. Once approved, click <strong>Retry</strong> below.</p>
-    ${hint ? `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500;">${esc(hint)}</div>` : ''}
-    <div id="delError"></div>
+    ${code ? `
+      <p style="margin-top:16px; margin-bottom:6px;"><strong>Approval code:</strong></p>
+      <div style="background:var(--bg); border:1px solid var(--line); padding:10px 14px; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; margin-bottom:16px; user-select:all; word-break:break-all;">${esc(code)}</div>
+    ` : ''}
+    <p>An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. Once approved, Intune will execute the delete. Refresh the Installed sub-tab afterwards to see the app disappear.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
-      <button class="btn btn-ghost" onclick="closeDeleteModal()">Close</button>
-      <button class="btn btn-danger" id="delRetryBtn">Retry</button>
+      <button class="btn btn-danger" onclick="closeDeleteModal()">Close</button>
     </div>
   `;
-  $('delRetryBtn').addEventListener('click', () => confirmDelete(app, justification, code));
 }
 
 $('btnDeleteApp').addEventListener('click', () => openDeleteModal(selectedApp));

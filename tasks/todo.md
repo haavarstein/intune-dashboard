@@ -87,7 +87,7 @@ From the Installed sub-tab's selected-app view, allow deleting an app from Intun
 - [x] Add `openDeleteModal()` / `closeDeleteModal()` / `confirmDelete()` functions
 - [x] Wire button click + backdrop-click-to-close
 - [x] Required justification textarea (gates confirm button alongside typed name); sent base64-encoded as `x-msft-approval-justification` header — required by tenants with multi-admin approval / privileged operations, harmless elsewhere
-- [x] Multi-admin approval flow: on HTTP 412, parse `x-msft-approval-code` out of the response body (CORS hides the response header but Intune embeds the value in the body), switch the modal to a pending-approval state with the code and instructions, and a Retry button that resends DELETE with `x-msft-approval-code`. Repeat-retry while still pending shows a "still waiting" hint.
+- [x] Multi-admin approval: on HTTP 412 (request submitted) or HTTP 409 "active Approval Request already exists" (already pending), show a success-style "request submitted, an approver needs to act on it in admin center" panel with the approval code (parsed from the response body since CORS hides the response header). No retry button — the dashboard's job ends at submission; Intune executes the delete itself once an approver approves. **Lesson:** initial implementation added a Retry button that caused the user to re-submit and trip the 409 — over-engineering. Submission is success.
 - [x] Clear notice on `← Change app` and on drilling into a new app (not in `loadInstalledApps` — would clobber post-delete banner)
 - [x] README: soften "read-only" claim, add new scope bullet + admin-consent note, add Installed delete bullet, add DELETE endpoint line
 - [x] README: grep `read-only` to confirm no false claims remain

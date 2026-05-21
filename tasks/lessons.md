@@ -39,3 +39,19 @@
 - "What the dashboard calls" endpoint list — match against actual `graphGet`/`graphPost` calls in `index.html`.
 
 **Process**: when user asks "readme up to date?" → run the canonical-facts scan above before answering "yes." When I'm about to claim something is current, that claim is a falsifiable statement and I owe a 30-second check.
+
+---
+
+## Don't invent flow control around API responses I don't understand (2026-05-21)
+
+**Pattern**: When implementing 🗑 Delete from Intune, the first 412 response said "Approval Required. Request Approval using the request ID returned as part of the x-msft-approval-code response header." I read this as "you need to retry with the approval code after approval lands." Built a Retry button that resent DELETE with `x-msft-approval-code`. User clicked Retry → 409 "An active Approval Request already exists for this entity."
+
+**What was actually happening**: the FIRST DELETE with justification *was* the submission. The 412 response means "request enqueued, here's its tracking code." Multi-admin approval is executed by Intune itself once an approver approves it in the admin center — the requester does NOT retry the DELETE. Retrying caused the 409.
+
+**Why I got it wrong**: I read "Request Approval using the request ID" as imperative for the *client*. It's actually descriptive — the request ID is for the approver to reference. The MAA flow in Microsoft's design is fire-and-forget from the requester's side.
+
+**Rule**: When a Microsoft API returns a non-2xx with what looks like "do X to continue," check whether the response is actually a *confirmation of submission* before adding retry/continuation logic. The dashboard's job often ends at "request accepted into a queue." Adding client-side state machines around approval queues is almost always wrong — the queue *is* the state machine.
+
+**Anti-pattern to stop**: building Retry buttons before confirming with the user that a retry is part of the flow. If the user says "We just need to submit the justification, that's it" — believe them. They know the tenant's policy better than I do.
+
+**Pre-commit check**: when a new feature catches a specific non-2xx response, write down what each status code *means* from the API's perspective, not what it triggers in my UI. 412 = "submitted, awaiting approval." 409 = "already submitted, still awaiting approval." Both are success-shaped from the user's perspective.
