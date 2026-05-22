@@ -3049,21 +3049,31 @@ async function loadErrorCluster(force = false) {
     const byCode = new Map(); // errorCode → { errorCode, hexErrorCode, deviceCount, apps: Map<appId,{name,count}> }
     const BATCH = 5;
     let done = 0;
+    let failures = 0;
+    let lastErr = null;
     for (let i = 0; i < apps.length; i += BATCH) {
       const slice = apps.slice(i, i + BATCH);
       await Promise.all(slice.map(async app => {
         try {
+          // Match the existing per-app drill-in body shape from selectApp() —
+          // a compound filter with InstallState was being rejected by the
+          // report API. Filter to non-zero ErrorCode client-side instead.
           const body = {
-            top: 0,
-            skip: 0,
-            select: ['ErrorCode', 'HexErrorCode', 'DeviceName'],
+            select: ['DeviceName', 'UserPrincipalName', 'AppVersion', 'Platform',
+                     'AssignmentFilterIdsExist', 'AssignmentFilterIdsList', 'DeviceId',
+                     'ErrorCode', 'HexErrorCode', 'InstallState', 'InstallStateDetail',
+                     'LastModifiedDateTime', 'UserName', 'UserId'],
             orderBy: [],
             search: '',
-            filter: `(ApplicationId eq '${app.id}') and (InstallState eq 'failed')`
+            filter: `(ApplicationId eq '${app.id}')`
           };
           const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
           const rows = parseReport(data);
           for (const r of rows) {
+            const state = String(r.InstallState || '').toLowerCase();
+            // Only count actual failures (failed / installFail / uninstallFail).
+            // Some tenants surface "error" or "Failed" with leading caps too.
+            if (!state.includes('fail') && state !== 'error') continue;
             const code = String(r.ErrorCode ?? '').trim();
             if (!code || code === '0') continue;
             if (!byCode.has(code)) {
@@ -3075,10 +3085,14 @@ async function loadErrorCluster(force = false) {
             if (!e.apps.has(app.id)) e.apps.set(app.id, { name: app.displayName, count: 0 });
             e.apps.get(app.id).count++;
           }
-        } catch (e) { /* skip one app's failure; aggregation continues */ }
+        } catch (err) {
+          failures++;
+          lastErr = err;
+          console.warn('Error cluster: failed to fetch report for app', app.displayName || app.id, err);
+        }
       }));
       done += slice.length;
-      status.textContent = `Aggregating… ${done}/${apps.length} apps scanned`;
+      status.textContent = `Aggregating… ${done}/${apps.length} apps scanned${failures ? ` (${failures} failed)` : ''}`;
     }
     errorClusterRows = [...byCode.values()].map(e => ({
       errorCode: e.errorCode,
@@ -3088,7 +3102,16 @@ async function loadErrorCluster(force = false) {
       sampleApps: [...e.apps.values()].sort((a, b) => b.count - a.count).slice(0, 3).map(a => `${a.name} (${a.count})`).join(', ')
     }));
     errorClusterLoaded = true;
-    status.textContent = `Aggregated ${errorClusterRows.length} distinct error codes from ${apps.length} failing apps.`;
+    if (errorClusterRows.length === 0 && failures > 0) {
+      // Every app fetch failed — likely a permission or API shape issue. Surface it.
+      status.innerHTML = `<div class="error-banner">No data aggregated. ${failures}/${apps.length} per-app fetches failed.<br><span style="font-size:11px;">Last error: ${esc(lastErr?.message || String(lastErr))}</span></div>`;
+      return;
+    }
+    if (errorClusterRows.length === 0) {
+      status.textContent = `Scanned ${apps.length} failing apps but found no non-zero error codes in their device install-status reports.`;
+      return;
+    }
+    status.textContent = `Aggregated ${errorClusterRows.length} distinct error codes from ${apps.length} failing apps${failures ? ` (${failures} apps couldn't be scanned)` : ''}.`;
     $('errorClusterTable').style.display = '';
     $('errorClusterFooter').style.display = '';
     renderErrorClusterTable();
