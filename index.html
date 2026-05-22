@@ -4694,48 +4694,74 @@ document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
 // 30 days of retention so older actions won't appear.
 // Scope: DeviceManagementApps.Read.All (already in SCOPES).
 // ============================================================
+// Module-level scan state so the "Scan more" button can resume from
+// where the previous batch stopped.
+let auditScanState = null;
+const AUDIT_BATCH_PAGES = 8;
+const AUDIT_PAGE_SIZE = 500;
+
 async function openAuditModal(deviceId, deviceName) {
   $('auditSubtitle').textContent = deviceName || deviceId;
   $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Loading audit history…</div>`;
   $('auditModal').classList.add('show');
-  const lowerId = (deviceId || '').toLowerCase();
+  // Graph's $filter on resources/any against auditEvents is unreliable, so
+  // we fetch with a date filter only and scan resources[] client-side.
+  const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+  const baseFilter = `activityDateTime ge ${since}`;
+  auditScanState = {
+    deviceId,
+    deviceName,
+    lowerId: (deviceId || '').toLowerCase(),
+    scanned: 0,
+    matches: [],
+    nextPath: `v1.0/deviceManagement/auditEvents?$filter=${encodeURIComponent(baseFilter)}&$top=${AUDIT_PAGE_SIZE}&$orderby=activityDateTime desc`
+  };
+  await runAuditScan(AUDIT_BATCH_PAGES);
+}
+
+async function runAuditScan(maxPages) {
+  const s = auditScanState;
+  if (!s) return;
+  let page = 0;
   try {
-    // Graph's $filter on resources/any against auditEvents is unreliable —
-    // it silently returns 0 rows on most tenants. Fall back to fetching a
-    // recent slice of events (date filter only) and scanning resources[]
-    // client-side. Cap at MAX_PAGES so a busy tenant's audit feed doesn't
-    // saturate the UI.
-    const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-    const baseFilter = `activityDateTime ge ${since}`;
-    let path = `v1.0/deviceManagement/auditEvents?$filter=${encodeURIComponent(baseFilter)}&$top=500&$orderby=activityDateTime desc`;
-    const MAX_PAGES = 8;
-    let page = 0;
-    let scanned = 0;
-    const matches = [];
-    while (path && page < MAX_PAGES) {
-      $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Scanning audit log… page ${page + 1}, ${scanned} events checked, ${matches.length} matches</div>`;
-      const data = await graphGet(path);
+    while (s.nextPath && page < maxPages) {
+      $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Scanning audit log… ${s.scanned.toLocaleString()} events checked, ${s.matches.length} matches</div>`;
+      const data = await graphGet(s.nextPath);
       const events = (data.value || []);
-      scanned += events.length;
+      s.scanned += events.length;
       for (const e of events) {
-        const hit = (e.resources || []).some(r => (r.resourceId || '').toLowerCase() === lowerId);
-        if (hit) matches.push(e);
+        const hit = (e.resources || []).some(r => (r.resourceId || '').toLowerCase() === s.lowerId);
+        if (hit) s.matches.push(e);
       }
       const next = data['@odata.nextLink'];
-      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+      s.nextPath = next ? next.replace('https://graph.microsoft.com/', '') : null;
       page++;
     }
-    const reachedCap = page >= MAX_PAGES && path;
-    if (!matches.length) {
-      $('auditBody').innerHTML = `
-        <div class="meta" style="padding:20px; text-align:center;">
-          <div>Scanned ${scanned.toLocaleString()} audit event${scanned === 1 ? '' : 's'} from the last 180 days; none referenced this device.</div>
-          <div style="font-size:11px; margin-top:8px;">Either no admin actions (wipe / retire / sync / rename / primary-user change / RBAC) have touched this device in that window, or the audit log retention has expired (Intune retains up to ~1 year by default).</div>
-          ${reachedCap ? `<div style="font-size:11px; color:var(--accent); margin-top:8px;">⚠ Hit the ${MAX_PAGES}-page scan cap — there may be older events not checked.</div>` : ''}
-        </div>`;
-      return;
-    }
-    const rows = matches.map(e => {
+    renderAuditResults();
+  } catch (e) {
+    console.error('Audit scan failed', e);
+    $('auditBody').innerHTML = `<div class="error-banner">Failed to load audit history: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderAuditResults() {
+  const s = auditScanState;
+  if (!s) return;
+  const hasMore = !!s.nextPath;
+  const moreButton = hasMore
+    ? `<button class="btn btn-ghost" id="btnAuditScanMore" style="margin-left:12px; padding:4px 12px; font-size:12px;">Scan another ${(AUDIT_BATCH_PAGES * AUDIT_PAGE_SIZE).toLocaleString()} events →</button>`
+    : '';
+  const capNote = hasMore ? ` <span style="color:var(--accent);">More older events exist — use the button to extend the scan.</span>` : '';
+
+  if (!s.matches.length) {
+    $('auditBody').innerHTML = `
+      <div class="meta" style="padding:20px; text-align:center;">
+        <div>Scanned ${s.scanned.toLocaleString()} audit event${s.scanned === 1 ? '' : 's'} from the last 180 days; none referenced this device.</div>
+        <div style="font-size:11px; margin-top:8px;">Either no admin actions (wipe / retire / sync / rename / primary-user change / RBAC) have touched this device in that window, or the audit log retention has expired (Intune retains up to ~1 year by default).</div>
+        ${hasMore ? `<div style="margin-top:14px;">${moreButton}</div>` : ''}
+      </div>`;
+  } else {
+    const rows = s.matches.map(e => {
       const actor = e.actor || {};
       const who = actor.userPrincipalName || actor.applicationDisplayName || actor.servicePrincipalName || '—';
       const ip = actor.ipAddress ? `<br><span class="meta" style="font-size:11px;">from ${esc(actor.ipAddress)}</span>` : '';
@@ -4756,15 +4782,21 @@ async function openAuditModal(deviceId, deviceName) {
         </tr>`;
     }).join('');
     $('auditBody').innerHTML = `
-      <p style="margin-top:0; font-size:12px; color:var(--muted);">${matches.length} event${matches.length === 1 ? '' : 's'} reference this device · ${scanned.toLocaleString()} total events scanned (last 180 days).${reachedCap ? ' <span style="color:var(--accent);">Hit scan cap — older events may exist.</span>' : ''}</p>
+      <p style="margin-top:0; font-size:12px; color:var(--muted);">${s.matches.length} event${s.matches.length === 1 ? '' : 's'} reference this device · ${s.scanned.toLocaleString()} total events scanned (last 180 days).${capNote}${moreButton}</p>
       <table>
         <thead><tr><th>When</th><th>Activity</th><th>Type</th><th>Result</th><th>Actor</th><th>Category</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
-  } catch (e) {
-    console.error('Audit modal load failed', e);
-    $('auditBody').innerHTML = `<div class="error-banner">Failed to load audit history: ${esc(e.message || String(e))}</div>`;
+  }
+
+  const btn = $('btnAuditScanMore');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Scanning…';
+      await runAuditScan(AUDIT_BATCH_PAGES);
+    });
   }
 }
 
