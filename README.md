@@ -69,7 +69,7 @@ Sign in once with MSAL — all thirteen sub-tabs share the same session.
 - Type to filter the list.
 
 **Hardware** — managed-device inventory, framed for recycle/refresh planning, Windows 11 readiness, and post-EOS Windows 10 cleanup.
-- KPI tiles: eleven clickable buckets — OS (Windows 10 [Past EOS · Oct 2025], Windows 11), **Stale 90+ days** (no check-in for 90 days+; includes never-synced devices), RAM (4GB, 8GB, 16GB, 32+ GB), and storage (64GB, 128GB, 256GB, 512+ GB). Windows 10 matches build prefix `10.0.19`; Windows 11 matches `10.0.26`. **Click any tile to filter the table** to just those devices; click the active tile again, or hit **✕ Clear KPI** in the toolbar, to clear.
+- KPI tiles: fourteen clickable buckets — OS (Windows 10 [Past EOS · Oct 2025], Windows 11), **Stale 90+ days** (no check-in for 90 days+; includes never-synced devices), RAM (4GB, 8GB, 16GB, 32+ GB), storage (64GB, 128GB, 256GB, 512+ GB), and **Hygiene** (Duplicate serial — same serial across 2+ records; Missing from Entra — no matching Entra device record; No primary user — empty UPN). Windows 10 matches build prefix `10.0.19`; Windows 11 matches `10.0.26`. **Click any tile to filter the table** to just those devices; click the active tile again, or hit **✕ Clear KPI** in the toolbar, to clear.
 - **⬇ Export CSV** in the toolbar downloads the currently filtered table — combine with a tile selection (e.g. *Windows 10*) to drop the result straight into an Entra group for refresh batches.
 - Use cases: spot Windows 10 holdouts before end-of-support, find the low-RAM/low-storage devices that won't survive a Feature Update (or shouldn't get one), build refresh-budget shortlists, or pull a quick exclusion list of underspecced machines.
 - RAM distribution donut chart for at-a-glance fleet composition.
@@ -177,6 +177,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `DeviceManagementApps.ReadWrite.All` — **write scope** for deleting apps from Intune (Installed sub-tab → 🗑 Delete from Intune)
 - `Mail.Send` — **write scope** to send the MAA approver notification email from your own mailbox at the moment a delete is submitted; never used for anything else
 - `BitlockerKey.ReadBasic.All` — list BitLocker recovery-key metadata for the BitLocker sub-tab (returns id / deviceId / volumeType only — key material is never fetched)
+- `Device.Read.All` — read Entra device objects, used by the Hardware tab's hygiene tiles to flag Intune devices with no matching Entra record
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
@@ -202,6 +203,7 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
+- `GET /v1.0/devices?$select=deviceId` — Entra device IDs joined to `managedDevices.azureADDeviceId` for the Hardware tab's "Missing from Entra" hygiene tile
 - `GET /beta/deviceManagement/assignmentFilters` — assignment filters list for the Assignments → Hygiene panel (orphaned vs in-use detection)
 - `GET /v1.0/groups/{id}/members/$count` (with `ConsistencyLevel: eventual`) — per-group member counts for the Assignments → Hygiene panel's empty-group detector (parallelized for every unique group ID referenced in assignments)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)

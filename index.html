@@ -734,7 +734,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · BitlockerKey.ReadBasic.All · Mail.Send · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · BitlockerKey.ReadBasic.All · Device.Read.All · Mail.Send · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -1149,6 +1149,21 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-label">512+ GB Storage</div>
                 <div class="tile-value" id="hwStor512">0</div>
                 <div class="tile-sub">≥ 512GB total</div>
+              </div>
+              <div class="tile clickable" id="hwDupSerialTile" title="Click to filter to duplicate-serial-number devices (the same physical machine enrolled multiple times)">
+                <div class="tile-label">Duplicate serial</div>
+                <div class="tile-value accent" id="hwDupSerial">0</div>
+                <div class="tile-sub">same serial on 2+ records</div>
+              </div>
+              <div class="tile clickable" id="hwMissingEntraTile" title="Click to filter to devices in Intune that don't have a matching Entra device record">
+                <div class="tile-label">Missing from Entra</div>
+                <div class="tile-value" id="hwMissingEntra">0</div>
+                <div class="tile-sub">no Entra match</div>
+              </div>
+              <div class="tile clickable" id="hwNoUserTile" title="Click to filter to devices with no primary user assigned (possible orphan or shared device)">
+                <div class="tile-label">No primary user</div>
+                <div class="tile-value" id="hwNoUser">0</div>
+                <div class="tile-sub">empty UPN</div>
               </div>
             </div>
             <div class="donut-card">
@@ -2263,7 +2278,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -4156,27 +4171,47 @@ async function loadHardware() {
   $('hwError').innerHTML = '';
   try {
     const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,' +
-                   'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime';
-    let path = 'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select);
-    const all = [];
-    while (path) {
-      const data = await graphGet(path);
-      if (data.value) all.push(...data.value);
-      const next = data['@odata.nextLink'];
-      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+                   'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime,' +
+                   'serialNumber,userPrincipalName,azureADDeviceId';
+    // Fetch Intune managedDevices + Entra /devices in parallel.
+    // Entra fetch is wrapped — if the user denies Device.Read.All the hygiene
+    // tiles fall back gracefully instead of failing the whole tab.
+    const [all, entraIds] = await Promise.all([
+      graphGetAll('beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select)),
+      graphGetAll('v1.0/devices?$select=deviceId').then(arr => new Set(arr.map(d => (d.deviceId || '').toLowerCase()).filter(Boolean))).catch(e => { console.warn('Entra /devices fetch failed', e); return null; })
+    ]);
+
+    // Pre-compute serial duplicates so each device knows whether it shares its serial with another record.
+    const serialCounts = new Map();
+    for (const d of all) {
+      const s = (d.serialNumber || '').trim();
+      if (!s) continue;
+      serialCounts.set(s, (serialCounts.get(s) || 0) + 1);
     }
-    hwDevices = all.map(d => ({
-      id: d.id,
-      deviceName: d.deviceName || '—',
-      manufacturer: d.manufacturer || '—',
-      model: d.model || '—',
-      ramGB: Math.round(toGB(d.physicalMemoryInBytes)),
-      totalGB: Math.round(toGB(d.totalStorageSpaceInBytes)),
-      freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
-      osVersion: d.osVersion || '—',
-      os: d.operatingSystem || 'Unknown',
-      lastSync: d.lastSyncDateTime || ''
-    }));
+
+    hwDevices = all.map(d => {
+      const aadId = (d.azureADDeviceId || '').toLowerCase();
+      const serial = (d.serialNumber || '').trim();
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '—',
+        manufacturer: d.manufacturer || '—',
+        model: d.model || '—',
+        ramGB: Math.round(toGB(d.physicalMemoryInBytes)),
+        totalGB: Math.round(toGB(d.totalStorageSpaceInBytes)),
+        freeGB: Math.round(toGB(d.freeStorageSpaceInBytes)),
+        osVersion: d.osVersion || '—',
+        os: d.operatingSystem || 'Unknown',
+        lastSync: d.lastSyncDateTime || '',
+        serialNumber: serial,
+        userPrincipalName: d.userPrincipalName || '',
+        azureADDeviceId: d.azureADDeviceId || '',
+        _dupSerial: serial ? (serialCounts.get(serial) || 0) > 1 : false,
+        _missingEntra: entraIds === null ? false : (aadId ? !entraIds.has(aadId) : true),
+        _noPrimaryUser: !d.userPrincipalName,
+        _entraLookupOk: entraIds !== null
+      };
+    });
 
     // physicalMemoryInBytes is not populated by the managedDevices list endpoint;
     // it requires a per-device GET. Fetch in chunks to avoid throttling.
@@ -4260,6 +4295,11 @@ function filterHw() {
       if (kind === 'stor' && storageBucket(d.totalGB) !== val) return false;
       if (kind === 'win' && winBucket(d.osVersion) !== val) return false;
       if (kind === 'stale' && !isStale(d)) return false;
+      if (kind === 'hygiene') {
+        if (val === 'dupSerial' && !d._dupSerial) return false;
+        if (val === 'missingEntra' && !d._missingEntra) return false;
+        if (val === 'noUser' && !d._noPrimaryUser) return false;
+      }
     }
     if (q && !(
       d.deviceName.toLowerCase().includes(q) ||
@@ -4280,16 +4320,23 @@ function renderHardware() {
   const ramCounts = { le4: 0, '8': 0, '16': 0, ge32: 0 };
   const storCounts = { le64: 0, '128': 0, '256': 0, ge512: 0 };
   const winCounts = { win10: 0, win11: 0 };
-  let staleCount = 0;
+  let staleCount = 0, dupSerialCount = 0, missingEntraCount = 0, noUserCount = 0;
+  const entraLookupOk = platScope.length === 0 ? true : platScope[0]._entraLookupOk;
   platScope.forEach(d => {
     const rb = ramBucket(d.ramGB); if (rb in ramCounts) ramCounts[rb]++;
     const sb = storageBucket(d.totalGB); if (sb in storCounts) storCounts[sb]++;
     const wb = winBucket(d.osVersion); if (wb) winCounts[wb]++;
     if (isStale(d)) staleCount++;
+    if (d._dupSerial) dupSerialCount++;
+    if (d._missingEntra) missingEntraCount++;
+    if (d._noPrimaryUser) noUserCount++;
   });
   $('hwWin10').textContent = winCounts.win10;
   $('hwWin11').textContent = winCounts.win11;
   $('hwStale').textContent = staleCount;
+  $('hwDupSerial').textContent = dupSerialCount;
+  $('hwMissingEntra').textContent = entraLookupOk ? missingEntraCount : '—';
+  $('hwNoUser').textContent = noUserCount;
   $('hwRam4').textContent = ramCounts.le4;
   $('hwRam8').textContent = ramCounts['8'];
   $('hwRam16').textContent = ramCounts['16'];
@@ -4402,7 +4449,10 @@ const hwTileMap = {
   hwStor64Tile: 'stor:le64',
   hwStor128Tile: 'stor:128',
   hwStor256Tile: 'stor:256',
-  hwStor512Tile: 'stor:ge512'
+  hwStor512Tile: 'stor:ge512',
+  hwDupSerialTile: 'hygiene:dupSerial',
+  hwMissingEntraTile: 'hygiene:missingEntra',
+  hwNoUserTile: 'hygiene:noUser'
 };
 function syncHwTileUi() {
   Object.keys(hwTileMap).forEach(id => {
