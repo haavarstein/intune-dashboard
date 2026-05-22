@@ -1330,22 +1330,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubCerthealth" style="display:none;">
         <div class="tab-hint">MDM device-cert renewal health. Surfaces Windows devices whose management certificate is expiring, already expired, or whose sync has gone stale relative to the cert lifecycle — the silent drop-off pattern Microsoft's CA rollover triggered in May 2026.</div>
         <div class="tiles">
-          <div class="tile">
+          <div class="tile" data-ch-tile="" style="cursor:pointer;" title="Show all devices">
             <div class="tile-label">Windows devices</div>
             <div class="tile-value" id="chTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-ch-tile="expiring" style="cursor:pointer;">
+          <div class="tile" data-ch-tile="expiring" style="cursor:pointer;" title="Filter: expiring ≤ 30 days">
             <div class="tile-label">Expiring</div>
             <div class="tile-value accent" id="chTileExpiring">0</div>
             <div class="tile-sub">≤ 30 days remaining</div>
           </div>
-          <div class="tile" data-ch-tile="expired" style="cursor:pointer;">
+          <div class="tile" data-ch-tile="expired" style="cursor:pointer;" title="Filter: already expired">
             <div class="tile-label">Expired</div>
             <div class="tile-value" id="chTileExpired">0</div>
             <div class="tile-sub">already past expiry</div>
           </div>
-          <div class="tile" data-ch-tile="stale" style="cursor:pointer;">
+          <div class="tile" data-ch-tile="stale" style="cursor:pointer;" title="Filter: stale sync ≥ 14 days">
             <div class="tile-label">Stale sync</div>
             <div class="tile-value" id="chTileStale">0</div>
             <div class="tile-sub">no check-in ≥ 14 days</div>
@@ -5288,6 +5288,13 @@ function approvalRequestor(r) {
       || r?.requestor?.device?.displayName
       || '—';
 }
+function approvalRequestorCell(r) {
+  const name = esc(approvalRequestor(r));
+  const userId = r?.requestor?.user?.id;
+  if (!userId) return name;
+  const url = `https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/${encodeURIComponent(userId)}`;
+  return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${name}</a>`;
+}
 function approvalApprover(r) {
   return r?.approver?.user?.displayName
       || r?.approver?.application?.displayName
@@ -5389,12 +5396,31 @@ function applyApprovalsFilters(rows) {
   });
 }
 
+const aprTileMap = {
+  apTilePending: 'needsApproval',
+  apTileApproved: 'approved',
+  apTileRejected: 'rejected',
+  apTileExpired: 'expired'
+};
+
+function syncApprovalsTileUi() {
+  const current = $('approvalsStatusFilter').value;
+  Object.keys(aprTileMap).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    tile.classList.toggle('active', aprTileMap[id] === current);
+  });
+}
+
 function renderApprovalsTable() {
   // Show Clear KPI when any filter is non-default
   const statusActive = !!$('approvalsStatusFilter').value;
   const typeActive = !!$('approvalsTypeFilter').value;
   const searchActive = !!($('approvalsFilter').value || '').trim();
   $('btnApprovalsClearKpi').style.display = (statusActive || typeActive || searchActive) ? '' : 'none';
+  syncApprovalsTileUi();
   let rows = applyApprovalsFilters(approvalsRaw);
   const dir = approvalsSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -5422,7 +5448,7 @@ function renderApprovalsTable() {
         : `<button class="btn btn-ghost" data-approval-details="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Details</button>`;
       return `
         <tr>
-          <td>${esc(approvalRequestor(r))}</td>
+          <td>${approvalRequestorCell(r)}</td>
           <td><span style="font-family:ui-monospace,monospace; font-size:11px;">${esc(approvalType(r))}</span></td>
           <td>${approvalStatusBadge(r.status)}</td>
           <td class="date">${r.requestDateTime ? new Date(r.requestDateTime).toLocaleString() : '—'}</td>
@@ -5500,8 +5526,10 @@ $('btnApprovalsClearKpi').addEventListener('click', () => {
 
 document.querySelectorAll('[data-approvals-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
-    const v = tile.dataset.approvalsTile;
-    $('approvalsStatusFilter').value = v;
+    const target = tile.dataset.approvalsTile;
+    const current = $('approvalsStatusFilter').value;
+    // Toggle off if clicking the already-active tile
+    $('approvalsStatusFilter').value = (current === target) ? '' : target;
     renderApprovalsTable();
   });
 });
@@ -5845,11 +5873,32 @@ function applyCerthealthFilters(rows) {
   });
 }
 
+const chTileMap = {
+  chTileTotal: '',
+  chTileExpiring: 'expiring',
+  chTileExpired: 'expired',
+  chTileStale: 'stale'
+};
+
+function syncCerthealthTileUi() {
+  const current = $('certhealthStateFilter').value;
+  Object.keys(chTileMap).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    const target = chTileMap[id];
+    // Don't highlight the "Windows devices" total tile — its target '' is the default state
+    tile.classList.toggle('active', target !== '' && current === target);
+  });
+}
+
 function renderCerthealthTable() {
   // Clear KPI affordance per the convention
   const stateActive = !!$('certhealthStateFilter').value;
   const searchActive = !!($('certhealthFilter').value || '').trim();
   $('btnCerthealthClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
+  syncCerthealthTileUi();
 
   let rows = applyCerthealthFilters(certhealthRows);
   const dir = certhealthSortDir === 'asc' ? 1 : -1;
@@ -5916,7 +5965,10 @@ $('btnCerthealthClearKpi').addEventListener('click', () => {
 
 document.querySelectorAll('[data-ch-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
-    $('certhealthStateFilter').value = tile.dataset.chTile;
+    const target = tile.dataset.chTile;
+    const current = $('certhealthStateFilter').value;
+    // Toggle off if clicking the already-active tile; total tile ('') always goes to ''
+    $('certhealthStateFilter').value = (target !== '' && current === target) ? '' : target;
     renderCerthealthTable();
   });
 });
