@@ -6014,8 +6014,14 @@ function entraGroupUrl(groupId) {
   return `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${encodeURIComponent(groupId)}`;
 }
 
-function assignmentFilterUrl() {
-  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/AssignmentFiltersMenu/~/filters`;
+// Per-filter blade URL. The admin center routes by filter ID regardless
+// of the filterType param — 2 is the current default value used by the
+// portal across platforms (Windows desktop, AVD, etc.).
+function assignmentFilterUrl(filter) {
+  if (!filter || !filter.id) {
+    return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/AssignmentFiltersMenu/~/filters`;
+  }
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/AssignmentFilterSummaryBlade/assignmentFilterId/${encodeURIComponent(filter.id)}/filterType~/2`;
 }
 
 function linkedName(category, item) {
@@ -6168,7 +6174,7 @@ function renderHygieneDetail(kind) {
       ? `<div class="meta" style="padding:18px;">No orphaned filters — every assignment filter is referenced by at least one assignment.</div>`
       : `<table><thead><tr><th>Filter name</th><th>Platform</th><th>Created</th><th>Last modified</th></tr></thead><tbody>${rows.map(f => `
           <tr>
-            <td><a href="${assignmentFilterUrl()}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td>
+            <td><a href="${assignmentFilterUrl(f)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td>
             <td>${esc(f.platform || '—')}</td>
             <td class="date">${f.createdDateTime ? new Date(f.createdDateTime).toLocaleString() : '—'}</td>
             <td class="date">${f.lastModifiedDateTime ? new Date(f.lastModifiedDateTime).toLocaleString() : '—'}</td>
@@ -6183,7 +6189,7 @@ function renderHygieneDetail(kind) {
           const refs = filterRefs.get(f.id) || [];
           const refList = refs.slice(0, 8).map(r => `${linkedName(r.category, { id: r.itemId, displayName: r.itemName })} <span class="meta" style="font-size:11px;">(${esc(r.categoryLabel)})</span>`).join('<br>');
           const more = refs.length > 8 ? `<div class="meta" style="font-size:11px; margin-top:4px;">…and ${refs.length - 8} more</div>` : '';
-          return `<tr><td><a href="${assignmentFilterUrl()}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td><td>${esc(f.platform || '—')}</td><td>${refList}${more}</td></tr>`;
+          return `<tr><td><a href="${assignmentFilterUrl(f)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td><td>${esc(f.platform || '—')}</td><td>${refList}${more}</td></tr>`;
         }).join('')}</tbody></table>`;
   }
   panel.innerHTML = `
