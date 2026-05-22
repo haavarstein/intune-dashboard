@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twelve sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, BitLocker, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Thirteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, BitLocker, Cert health, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all twelve sub-tabs share the same session.
+Sign in once with MSAL — all thirteen sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -106,6 +106,15 @@ Sign in once with MSAL — all twelve sub-tabs share the same session.
 - Type to filter across software name and vendor. **⬇ Export CSV** downloads the current filtered view.
 - Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
 - Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
+
+**Cert health** — MDM device-cert renewal risk. Surfaces Windows devices whose management certificate is expiring, already expired, or whose sync has gone stale relative to the cert lifecycle — the silent drop-off pattern Microsoft's CA rollover triggered in early May 2026 (Rudy Ooms / Patch My PC / AnoopCNair all covered it).
+
+- **KPI tiles**: Windows devices in scope · Expiring ≤ 30 days · Expired · Stale sync (no check-in ≥ 14 days).
+- **State filter** with "Healthy" hidden by default so the tab opens to actionable risk only when you click a tile; switch to All to see everything.
+- Sortable table with Device · User · Windows · Days remaining (negative for expired) · Cert expires · Days since sync · Status badge. Default sort is Days remaining ascending — devices closest to silent drop-off float to the top.
+- Device names deep-link to the device's Intune blade.
+- **⬇ Export CSV** for a snapshot of the at-risk fleet.
+- Uses the existing `DeviceManagementManagedDevices.Read.All` scope — no new consent.
 
 **Assignments** — group-centric reverse lookup *plus* tenant-wide hygiene. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
 

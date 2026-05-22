@@ -759,6 +759,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
+        <button class="subtab" data-subtab="certhealth">Cert health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
@@ -1282,6 +1283,69 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubBitlocker -->
+
+      <div id="intuneSubCerthealth" style="display:none;">
+        <div class="tab-hint">MDM device-cert renewal health. Surfaces Windows devices whose management certificate is expiring, already expired, or whose sync has gone stale relative to the cert lifecycle — the silent drop-off pattern Microsoft's CA rollover triggered in May 2026.</div>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">Windows devices</div>
+            <div class="tile-value" id="chTileTotal">0</div>
+            <div class="tile-sub">in scope</div>
+          </div>
+          <div class="tile" data-ch-tile="expiring" style="cursor:pointer;">
+            <div class="tile-label">Expiring</div>
+            <div class="tile-value accent" id="chTileExpiring">0</div>
+            <div class="tile-sub">≤ 30 days remaining</div>
+          </div>
+          <div class="tile" data-ch-tile="expired" style="cursor:pointer;">
+            <div class="tile-label">Expired</div>
+            <div class="tile-value" id="chTileExpired">0</div>
+            <div class="tile-sub">already past expiry</div>
+          </div>
+          <div class="tile" data-ch-tile="stale" style="cursor:pointer;">
+            <div class="tile-label">Stale sync</div>
+            <div class="tile-value" id="chTileStale">0</div>
+            <div class="tile-sub">no check-in ≥ 14 days</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="certhealthFilter" placeholder="Search device, user, model…">
+              <select class="filter-select" id="certhealthStateFilter">
+                <option value="" selected>All devices</option>
+                <option value="expired">Expired</option>
+                <option value="expiring">Expiring ≤ 30 days</option>
+                <option value="stale">Stale sync</option>
+                <option value="healthy">Healthy</option>
+              </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnCerthealthClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="certhealthLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading device cert state…</div>
+          <div id="certhealthError"></div>
+          <div id="certhealthContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-csort="deviceName">Device <span class="arrow">▼</span></th>
+                  <th data-csort="userPrincipalName">User <span class="arrow">▼</span></th>
+                  <th data-csort="osVersion">Windows <span class="arrow">▼</span></th>
+                  <th data-csort="daysRemaining">Days remaining <span class="arrow">▼</span></th>
+                  <th data-csort="managementCertificateExpirationDate">Cert expires <span class="arrow">▼</span></th>
+                  <th data-csort="daysSinceSync">Days since sync <span class="arrow">▼</span></th>
+                  <th data-csort="state">Status <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="certhealthRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="certhealthCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubCerthealth -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
         <div class="tab-hint">Defender software inventory with CVE counts and exposed-device counts. Requires Defender for Endpoint P2 or M365 E5.</div>
@@ -2446,6 +2510,8 @@ function resetTenantState() {
   approvalsLoaded = false; approvalsRaw = [];
   // BitLocker
   bitlockerLoaded = false; bitlockerRows = [];
+  // Cert health
+  certhealthLoaded = false; certhealthRows = [];
   // Remediation / Vulnerabilities
   remediationLoaded = false; remediationRows = [];
   vulnLoaded = false; vulnRows = [];
@@ -3944,6 +4010,7 @@ function switchSubtab(name) {
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
   $('intuneSubBitlocker').style.display = name === 'bitlocker' ? '' : 'none';
+  $('intuneSubCerthealth').style.display = name === 'certhealth' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
@@ -3956,6 +4023,7 @@ function switchSubtab(name) {
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
   if (name === 'bitlocker' && !bitlockerLoaded) loadBitlocker();
+  if (name === 'certhealth' && !certhealthLoaded) loadCerthealth();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
@@ -5358,6 +5426,193 @@ document.querySelectorAll('#intuneSubBitlocker th[data-bsort]').forEach(th => {
 });
 
 // ============================================================
+// Cert health sub-tab — MDM device-cert renewal risk
+// Surfaces Windows devices that may have silently dropped off due to
+// the Intune MDM intermediate CA rollover (around early May 2026).
+// Read-only — uses the existing DeviceManagementManagedDevices.Read.All
+// scope. No cross-Entra correlation in v1 (Intune's own UPN field is
+// authoritative for the dashboard's purposes).
+// ============================================================
+let certhealthLoaded = false;
+let certhealthRows = [];
+let certhealthSortKey = 'daysRemaining';
+let certhealthSortDir = 'asc';
+
+const CERT_EXPIRING_DAYS = 30;
+const CERT_STALE_SYNC_DAYS = 14;
+
+function certhealthStateOf(r) {
+  if (r.daysRemaining !== null && r.daysRemaining < 0) return 'expired';
+  if (r.daysRemaining !== null && r.daysRemaining <= CERT_EXPIRING_DAYS) return 'expiring';
+  if (r.daysSinceSync !== null && r.daysSinceSync >= CERT_STALE_SYNC_DAYS) return 'stale';
+  return 'healthy';
+}
+
+function certhealthStateBadge(state) {
+  const map = {
+    'expired':  { label: 'Expired',  bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    'expiring': { label: 'Expiring', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'stale':    { label: 'Stale sync', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'healthy':  { label: 'OK', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' }
+  };
+  const m = map[state] || map['healthy'];
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+}
+
+async function loadCerthealth(force = false) {
+  if (certhealthLoaded && !force) return;
+  $('certhealthLoading').style.display = '';
+  $('certhealthContent').style.display = 'none';
+  $('certhealthError').innerHTML = '';
+  try {
+    const select = 'id,deviceName,userPrincipalName,operatingSystem,osVersion,managementCertificateExpirationDate,lastSyncDateTime,model,manufacturer';
+    const filter = `operatingSystem eq 'Windows'`;
+    const devices = await graphGetAll(`beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}`);
+    const now = Date.now();
+    certhealthRows = devices.map(d => {
+      const expMs = d.managementCertificateExpirationDate ? new Date(d.managementCertificateExpirationDate).getTime() : null;
+      const syncMs = d.lastSyncDateTime ? new Date(d.lastSyncDateTime).getTime() : null;
+      const daysRemaining = expMs ? Math.floor((expMs - now) / (1000 * 60 * 60 * 24)) : null;
+      const daysSinceSync = syncMs ? Math.floor((now - syncMs) / (1000 * 60 * 60 * 24)) : null;
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '',
+        userPrincipalName: d.userPrincipalName || '',
+        osVersion: d.osVersion || '',
+        model: d.model || '',
+        manufacturer: d.manufacturer || '',
+        managementCertificateExpirationDate: d.managementCertificateExpirationDate || '',
+        lastSyncDateTime: d.lastSyncDateTime || '',
+        daysRemaining,
+        daysSinceSync
+      };
+    });
+    certhealthLoaded = true;
+    $('certhealthLoading').style.display = 'none';
+    $('certhealthContent').style.display = '';
+    renderCerthealthTiles();
+    renderCerthealthTable();
+  } catch (e) {
+    console.error('Cert health load failed', e);
+    $('certhealthLoading').style.display = 'none';
+    $('certhealthError').innerHTML = `<div class="error-banner">Failed to load cert health: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderCerthealthTiles() {
+  let total = 0, expiring = 0, expired = 0, stale = 0;
+  for (const r of certhealthRows) {
+    total++;
+    const s = certhealthStateOf(r);
+    if (s === 'expiring') expiring++;
+    else if (s === 'expired') expired++;
+    else if (s === 'stale') stale++;
+  }
+  $('chTileTotal').textContent = total;
+  $('chTileExpiring').textContent = expiring;
+  $('chTileExpired').textContent = expired;
+  $('chTileStale').textContent = stale;
+}
+
+function applyCerthealthFilters(rows) {
+  const q = ($('certhealthFilter').value || '').toLowerCase().trim();
+  const state = $('certhealthStateFilter').value;
+  return rows.filter(r => {
+    if (state && certhealthStateOf(r) !== state) return false;
+    if (q) {
+      const hay = [r.deviceName, r.userPrincipalName, r.model, r.manufacturer].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderCerthealthTable() {
+  // Clear KPI affordance per the convention
+  const stateActive = !!$('certhealthStateFilter').value;
+  const searchActive = !!($('certhealthFilter').value || '').trim();
+  $('btnCerthealthClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
+
+  let rows = applyCerthealthFilters(certhealthRows);
+  const dir = certhealthSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (certhealthSortKey === 'state') { av = certhealthStateOf(a); bv = certhealthStateOf(b); }
+    else { av = a[certhealthSortKey]; bv = b[certhealthSortKey]; if (av == null) av = dir > 0 ? Infinity : -Infinity; if (bv == null) bv = dir > 0 ? Infinity : -Infinity; if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); } }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.deviceName || '').toLowerCase().localeCompare((b.deviceName || '').toLowerCase());
+  });
+
+  const body = $('certhealthRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const state = certhealthStateOf(r);
+      const deviceCell = r.id
+        ? `<a href="${intuneDeviceUrl(r.id, 'overview')}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.deviceName) || '—'}</a>`
+        : (esc(r.deviceName) || '—');
+      return `
+        <tr>
+          <td>${deviceCell}</td>
+          <td>${esc(r.userPrincipalName) || '—'}</td>
+          <td>${esc(r.osVersion) || '—'}</td>
+          <td>${r.daysRemaining == null ? '—' : (r.daysRemaining < 0 ? `<span style="color:#8a2020; font-weight:600;">${r.daysRemaining}</span>` : r.daysRemaining)}</td>
+          <td class="date">${r.managementCertificateExpirationDate ? new Date(r.managementCertificateExpirationDate).toLocaleString() : '—'}</td>
+          <td>${r.daysSinceSync == null ? '—' : r.daysSinceSync}</td>
+          <td>${certhealthStateBadge(state)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  $('certhealthCount').textContent = rows.length;
+}
+
+function exportCerthealthCsv() {
+  const rows = applyCerthealthFilters(certhealthRows);
+  const header = ['DeviceName','User','OSVersion','Manufacturer','Model','CertExpiration','DaysRemaining','LastSync','DaysSinceSync','State'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.deviceName, r.userPrincipalName, r.osVersion, r.manufacturer, r.model,
+    r.managementCertificateExpirationDate, r.daysRemaining, r.lastSyncDateTime, r.daysSinceSync, certhealthStateOf(r)
+  ].map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cert-health-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('certhealthFilter').addEventListener('input', renderCerthealthTable);
+$('certhealthStateFilter').addEventListener('change', renderCerthealthTable);
+$('btnCerthealthRefresh').addEventListener('click', () => loadCerthealth(true));
+$('btnCerthealthExport').addEventListener('click', exportCerthealthCsv);
+$('btnCerthealthClearKpi').addEventListener('click', () => {
+  $('certhealthStateFilter').value = '';
+  $('certhealthFilter').value = '';
+  $('certhealthFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderCerthealthTable();
+});
+
+document.querySelectorAll('[data-ch-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    $('certhealthStateFilter').value = tile.dataset.chTile;
+    renderCerthealthTable();
+  });
+});
+
+document.querySelectorAll('#intuneSubCerthealth th[data-csort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.csort;
+    if (certhealthSortKey === key) certhealthSortDir = certhealthSortDir === 'asc' ? 'desc' : 'asc';
+    else { certhealthSortKey = key; certhealthSortDir = 'asc'; }
+    renderCerthealthTable();
+  });
+});
+
+// ============================================================
 // Assignments Explorer sub-tab
 // Group-centric: search an Entra group → see every policy with an
 // assignment targeting that group, across 4 types (apps, configs,
@@ -5719,21 +5974,58 @@ let hygieneGroupMembers = new Map(); // groupId → memberCount
 let hygieneComputed = null;          // cached compute result
 
 const HYGIENE_CATEGORIES = [
-  { key: 'apps',            label: 'App',                bladePath: 'Microsoft_Intune_Apps/SettingsMenu/~/0/appId/' },
-  { key: 'configs',         label: 'Config profile',     bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
-  { key: 'compliance',      label: 'Compliance policy',  bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
-  { key: 'settingsCatalog', label: 'Settings catalog',   bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
-  { key: 'healthScripts',   label: 'Remediation',        bladePath: '' },
-  { key: 'psScripts',       label: 'PowerShell script',  bladePath: '' },
-  { key: 'updateProfiles',  label: 'Update profile',     bladePath: '' }
+  { key: 'apps',            label: 'App' },
+  { key: 'configs',         label: 'Config profile' },
+  { key: 'compliance',      label: 'Compliance policy' },
+  { key: 'settingsCatalog', label: 'Settings catalog' },
+  { key: 'healthScripts',   label: 'Remediation' },
+  { key: 'psScripts',       label: 'PowerShell script' },
+  { key: 'updateProfiles',  label: 'Update profile' }
 ];
 
-function hygieneBladeUrlForItem(category, item) {
-  if (category === 'apps') {
-    return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(item.id)}`;
+// Best-effort deep-links into the Intune admin center per category.
+// URLs are not officially documented by Microsoft — when a per-item URL
+// is fragile we keep the per-item parameters anyway so the admin center
+// can route to the right blade or land you on the right area.
+function intuneBladeUrl(category, item) {
+  const id = encodeURIComponent(item.id || '');
+  const name = encodeURIComponent(item.displayName || item.name || '');
+  switch (category) {
+    case 'apps':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${id}`;
+    case 'configs':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/${id}/policyName/${name}/policyJourneyState~/0/policyType~/0`;
+    case 'compliance':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/CompliancePolicySummaryBlade/policyId/${id}/policyName/${name}`;
+    case 'settingsCatalog':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/SettingsCatalogPolicy.ReactView/configurationPolicyId/${id}/isAssigned~/true`;
+    case 'healthScripts':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/UXAnalyticsScriptMenu/~/overview/id/${id}/scriptName/${name}/isFirstParty~/${item.isGlobalScript ? 'true' : 'false'}`;
+    case 'psScripts':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/ConfigurationMenuBlade/~/properties/policyId/${id}`;
+    case 'updateProfiles':
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/SoftwareUpdateMenuBlade`;
+    default:
+      return `https://intune.microsoft.com/`;
   }
-  // Most policy types open under PolicySummaryReportBlade; fall back to root admin center
-  return `https://intune.microsoft.com/`;
+}
+
+function entraGroupUrl(groupId) {
+  return `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${encodeURIComponent(groupId)}`;
+}
+
+function assignmentFilterUrl() {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/AssignmentFiltersMenu/~/filters`;
+}
+
+function linkedName(category, item) {
+  const url = intuneBladeUrl(category, item);
+  const name = esc(item.displayName || item.name || '(unnamed)');
+  return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${name}</a>`;
+}
+
+function intuneDeviceUrl(managedDeviceId, pivot = 'overview') {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/${pivot}/mdmDeviceId/${encodeURIComponent(managedDeviceId)}`;
 }
 
 async function fetchGroupMemberCount(groupId) {
@@ -5816,7 +6108,7 @@ async function computeAssignmentHygiene() {
         const fid = a.target && a.target.deviceAndAppManagementAssignmentFilterId;
         if (fid) {
           if (!filterRefs.has(fid)) filterRefs.set(fid, []);
-          filterRefs.get(fid).push({ category: cat.key, categoryLabel: cat.label, itemName: item.displayName || item.name || '(unnamed)' });
+          filterRefs.get(fid).push({ category: cat.key, categoryLabel: cat.label, itemId: item.id, itemName: item.displayName || item.name || '(unnamed)' });
         }
       }
     }
@@ -5844,15 +6136,16 @@ function renderHygieneDetail(kind) {
   const panel = $('hygieneDetail');
   let title = '';
   let tableHtml = '';
+  // Map: filter id → list of referencing items (with category for re-linking)
+  const filterRefs = hygieneComputed.filterRefs || new Map();
+
   if (kind === 'unassigned') {
     title = `Unassigned items (${hygieneComputed.unassigned.length})`;
     const rows = hygieneComputed.unassigned;
     tableHtml = !rows.length
       ? `<div class="meta" style="padding:18px;">No unassigned items — everything is targeting something.</div>`
       : `<table><thead><tr><th>Name</th><th>Type</th><th>Last modified</th></tr></thead><tbody>${rows.map(r => {
-          const link = r.category === 'apps'
-            ? `<a href="${hygieneBladeUrlForItem(r.category, r)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a>`
-            : esc(r.name);
+          const link = linkedName(r.category, { id: r.id, displayName: r.name });
           return `<tr><td>${link}</td><td>${esc(r.categoryLabel)}</td><td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td></tr>`;
         }).join('')}</tbody></table>`;
   } else if (kind === 'emptyGroup') {
@@ -5860,12 +6153,12 @@ function renderHygieneDetail(kind) {
     const rows = hygieneComputed.emptyGroup;
     tableHtml = !rows.length
       ? `<div class="meta" style="padding:18px;">No empty-group assignments — every targeted group has at least one member.</div>`
-      : `<table><thead><tr><th>Item</th><th>Type</th><th>Intent</th><th>Group ID</th></tr></thead><tbody>${rows.map(r => `
+      : `<table><thead><tr><th>Item</th><th>Type</th><th>Intent</th><th>Group</th></tr></thead><tbody>${rows.map(r => `
           <tr>
-            <td>${esc(r.itemName)}</td>
+            <td>${linkedName(r.category, { id: r.itemId, displayName: r.itemName })}</td>
             <td>${esc(r.categoryLabel)}</td>
             <td>${esc(r.intent || '—')}${r.isExclusion ? ' <span class="meta" style="font-size:11px;">(exclusion)</span>' : ''}</td>
-            <td><code style="font-size:11px;">${esc(r.groupId)}</code></td>
+            <td><a href="${entraGroupUrl(r.groupId)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none; font-family:ui-monospace,monospace; font-size:11px;">${esc(r.groupId)}</a></td>
           </tr>
         `).join('')}</tbody></table>`;
   } else if (kind === 'orphanedFilters') {
@@ -5875,7 +6168,7 @@ function renderHygieneDetail(kind) {
       ? `<div class="meta" style="padding:18px;">No orphaned filters — every assignment filter is referenced by at least one assignment.</div>`
       : `<table><thead><tr><th>Filter name</th><th>Platform</th><th>Created</th><th>Last modified</th></tr></thead><tbody>${rows.map(f => `
           <tr>
-            <td>${esc(f.displayName || '(unnamed)')}</td>
+            <td><a href="${assignmentFilterUrl()}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td>
             <td>${esc(f.platform || '—')}</td>
             <td class="date">${f.createdDateTime ? new Date(f.createdDateTime).toLocaleString() : '—'}</td>
             <td class="date">${f.lastModifiedDateTime ? new Date(f.lastModifiedDateTime).toLocaleString() : '—'}</td>
@@ -5887,10 +6180,10 @@ function renderHygieneDetail(kind) {
     tableHtml = !rows.length
       ? `<div class="meta" style="padding:18px;">No filters are currently referenced.</div>`
       : `<table><thead><tr><th>Filter name</th><th>Platform</th><th>Referenced by</th></tr></thead><tbody>${rows.map(f => {
-          const refs = hygieneComputed.filterRefs.get(f.id) || [];
-          const refList = refs.slice(0, 8).map(r => `${esc(r.itemName)} <span class="meta" style="font-size:11px;">(${esc(r.categoryLabel)})</span>`).join('<br>');
+          const refs = filterRefs.get(f.id) || [];
+          const refList = refs.slice(0, 8).map(r => `${linkedName(r.category, { id: r.itemId, displayName: r.itemName })} <span class="meta" style="font-size:11px;">(${esc(r.categoryLabel)})</span>`).join('<br>');
           const more = refs.length > 8 ? `<div class="meta" style="font-size:11px; margin-top:4px;">…and ${refs.length - 8} more</div>` : '';
-          return `<tr><td>${esc(f.displayName || '(unnamed)')}</td><td>${esc(f.platform || '—')}</td><td>${refList}${more}</td></tr>`;
+          return `<tr><td><a href="${assignmentFilterUrl()}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(f.displayName || '(unnamed)')}</a></td><td>${esc(f.platform || '—')}</td><td>${refList}${more}</td></tr>`;
         }).join('')}</tbody></table>`;
   }
   panel.innerHTML = `
