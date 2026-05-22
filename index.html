@@ -1265,22 +1265,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubBitlocker" style="display:none;">
         <div class="tab-hint">BitLocker escrow audit — Windows devices that report as encrypted in Intune cross-referenced with recovery keys actually backed up in Entra. The gap tile shows devices encrypted but with no key escrowed (your worst-case recovery scenario).</div>
         <div class="tiles">
-          <div class="tile">
+          <div class="tile" data-bl-tile="" style="cursor:pointer;" title="Show all devices">
             <div class="tile-label">Windows devices</div>
             <div class="tile-value" id="blTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile">
+          <div class="tile" data-bl-tile="encrypted-any" style="cursor:pointer;" title="Filter: encrypted (any)">
             <div class="tile-label">Encrypted</div>
             <div class="tile-value" id="blTileEncrypted">0</div>
             <div class="tile-sub">per Intune</div>
           </div>
-          <div class="tile">
+          <div class="tile" data-bl-tile="key-escrowed-any" style="cursor:pointer;" title="Filter: keys escrowed in Entra">
             <div class="tile-label">Keys escrowed</div>
             <div class="tile-value" id="blTileEscrowed">0</div>
             <div class="tile-sub">in Entra</div>
           </div>
-          <div class="tile" data-bl-tile="gap" style="cursor:pointer;">
+          <div class="tile" data-bl-tile="gap" style="cursor:pointer;" title="Filter: encrypted but no key escrowed">
             <div class="tile-label">Gap</div>
             <div class="tile-value accent" id="blTileGap">0</div>
             <div class="tile-sub">encrypted, no key</div>
@@ -1293,6 +1293,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <input type="text" class="search" id="bitlockerFilter" placeholder="Search device, user, model…">
               <select class="filter-select" id="bitlockerStateFilter">
                 <option value="" selected>All devices</option>
+                <option value="encrypted-any">Encrypted (any)</option>
+                <option value="key-escrowed-any">Keys escrowed</option>
                 <option value="gap">Gap: encrypted, no key</option>
                 <option value="encrypted-with-key">Encrypted with key</option>
                 <option value="not-encrypted">Not encrypted</option>
@@ -5617,7 +5619,9 @@ function applyBitlockerFilters(rows) {
   const q = ($('bitlockerFilter').value || '').toLowerCase().trim();
   const state = $('bitlockerStateFilter').value;
   return rows.filter(r => {
-    if (state && bitlockerStateOf(r) !== state) return false;
+    if (state === 'encrypted-any') { if (!r.isEncrypted) return false; }
+    else if (state === 'key-escrowed-any') { if (!(r.keyCount > 0)) return false; }
+    else if (state && bitlockerStateOf(r) !== state) return false;
     if (q) {
       const hay = [r.deviceName, r.userPrincipalName, r.model, r.manufacturer].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -5626,11 +5630,32 @@ function applyBitlockerFilters(rows) {
   });
 }
 
+const blTileMap = {
+  blTileTotal: '',
+  blTileEncrypted: 'encrypted-any',
+  blTileEscrowed: 'key-escrowed-any',
+  blTileGap: 'gap'
+};
+
+function syncBitlockerTileUi() {
+  const current = $('bitlockerStateFilter').value;
+  Object.keys(blTileMap).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    const target = blTileMap[id];
+    // Don't highlight the "Windows devices" total tile — its target '' is the default state
+    tile.classList.toggle('active', target !== '' && current === target);
+  });
+}
+
 function renderBitlockerTable() {
   // Show Clear KPI when any filter is non-default
   const stateActive = !!$('bitlockerStateFilter').value;
   const searchActive = !!($('bitlockerFilter').value || '').trim();
   $('btnBitlockerClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
+  syncBitlockerTileUi();
   let rows = applyBitlockerFilters(bitlockerRows);
   const dir = bitlockerSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -5701,7 +5726,10 @@ $('btnBitlockerClearKpi').addEventListener('click', () => {
 
 document.querySelectorAll('[data-bl-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
-    $('bitlockerStateFilter').value = tile.dataset.blTile;
+    const target = tile.dataset.blTile;
+    const current = $('bitlockerStateFilter').value;
+    // Toggle off if clicking the already-active tile; total tile ('') always goes to ''
+    $('bitlockerStateFilter').value = (target !== '' && current === target) ? '' : target;
     renderBitlockerTable();
   });
 });
