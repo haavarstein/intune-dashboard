@@ -781,6 +781,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <option value="">All</option>
             </select>
           </div>
+          <div class="filter-group">
+            <span class="filter-group-label">View</span>
+            <select class="filter-select" id="failedViewMode">
+              <option value="apps" selected>By app</option>
+              <option value="errors">By error code</option>
+            </select>
+          </div>
           <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--ink-2);">
             <input type="checkbox" id="includePmpcFailed"> Include Patch My PC
           </label>
@@ -788,6 +795,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
         <div class="app-list" id="appList">
           <div class="loading">Loading apps…</div>
+        </div>
+        <div id="errorClusterList" style="display:none;">
+          <div id="errorClusterStatus" style="color:var(--muted); font-size:13px; padding:12px;">Switch to this view to aggregate error codes across every failing app — useful for spotting systemic issues (Store offline, App Installer broken) vs app-specific failures.</div>
+          <table id="errorClusterTable" style="display:none;">
+            <thead>
+              <tr>
+                <th data-esort="errorCode">Error code <span class="arrow">▼</span></th>
+                <th data-esort="hexErrorCode">Hex <span class="arrow">▼</span></th>
+                <th data-esort="deviceCount">Devices affected <span class="arrow">▼</span></th>
+                <th data-esort="appCount">Apps affected <span class="arrow">▼</span></th>
+                <th>Sample apps</th>
+              </tr>
+            </thead>
+            <tbody id="errorClusterRows"></tbody>
+          </table>
+          <div class="footer-count" id="errorClusterFooter" style="display:none;"><span id="errorClusterCount">0</span> distinct error codes</div>
         </div>
       </div>
 
@@ -2497,6 +2520,7 @@ function resetTenantState() {
   if ($('installedView')) $('installedView').style.display = 'none';
   // Failed
   failedAppsLoaded = false; intuneApps = []; intuneAppsFiltered = []; failedRows = [];
+  errorClusterLoaded = false; errorClusterRows = [];
   if ($('appPicker')) $('appPicker').style.display = '';
   if ($('failedView')) $('failedView').style.display = 'none';
   // Required / Uninstall
@@ -2984,6 +3008,126 @@ $('appPlatformFilter').addEventListener('change', applyAppFilter);
 $('includePmpcFailed').addEventListener('change', applyAppFilter);
 
 $('btnReloadApps').addEventListener('click', loadApps);
+
+// ============================================================
+// Failed Install — error-clustering view
+// Aggregates error codes across every failing app (one report call
+// per app, fanned out in parallel batches). Reveals systemic errors
+// like 0x80073cf9 (Store offline) that span many apps.
+// ============================================================
+let errorClusterLoaded = false;
+let errorClusterRows = [];
+let errorClusterSortKey = 'deviceCount';
+let errorClusterSortDir = 'desc';
+
+async function loadErrorCluster(force = false) {
+  if (errorClusterLoaded && !force) return;
+  const status = $('errorClusterStatus');
+  status.textContent = 'Fetching per-app install-status reports…';
+  $('errorClusterTable').style.display = 'none';
+  $('errorClusterFooter').style.display = 'none';
+  try {
+    const apps = intuneApps || [];
+    if (!apps.length) {
+      status.textContent = 'No failing apps to cluster — load the by-app view first.';
+      return;
+    }
+    const byCode = new Map(); // errorCode → { errorCode, hexErrorCode, deviceCount, apps: Map<appId,{name,count}> }
+    const BATCH = 5;
+    let done = 0;
+    for (let i = 0; i < apps.length; i += BATCH) {
+      const slice = apps.slice(i, i + BATCH);
+      await Promise.all(slice.map(async app => {
+        try {
+          const body = {
+            top: 0,
+            skip: 0,
+            select: ['ErrorCode', 'HexErrorCode', 'DeviceName'],
+            orderBy: [],
+            search: '',
+            filter: `(ApplicationId eq '${app.id}') and (InstallState eq 'failed')`
+          };
+          const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
+          const rows = parseReport(data);
+          for (const r of rows) {
+            const code = String(r.ErrorCode ?? '').trim();
+            if (!code || code === '0') continue;
+            if (!byCode.has(code)) {
+              byCode.set(code, { errorCode: code, hexErrorCode: r.HexErrorCode || '', deviceCount: 0, apps: new Map() });
+            }
+            const e = byCode.get(code);
+            e.deviceCount++;
+            if (!e.hexErrorCode && r.HexErrorCode) e.hexErrorCode = r.HexErrorCode;
+            if (!e.apps.has(app.id)) e.apps.set(app.id, { name: app.displayName, count: 0 });
+            e.apps.get(app.id).count++;
+          }
+        } catch (e) { /* skip one app's failure; aggregation continues */ }
+      }));
+      done += slice.length;
+      status.textContent = `Aggregating… ${done}/${apps.length} apps scanned`;
+    }
+    errorClusterRows = [...byCode.values()].map(e => ({
+      errorCode: e.errorCode,
+      hexErrorCode: e.hexErrorCode,
+      deviceCount: e.deviceCount,
+      appCount: e.apps.size,
+      sampleApps: [...e.apps.values()].sort((a, b) => b.count - a.count).slice(0, 3).map(a => `${a.name} (${a.count})`).join(', ')
+    }));
+    errorClusterLoaded = true;
+    status.textContent = `Aggregated ${errorClusterRows.length} distinct error codes from ${apps.length} failing apps.`;
+    $('errorClusterTable').style.display = '';
+    $('errorClusterFooter').style.display = '';
+    renderErrorClusterTable();
+  } catch (e) {
+    console.error('Error cluster load failed', e);
+    status.innerHTML = `<div class="error-banner">Failed to aggregate error codes: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderErrorClusterTable() {
+  const dir = errorClusterSortDir === 'asc' ? 1 : -1;
+  const rows = errorClusterRows.slice().sort((a, b) => {
+    const av = a[errorClusterSortKey], bv = b[errorClusterSortKey];
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+  const body = $('errorClusterRows');
+  body.innerHTML = rows.length
+    ? rows.map(r => `
+        <tr>
+          <td class="err-code">${esc(r.errorCode)}</td>
+          <td class="err-code">${esc(r.hexErrorCode) || '—'}</td>
+          <td>${r.deviceCount}</td>
+          <td>${r.appCount}</td>
+          <td style="font-size:12px; color:var(--ink-2);">${esc(r.sampleApps)}</td>
+        </tr>
+      `).join('')
+    : `<tr><td colspan="5" class="empty">No errors aggregated yet.</td></tr>`;
+  $('errorClusterCount').textContent = rows.length;
+}
+
+function switchFailedView(mode) {
+  if (mode === 'errors') {
+    $('appList').style.display = 'none';
+    $('errorClusterList').style.display = '';
+    if (!errorClusterLoaded) loadErrorCluster();
+  } else {
+    $('appList').style.display = '';
+    $('errorClusterList').style.display = 'none';
+  }
+}
+
+$('failedViewMode').addEventListener('change', e => switchFailedView(e.target.value));
+
+document.querySelectorAll('#errorClusterTable th[data-esort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.esort;
+    if (errorClusterSortKey === key) errorClusterSortDir = errorClusterSortDir === 'asc' ? 'desc' : 'asc';
+    else { errorClusterSortKey = key; errorClusterSortDir = key.endsWith('Count') ? 'desc' : 'asc'; }
+    renderErrorClusterTable();
+  });
+});
 
 function selectApp(app) {
   selectedApp = app;
