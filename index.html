@@ -4698,27 +4698,51 @@ async function openAuditModal(deviceId, deviceName) {
   $('auditSubtitle').textContent = deviceName || deviceId;
   $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Loading audit history…</div>`;
   $('auditModal').classList.add('show');
+  const lowerId = (deviceId || '').toLowerCase();
   try {
-    // Server-side filter on resources/any narrows the result set; date
-    // filter caps the lookback so a busy tenant's audit log doesn't
-    // overwhelm the response.
-    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-    const filter = `resources/any(r:r/resourceId eq '${deviceId}') and activityDateTime ge ${since}`;
-    const path = `v1.0/deviceManagement/auditEvents?$filter=${encodeURIComponent(filter)}&$top=100&$orderby=activityDateTime desc`;
-    const data = await graphGet(path);
-    const events = (data.value || []);
-    if (!events.length) {
-      $('auditBody').innerHTML = `<div class="meta" style="padding:20px; text-align:center;">No audit events found for this device in the last 90 days.<br><span style="font-size:11px;">Intune retains audit-log entries for 30 days by default; older actions are gone unless your tenant ships them to Log Analytics.</span></div>`;
+    // Graph's $filter on resources/any against auditEvents is unreliable —
+    // it silently returns 0 rows on most tenants. Fall back to fetching a
+    // recent slice of events (date filter only) and scanning resources[]
+    // client-side. Cap at MAX_PAGES so a busy tenant's audit feed doesn't
+    // saturate the UI.
+    const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+    const baseFilter = `activityDateTime ge ${since}`;
+    let path = `v1.0/deviceManagement/auditEvents?$filter=${encodeURIComponent(baseFilter)}&$top=500&$orderby=activityDateTime desc`;
+    const MAX_PAGES = 8;
+    let page = 0;
+    let scanned = 0;
+    const matches = [];
+    while (path && page < MAX_PAGES) {
+      $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Scanning audit log… page ${page + 1}, ${scanned} events checked, ${matches.length} matches</div>`;
+      const data = await graphGet(path);
+      const events = (data.value || []);
+      scanned += events.length;
+      for (const e of events) {
+        const hit = (e.resources || []).some(r => (r.resourceId || '').toLowerCase() === lowerId);
+        if (hit) matches.push(e);
+      }
+      const next = data['@odata.nextLink'];
+      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
+      page++;
+    }
+    const reachedCap = page >= MAX_PAGES && path;
+    if (!matches.length) {
+      $('auditBody').innerHTML = `
+        <div class="meta" style="padding:20px; text-align:center;">
+          <div>Scanned ${scanned.toLocaleString()} audit event${scanned === 1 ? '' : 's'} from the last 180 days; none referenced this device.</div>
+          <div style="font-size:11px; margin-top:8px;">Either no admin actions (wipe / retire / sync / rename / primary-user change / RBAC) have touched this device in that window, or the audit log retention has expired (Intune retains up to ~1 year by default).</div>
+          ${reachedCap ? `<div style="font-size:11px; color:var(--accent); margin-top:8px;">⚠ Hit the ${MAX_PAGES}-page scan cap — there may be older events not checked.</div>` : ''}
+        </div>`;
       return;
     }
-    const rows = events.map(e => {
+    const rows = matches.map(e => {
       const actor = e.actor || {};
       const who = actor.userPrincipalName || actor.applicationDisplayName || actor.servicePrincipalName || '—';
       const ip = actor.ipAddress ? `<br><span class="meta" style="font-size:11px;">from ${esc(actor.ipAddress)}</span>` : '';
       const result = (e.activityResult || '').toLowerCase();
       const resultBadge = result === 'success'
         ? `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#e7f6ec; border:1px solid #a7d7b5; color:#1f5d33;">${esc(e.activityResult)}</span>`
-        : result === 'failure' || result === 'fail'
+        : (result === 'failure' || result === 'fail')
           ? `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#fdecec; border:1px solid #f5b5b5; color:#8a2020;">${esc(e.activityResult)}</span>`
           : esc(e.activityResult || '—');
       return `
@@ -4732,13 +4756,14 @@ async function openAuditModal(deviceId, deviceName) {
         </tr>`;
     }).join('');
     $('auditBody').innerHTML = `
-      <p style="margin-top:0; font-size:12px; color:var(--muted);">${events.length} event${events.length === 1 ? '' : 's'} in the last 90 days — Intune retains audit data for ~30 days by default.</p>
+      <p style="margin-top:0; font-size:12px; color:var(--muted);">${matches.length} event${matches.length === 1 ? '' : 's'} reference this device · ${scanned.toLocaleString()} total events scanned (last 180 days).${reachedCap ? ' <span style="color:var(--accent);">Hit scan cap — older events may exist.</span>' : ''}</p>
       <table>
         <thead><tr><th>When</th><th>Activity</th><th>Type</th><th>Result</th><th>Actor</th><th>Category</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
   } catch (e) {
+    console.error('Audit modal load failed', e);
     $('auditBody').innerHTML = `<div class="error-banner">Failed to load audit history: ${esc(e.message || String(e))}</div>`;
   }
 }
