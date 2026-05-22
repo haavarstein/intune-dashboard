@@ -181,6 +181,8 @@
     background: var(--card); border-radius: 14px; max-width: 720px; width: 100%;
     max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25);
   }
+  /* Audit modal: 6 columns + long actor lines benefit from a wider footprint */
+  #auditModal .modal { max-width: 1400px; }
   .modal-header { padding: 24px 28px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 16px; }
   .modal-header h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
   .panel-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -4697,8 +4699,11 @@ document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
 // Module-level scan state so the "Scan more" button can resume from
 // where the previous batch stopped.
 let auditScanState = null;
-const AUDIT_BATCH_PAGES = 8;
-const AUDIT_PAGE_SIZE = 500;
+// Tuned for speed: $top=999 is the max for Intune audit collections,
+// so 4 pages cover the same ~4k events as the previous 8×500 in half
+// the round-trips. "Scan more" still extends in the same batch size.
+const AUDIT_BATCH_PAGES = 4;
+const AUDIT_PAGE_SIZE = 999;
 
 async function openAuditModal(deviceId, deviceName) {
   $('auditSubtitle').textContent = deviceName || deviceId;
