@@ -1250,6 +1250,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
                   <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
                   <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
+                  <th>Audit</th>
                 </tr>
               </thead>
               <tbody id="hwRows"></tbody>
@@ -1866,6 +1867,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <button class="close-btn" onclick="closeApprovalActionModal()">×</button>
     </div>
     <div class="modal-body" id="apaBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="auditModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3>Device action history</h3>
+        <div class="panel-sub" id="auditSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeAuditModal()">×</button>
+    </div>
+    <div class="modal-body" id="auditBody"></div>
   </div>
 </div>
 
@@ -4507,7 +4521,7 @@ function renderHardware() {
 
   const tbody = $('hwRows');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty">No devices match.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No devices match.</td></tr>';
   } else {
     tbody.innerHTML = rows.map(d => {
       const warn = isRecycle(d);
@@ -4524,8 +4538,13 @@ function renderHardware() {
           ${freeCell}
           <td>${esc(d.osVersion)}</td>
           <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
+          <td><span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-audit-device="${esc(d.id)}" data-audit-name="${esc(d.deviceName)}" title="Show recent admin actions on this device">📋 History</span></td>
         </tr>`;
     }).join('');
+
+    tbody.querySelectorAll('[data-audit-device]').forEach(el => {
+      el.addEventListener('click', () => openAuditModal(el.dataset.auditDevice, el.dataset.auditName));
+    });
   }
   $('hwCount').textContent = rows.length;
 
@@ -4643,6 +4662,69 @@ document.querySelectorAll('#intuneSubHardware thead th').forEach(th => {
     renderHardware();
   });
 });
+
+// ============================================================
+// Device action audit forensics (Hardware drill-in)
+// Per-device audit-event drill from /deviceManagement/auditEvents
+// filtered by resourceId. Surfaces who did what to a device (wipe,
+// retire, sync, rename, primary-user change, etc.) — Intune holds
+// 30 days of retention so older actions won't appear.
+// Scope: DeviceManagementApps.Read.All (already in SCOPES).
+// ============================================================
+async function openAuditModal(deviceId, deviceName) {
+  $('auditSubtitle').textContent = deviceName || deviceId;
+  $('auditBody').innerHTML = `<div class="loading" style="padding:24px; text-align:center; color:var(--muted);">Loading audit history…</div>`;
+  $('auditModal').classList.add('show');
+  try {
+    // Server-side filter on resources/any narrows the result set; date
+    // filter caps the lookback so a busy tenant's audit log doesn't
+    // overwhelm the response.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const filter = `resources/any(r:r/resourceId eq '${deviceId}') and activityDateTime ge ${since}`;
+    const path = `v1.0/deviceManagement/auditEvents?$filter=${encodeURIComponent(filter)}&$top=100&$orderby=activityDateTime desc`;
+    const data = await graphGet(path);
+    const events = (data.value || []);
+    if (!events.length) {
+      $('auditBody').innerHTML = `<div class="meta" style="padding:20px; text-align:center;">No audit events found for this device in the last 90 days.<br><span style="font-size:11px;">Intune retains audit-log entries for 30 days by default; older actions are gone unless your tenant ships them to Log Analytics.</span></div>`;
+      return;
+    }
+    const rows = events.map(e => {
+      const actor = e.actor || {};
+      const who = actor.userPrincipalName || actor.applicationDisplayName || actor.servicePrincipalName || '—';
+      const ip = actor.ipAddress ? `<br><span class="meta" style="font-size:11px;">from ${esc(actor.ipAddress)}</span>` : '';
+      const result = (e.activityResult || '').toLowerCase();
+      const resultBadge = result === 'success'
+        ? `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#e7f6ec; border:1px solid #a7d7b5; color:#1f5d33;">${esc(e.activityResult)}</span>`
+        : result === 'failure' || result === 'fail'
+          ? `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#fdecec; border:1px solid #f5b5b5; color:#8a2020;">${esc(e.activityResult)}</span>`
+          : esc(e.activityResult || '—');
+      return `
+        <tr>
+          <td class="date">${e.activityDateTime ? new Date(e.activityDateTime).toLocaleString() : '—'}</td>
+          <td>${esc(e.activity || e.displayName || '—')}</td>
+          <td>${esc(e.activityType || '—')}</td>
+          <td>${resultBadge}</td>
+          <td>${esc(who)}${ip}</td>
+          <td><span class="meta" style="font-size:11px;">${esc(e.category || '—')}</span></td>
+        </tr>`;
+    }).join('');
+    $('auditBody').innerHTML = `
+      <p style="margin-top:0; font-size:12px; color:var(--muted);">${events.length} event${events.length === 1 ? '' : 's'} in the last 90 days — Intune retains audit data for ~30 days by default.</p>
+      <table>
+        <thead><tr><th>When</th><th>Activity</th><th>Type</th><th>Result</th><th>Actor</th><th>Category</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (e) {
+    $('auditBody').innerHTML = `<div class="error-banner">Failed to load audit history: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function closeAuditModal() {
+  $('auditModal').classList.remove('show');
+}
+
+$('auditModal').addEventListener('click', e => { if (e.target === $('auditModal')) closeAuditModal(); });
 
 // ============================================================
 // Vulnerabilities (Defender via Graph Advanced Hunting - KQL)

@@ -75,7 +75,7 @@ Sign in once with MSAL — all thirteen sub-tabs share the same session.
 - Use cases: spot Windows 10 holdouts before end-of-support, find the low-RAM/low-storage devices that won't survive a Feature Update (or shouldn't get one), build refresh-budget shortlists, or pull a quick exclusion list of underspecced machines.
 - RAM distribution donut chart for at-a-glance fleet composition.
 - Filters for platform (defaults to *Windows*), RAM bucket, storage bucket, and manufacturer.
-- Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, and last check-in. Click a device name to open its Hardware blade in the Intune admin center in a new tab.
+- Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, and a **📋 History** action. Click a device name to open its Hardware blade in the Intune admin center in a new tab; click **📋 History** to open a modal with the last 90 days of audit events for that device (who wiped/retired/synced it, who changed the primary user, etc.). Powered by `/deviceManagement/auditEvents?$filter=resources/any(r:r/resourceId eq '<id>')` — uses the existing `DeviceManagementApps.Read.All` scope. Intune retains audit data ~30 days by default; older actions are gone unless the tenant ships logs to Log Analytics.
 - `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
 
 **BitLocker** — escrow-coverage audit. Windows devices reported as encrypted by Intune cross-referenced with recovery keys actually backed up in Entra. The headline tile is the **Gap** — devices encrypted in Intune with zero recovery keys escrowed in Entra (your worst-case recovery scenario).
@@ -205,6 +205,7 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
 - `GET /v1.0/devices?$select=deviceId` — Entra device IDs joined to `managedDevices.azureADDeviceId` for the Hardware tab's "Missing from Entra" hygiene tile
+- `GET /v1.0/deviceManagement/auditEvents?$filter=resources/any(r:r/resourceId eq '<id>')` — per-device action history (last 90 days) for the Hardware tab's 📋 History modal
 - `GET /beta/deviceManagement/assignmentFilters` — assignment filters list for the Assignments → Hygiene panel (orphaned vs in-use detection)
 - `GET /v1.0/groups/{id}/members/$count` (with `ConsistencyLevel: eventual`) — per-group member counts for the Assignments → Hygiene panel's empty-group detector (parallelized for every unique group ID referenced in assignments)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
