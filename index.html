@@ -1020,6 +1020,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <select class="filter-select" id="approvalsTypeFilter">
                 <option value="">All types</option>
               </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnApprovalsClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnApprovalsRefresh">↻ Refresh</span>
             </div>
           </div>
@@ -1255,6 +1256,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <option value="not-encrypted">Not encrypted</option>
                 <option value="no-entra-link">No Entra device link</option>
               </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnBitlockerClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnBitlockerExport">⬇ Export CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnBitlockerRefresh">↻ Refresh</span>
             </div>
@@ -5001,6 +5003,11 @@ function applyApprovalsFilters(rows) {
 }
 
 function renderApprovalsTable() {
+  // Show Clear KPI when any filter is non-default
+  const statusActive = !!$('approvalsStatusFilter').value;
+  const typeActive = !!$('approvalsTypeFilter').value;
+  const searchActive = !!($('approvalsFilter').value || '').trim();
+  $('btnApprovalsClearKpi').style.display = (statusActive || typeActive || searchActive) ? '' : 'none';
   let rows = applyApprovalsFilters(approvalsRaw);
   const dir = approvalsSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -5096,6 +5103,13 @@ $('approvalsFilter').addEventListener('input', renderApprovalsTable);
 $('approvalsStatusFilter').addEventListener('change', renderApprovalsTable);
 $('approvalsTypeFilter').addEventListener('change', renderApprovalsTable);
 $('btnApprovalsRefresh').addEventListener('click', () => loadApprovals(true));
+$('btnApprovalsClearKpi').addEventListener('click', () => {
+  $('approvalsStatusFilter').value = '';
+  $('approvalsTypeFilter').value = '';
+  $('approvalsFilter').value = '';
+  $('approvalsFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderApprovalsTable();
+});
 
 document.querySelectorAll('[data-approvals-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
@@ -5228,6 +5242,10 @@ function applyBitlockerFilters(rows) {
 }
 
 function renderBitlockerTable() {
+  // Show Clear KPI when any filter is non-default
+  const stateActive = !!$('bitlockerStateFilter').value;
+  const searchActive = !!($('bitlockerFilter').value || '').trim();
+  $('btnBitlockerClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
   let rows = applyBitlockerFilters(bitlockerRows);
   const dir = bitlockerSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -5250,10 +5268,12 @@ function renderBitlockerTable() {
   } else {
     body.innerHTML = rows.map(r => {
       const state = bitlockerStateOf(r);
-      const keyDisplay = r.keyCount > 0 ? `${r.keyCount} ${bitlockerStateBadge('encrypted-with-key')}` : (r.isEncrypted ? bitlockerStateBadge('gap') : '—');
+      const deviceCell = r.id
+        ? `<a href="https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${encodeURIComponent(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.deviceName) || '—'}</a>`
+        : (esc(r.deviceName) || '—');
       return `
         <tr>
-          <td>${esc(r.deviceName) || '—'}</td>
+          <td>${deviceCell}</td>
           <td>${esc(r.userPrincipalName) || '—'}</td>
           <td>${esc(r.osVersion) || '—'}</td>
           <td>${esc(r.model) || '—'}</td>
@@ -5287,6 +5307,12 @@ $('bitlockerFilter').addEventListener('input', renderBitlockerTable);
 $('bitlockerStateFilter').addEventListener('change', renderBitlockerTable);
 $('btnBitlockerRefresh').addEventListener('click', () => loadBitlocker(true));
 $('btnBitlockerExport').addEventListener('click', exportBitlockerCsv);
+$('btnBitlockerClearKpi').addEventListener('click', () => {
+  $('bitlockerStateFilter').value = '';
+  $('bitlockerFilter').value = '';
+  $('bitlockerFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderBitlockerTable();
+});
 
 document.querySelectorAll('[data-bl-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
