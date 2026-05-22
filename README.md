@@ -38,8 +38,9 @@ Sign in once with MSAL — all eleven sub-tabs share the same session.
 - **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 - **🔍 Detection rule** button in the selected-app header — opens a modal showing exactly what Intune is checking for on each device (MSI ProductCode + version operator, file/folder path + version comparison, registry key + value match, or the full PowerShell detection script — base64-decoded). Read-only. Most failed-install threads on r/Intune ultimately reduce to "what does the detection rule check, and why doesn't it match?" — this answers that without leaving the dashboard.
 
-**Required Install** — Win32 apps assigned as *Required* to *All Devices*.
+**Required Install** — Win32 apps assigned as *Required* to *All Devices* or *All Users*.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
+- **Target filter** dropdown defaults to *All Devices*; switch to *All Users* to audit user-targeted required pushes, or *Either* to see both.
 - Type to filter the list.
 - `Update for*` driver/firmware apps are excluded for a cleaner audit view.
 
@@ -81,7 +82,7 @@ Sign in once with MSAL — all eleven sub-tabs share the same session.
 > ⚠️ **Licensing required.** This sub-tab queries Microsoft Defender Vulnerability Management data and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (or the standalone Defender Vulnerability Management add-on). Without one of these licenses the tab will load empty or error out — the rest of the dashboard works regardless. The "(P2/E5)" suffix in the tab label is a reminder of this requirement.
 
 - **KPI tile**: total count of unique software components in the tenant. Click the tile to open the Defender portal's *Vulnerability management → Inventories → Software* page in a new tab.
-- Sortable table with **Software**, **OS Platform**, **Vendor**, **Weaknesses** (distinct CVE count for that software), and **Exposed Devices** (distinct device count). Default sort is Weaknesses descending so the riskiest software floats to the top.
+- Sortable table with **Software**, **OS Platform**, **Vendor**, **Weaknesses** (distinct CVE count for that software), and **Exposed Devices** (distinct devices with **at least one open CVE for this software** — sourced from `DeviceTvmSoftwareVulnerabilities`, not the inventory table, so Defender's own components no longer show the entire fleet as exposed). Default sort is Weaknesses descending so the riskiest software floats to the top.
 - Click any **Software** name to open the Defender portal's inventory page in a new tab for further investigation. (Defender doesn't expose a stable software ID via KQL, so the link goes to the inventory list rather than deep-linking to the specific row.)
 - Type to filter across software name, vendor, and platform.
 - Lazy-loaded: the query runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.

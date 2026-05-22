@@ -119,10 +119,22 @@
     transition: border-color .15s;
   }
   .search:focus { border-color: var(--accent); }
+  /* Wrapper + × clear button injected by attachSearchClearButtons() at runtime */
+  .search-wrap { position: relative; display: inline-flex; align-items: center; vertical-align: middle; }
+  .search-wrap > .search { padding-right: 30px; }
+  .search-wrap > .search-clear {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1;
+    padding: 0 4px; display: none; user-select: none;
+  }
+  .search-wrap > .search-clear.show { display: block; }
+  .search-wrap > .search-clear:hover { color: var(--ink); }
   .toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
   .toggle input { accent-color: var(--accent); }
 
   table { width: 100%; border-collapse: collapse; }
+  /* Hardware table: stick header to viewport top while scrolling long inventories */
+  #intuneSubHardware thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line); }
   thead th {
     text-align: left;
     padding: 14px 24px;
@@ -1033,11 +1045,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubApprovals -->
 
       <div id="intuneSubRequired" style="display:none;">
-        <div class="tab-hint">Audit view of Win32 apps assigned as Required to All Devices — what's being actively pushed to every machine.</div>
+        <div class="tab-hint">Audit view of Win32 apps assigned as Required — toggle between All Devices and All Users assignments.</div>
         <div id="requiredError"></div>
         <div class="app-picker">
           <div class="app-picker-bar">
             <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
+            <select class="filter-select" id="requiredTargetFilter">
+              <option value="allDevices" selected>All Devices</option>
+              <option value="allUsers">All Users</option>
+              <option value="">Either</option>
+            </select>
             <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
           </div>
           <div class="app-list no-scroll" id="requiredList">
@@ -1692,6 +1709,42 @@ const isX86 = r => (r.RegistryPath || '').includes('WOW6432Node');
 const isHKCU = r => (r.RegistryPath || '').toUpperCase().startsWith('HKEY_CURRENT_USER') || (r.RegistryPath || '').toUpperCase().startsWith('HKCU');
 const locationOf = r => isHKCU(r) ? 'HKCU' : 'HKLM';
 
+// Add a × clear button inside every input.search. Idempotent — safe to
+// call after dynamic re-renders that inject new inputs into the DOM.
+function attachSearchClearButtons(root) {
+  (root || document).querySelectorAll('input.search:not([data-clear-attached])').forEach(input => {
+    input.dataset.clearAttached = '1';
+    let wrap = input.parentNode;
+    if (!wrap.classList || !wrap.classList.contains('search-wrap')) {
+      const newWrap = document.createElement('span');
+      newWrap.className = 'search-wrap';
+      // If the input had inline width:100%, hand it to the wrap so layout matches
+      const inlineWidth = input.style.width;
+      if (inlineWidth) {
+        newWrap.style.width = inlineWidth;
+        input.style.width = '100%';
+      }
+      input.parentNode.insertBefore(newWrap, input);
+      newWrap.appendChild(input);
+      wrap = newWrap;
+    }
+    const btn = document.createElement('span');
+    btn.className = 'search-clear';
+    btn.textContent = '×';
+    btn.title = 'Clear';
+    wrap.appendChild(btn);
+    const update = () => btn.classList.toggle('show', input.value !== '');
+    input.addEventListener('input', update);
+    btn.addEventListener('click', () => {
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+      update();
+    });
+    update();
+  });
+}
+
 // Build dedupe-aware list. Group by DisplayName+DisplayVersion.
 // If a name appears as both 32 and 64, keep the 64-bit row and mark _arch='both'.
 function buildDisplayRows() {
@@ -2227,6 +2280,7 @@ function editApprovers(code) {
     </span>
   `;
   setTimeout(() => $('editApprovers_' + code)?.focus(), 0);
+  attachSearchClearButtons($('customersList'));
 }
 
 function saveApprovers(code) {
@@ -2364,6 +2418,9 @@ $('customerSwitcherMenu').addEventListener('click', e => {
 // Render the customers list on page load so Settings reflects state immediately
 renderCustomersList();
 
+// Inject × clear buttons on every existing input.search; idempotent on re-runs.
+attachSearchClearButtons();
+
 async function getToken() {
   try {
     const r = await msalApp.acquireTokenSilent({ scopes: SCOPES, account: msalApp.getActiveAccount() });
@@ -2471,13 +2528,13 @@ function clearIntuneNotice() { $('intuneNotice').innerHTML = ''; }
 // ============================================================
 // Required Apps subtab (under Intune)
 // ============================================================
-const ALL_DEVICES_GROUP_ID = '00000000-0000-0000-0000-000000000002';
 let requiredLoaded = false;
 let requiredApps = [];
 
 $('btnReloadRequired').addEventListener('click', loadRequiredApps);
 
 $('requiredFilter').addEventListener('input', renderRequiredList);
+$('requiredTargetFilter').addEventListener('change', renderRequiredList);
 
 async function loadRequiredApps() {
   requiredLoaded = true;
@@ -2497,16 +2554,18 @@ async function loadRequiredApps() {
     for (const app of all) {
       if (!app.displayName || /^update for/i.test(app.displayName)) continue;
       const assignments = app.assignments || [];
+      const targets = new Set();
       for (const a of assignments) {
-        if (a.intent === 'required' &&
-            a.target && a.target['@odata.type'] === '#microsoft.graph.allDevicesAssignmentTarget') {
-          if (!byName.has(app.displayName)) byName.set(app.displayName, app.id);
-          break;
-        }
+        if (a.intent !== 'required') continue;
+        const t = a.target && a.target['@odata.type'];
+        if (t === '#microsoft.graph.allDevicesAssignmentTarget') targets.add('allDevices');
+        else if (t === '#microsoft.graph.allLicensedUsersAssignmentTarget') targets.add('allUsers');
       }
+      if (!targets.size) continue;
+      if (!byName.has(app.displayName)) byName.set(app.displayName, { id: app.id, targets });
     }
     requiredApps = [...byName.entries()]
-      .map(([name, id]) => ({ name, id }))
+      .map(([name, info]) => ({ name, id: info.id, targets: info.targets }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     renderRequiredList();
   } catch (e) {
@@ -2518,7 +2577,10 @@ async function loadRequiredApps() {
 
 function renderRequiredList() {
   const q = $('requiredFilter').value.trim().toLowerCase();
-  const filtered = q ? requiredApps.filter(a => a.name.toLowerCase().includes(q)) : requiredApps;
+  const target = $('requiredTargetFilter').value;
+  let filtered = requiredApps;
+  if (target) filtered = filtered.filter(a => a.targets.has(target));
+  if (q) filtered = filtered.filter(a => a.name.toLowerCase().includes(q));
   $('requiredCount').textContent = filtered.length;
   if (!filtered.length) {
     $('requiredList').innerHTML = '<div class="loading">No required apps found.</div>';
@@ -3396,6 +3458,7 @@ function openDeleteModal(app) {
   input.addEventListener('input', update);
   justification.addEventListener('input', update);
   btn.addEventListener('click', () => confirmDelete(app, justification.value.trim()));
+  attachSearchClearButtons($('delBody'));
   $('delModal').classList.add('show');
   setTimeout(() => input.focus(), 0);
 }
@@ -4249,14 +4312,23 @@ let vulnRows = [];
 let vulnSortKey = 'weaknesses';
 let vulnSortDir = 'desc';
 
+// ExposedDevices is sourced from DeviceTvmSoftwareVulnerabilities (devices
+// with at least one open CVE for the software) — not from inventory
+// (devices that just have it installed). The old behavior over-counted
+// Defender-itself rows (e.g. Defender_antimalware_platform showed the
+// whole fleet exposed because every Defender-onboarded device has it).
+// Issue #4 — https://github.com/haavarstein/intune-dashboard/issues/4
 const VULN_KQL = `
 DeviceTvmSoftwareInventory
-| summarize ExposedDevices = dcount(DeviceId) by SoftwareName, SoftwareVendor, OSPlatform
+| summarize by SoftwareName, SoftwareVendor, OSPlatform
 | join kind=leftouter (
     DeviceTvmSoftwareVulnerabilities
-    | summarize Weaknesses = dcount(CveId) by SoftwareName, SoftwareVendor
-  ) on SoftwareName, SoftwareVendor
-| project SoftwareName, OSPlatform, SoftwareVendor, Weaknesses = coalesce(Weaknesses, 0), ExposedDevices
+    | summarize Weaknesses = dcount(CveId), ExposedDevices = dcount(DeviceId)
+      by SoftwareName, SoftwareVendor, OSPlatform
+  ) on SoftwareName, SoftwareVendor, OSPlatform
+| project SoftwareName, OSPlatform, SoftwareVendor,
+          Weaknesses = coalesce(Weaknesses, 0),
+          ExposedDevices = coalesce(ExposedDevices, 0)
 | order by Weaknesses desc, ExposedDevices desc
 `;
 
@@ -4924,6 +4996,7 @@ function openApprovalActionModal(id, action) {
   const btn = $('apaSubmitBtn');
   input.addEventListener('input', () => { btn.disabled = input.value.trim() === ''; });
   btn.addEventListener('click', () => submitApprovalAction(id, action, input.value.trim()));
+  attachSearchClearButtons($('apaBody'));
   $('approvalActionModal').classList.add('show');
   setTimeout(() => input.focus(), 0);
 }
