@@ -5816,9 +5816,14 @@ async function loadCerthealth(force = false) {
     const devices = await graphGetAll(`beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}`);
     const now = Date.now();
     certhealthRows = devices.map(d => {
-      const expMs = d.managementCertificateExpirationDate ? new Date(d.managementCertificateExpirationDate).getTime() : null;
+      // Graph returns "0001-01-01T00:00:00Z" for devices with no management certificate
+      // (co-managed, intermediate enrollment, non-MDM). Treat sub-1900 as "no cert data".
+      const rawExp = d.managementCertificateExpirationDate;
+      const expDate = rawExp ? new Date(rawExp) : null;
+      const hasCert = !!(expDate && expDate.getUTCFullYear() > 1900);
+      const expMs = hasCert ? expDate.getTime() : null;
       const syncMs = d.lastSyncDateTime ? new Date(d.lastSyncDateTime).getTime() : null;
-      const daysRemaining = expMs ? Math.floor((expMs - now) / (1000 * 60 * 60 * 24)) : null;
+      const daysRemaining = expMs !== null ? Math.floor((expMs - now) / (1000 * 60 * 60 * 24)) : null;
       const daysSinceSync = syncMs ? Math.floor((now - syncMs) / (1000 * 60 * 60 * 24)) : null;
       return {
         id: d.id,
@@ -5827,7 +5832,7 @@ async function loadCerthealth(force = false) {
         osVersion: d.osVersion || '',
         model: d.model || '',
         manufacturer: d.manufacturer || '',
-        managementCertificateExpirationDate: d.managementCertificateExpirationDate || '',
+        managementCertificateExpirationDate: hasCert ? rawExp : '',
         lastSyncDateTime: d.lastSyncDateTime || '',
         daysRemaining,
         daysSinceSync
