@@ -1648,25 +1648,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort-drift="driftPct">Drift % <span class="arrow">▼</span></th>
                   <th data-sort-drift="driftedDevices">Drifted Devices <span class="arrow">▼</span></th>
                   <th data-sort-drift="versionCount">Versions Detected <span class="arrow">▼</span></th>
-                  <th>Distribution</th>
                 </tr>
               </thead>
               <tbody id="driftRows"></tbody>
             </table>
             <div class="footer-count"><span id="driftCount">0</span> software components shown</div>
-          </div>
-        </div>
-
-        <!-- Version distribution chart (hidden until a row's button is clicked) -->
-        <div class="table-card" id="driftChartCard" style="display:none; margin-top: 16px;">
-          <div class="table-toolbar">
-            <h2 id="driftChartTitle">Version distribution</h2>
-            <div class="controls">
-              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDriftChartClose">✕ Close</span>
-            </div>
-          </div>
-          <div style="padding: 16px; height: 360px;">
-            <canvas id="driftChartCanvas"></canvas>
           </div>
         </div>
       </div><!-- /intuneSubDrift -->
@@ -1847,7 +1833,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 let rawRows = [];      // raw CSV rows
 let displayRows = [];  // after filter/dedupe transforms, used by table
@@ -2517,7 +2502,6 @@ function resetTenantState() {
   vulnLoaded = false; vulnRows = [];
   // Drift
   driftLoaded = false; driftLoading = false; driftApps = []; driftFiltered = [];
-  if (driftChartInstance) { driftChartInstance.destroy(); driftChartInstance = null; }
   // Overview
   overviewLoaded = false; overviewLoading = false;
   // PMPC
@@ -4612,7 +4596,6 @@ let driftApps = [];
 let driftFiltered = [];
 let driftSortKey = 'driftPct';
 let driftSortDir = 'desc';
-let driftChartInstance = null;
 
 const DRIFT_WARN_THRESHOLD = 20;
 
@@ -4752,58 +4735,8 @@ function renderDriftRows() {
       ${driftCell}
       <td>${a.driftedDevices}</td>
       <td>${a.versionCount}</td>
-      <td><button class="btn btn-ghost" data-drift-chart="${esc(a.key)}" style="padding:4px 10px; font-size:12px;">View Chart</button></td>
     </tr>`;
   }).join('');
-
-  tbody.querySelectorAll('[data-drift-chart]').forEach(btn => {
-    btn.addEventListener('click', () => showVersionDistributionChart(btn.dataset.driftChart));
-  });
-}
-
-function showVersionDistributionChart(key) {
-  const app = driftApps.find(a => a.key === key);
-  if (!app) return;
-  if (typeof Chart === 'undefined') {
-    alert('Chart.js failed to load. Check the CDN script in <head>.');
-    return;
-  }
-
-  $('driftChartTitle').textContent = `Version distribution — ${app.softwareName}`;
-  $('driftChartCard').style.display = '';
-  $('driftChartCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-  const labels = app.versions.map(([v]) => v);
-  const counts = app.versions.map(([, c]) => c);
-
-  if (driftChartInstance) { driftChartInstance.destroy(); driftChartInstance = null; }
-
-  driftChartInstance = new Chart($('driftChartCanvas'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Devices',
-        data: counts,
-        backgroundColor: labels.map(v => v === app.dominantVersion ? '#e8743b' : '#cfc7bd'),
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: {
-          label: ctx => `${ctx.parsed.y} device${ctx.parsed.y === 1 ? '' : 's'}`
-        }}
-      },
-      scales: {
-        x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
-        y: { beginAtZero: true, ticks: { precision: 0 } }
-      }
-    }
-  });
 }
 
 function exportDriftCSV() {
@@ -4827,10 +4760,6 @@ function exportDriftCSV() {
 
 $('btnDriftRefresh').addEventListener('click', () => loadDriftData(true));
 $('btnDriftExport').addEventListener('click', exportDriftCSV);
-$('btnDriftChartClose').addEventListener('click', () => {
-  $('driftChartCard').style.display = 'none';
-  if (driftChartInstance) { driftChartInstance.destroy(); driftChartInstance = null; }
-});
 $('driftFilter').addEventListener('input', applyDriftFilter);
 
 document.querySelectorAll('[data-sort-drift]').forEach(th => {

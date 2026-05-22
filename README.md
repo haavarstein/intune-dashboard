@@ -102,7 +102,6 @@ Sign in once with MSAL — all thirteen sub-tabs share the same session.
 - **KPI tiles**: count of software with > 10% drift, fleet drift average, total devices affected, and the single top-drifted software component.
 - Sortable table with **Software**, **Vendor**, **Dominant Version**, **Drift %**, **Drifted Devices**, and **Versions Detected**. Drift % > 20% is highlighted. Default sort is Drift % descending.
 - Click any **Software** name to open the Defender portal's inventory page for that software in a new tab — same deep-link pattern as the Vulnerabilities sub-tab, falling back to the inventory list when Defender doesn't expose a stable software ID.
-- The **Distribution** column opens a Chart.js bar chart of the version histogram for that software — the dominant version is highlighted, the rest are the drift tail.
 - Type to filter across software name and vendor. **⬇ Export CSV** downloads the current filtered view.
 - Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
 - Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
