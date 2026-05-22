@@ -734,7 +734,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · Mail.Send · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · BitlockerKey.ReadBasic.All · Mail.Send · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -758,6 +758,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="bitlocker">BitLocker</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
@@ -1217,6 +1218,68 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubHardware -->
+
+      <div id="intuneSubBitlocker" style="display:none;">
+        <div class="tab-hint">BitLocker escrow audit — Windows devices that report as encrypted in Intune cross-referenced with recovery keys actually backed up in Entra. The gap tile shows devices encrypted but with no key escrowed (your worst-case recovery scenario).</div>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">Windows devices</div>
+            <div class="tile-value" id="blTileTotal">0</div>
+            <div class="tile-sub">in scope</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Encrypted</div>
+            <div class="tile-value" id="blTileEncrypted">0</div>
+            <div class="tile-sub">per Intune</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Keys escrowed</div>
+            <div class="tile-value" id="blTileEscrowed">0</div>
+            <div class="tile-sub">in Entra</div>
+          </div>
+          <div class="tile" data-bl-tile="gap" style="cursor:pointer;">
+            <div class="tile-label">Gap</div>
+            <div class="tile-value accent" id="blTileGap">0</div>
+            <div class="tile-sub">encrypted, no key</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="bitlockerFilter" placeholder="Search device, user, model…">
+              <select class="filter-select" id="bitlockerStateFilter">
+                <option value="" selected>All devices</option>
+                <option value="gap">Gap: encrypted, no key</option>
+                <option value="encrypted-with-key">Encrypted with key</option>
+                <option value="not-encrypted">Not encrypted</option>
+                <option value="no-entra-link">No Entra device link</option>
+              </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnBitlockerExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnBitlockerRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="bitlockerLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading BitLocker state…</div>
+          <div id="bitlockerError"></div>
+          <div id="bitlockerContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-bsort="deviceName">Device <span class="arrow">▼</span></th>
+                  <th data-bsort="userPrincipalName">User <span class="arrow">▼</span></th>
+                  <th data-bsort="osVersion">Windows <span class="arrow">▼</span></th>
+                  <th data-bsort="model">Model <span class="arrow">▼</span></th>
+                  <th data-bsort="encryptionState">Encrypted (Intune) <span class="arrow">▼</span></th>
+                  <th data-bsort="keyCount">Keys escrowed <span class="arrow">▼</span></th>
+                  <th data-bsort="lastSync">Last check-in <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="bitlockerRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="bitlockerCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubBitlocker -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
         <div class="tab-hint">Defender software inventory with CVE counts and exposed-device counts. Requires Defender for Endpoint P2 or M365 E5.</div>
@@ -2122,7 +2185,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -2352,6 +2415,8 @@ function resetTenantState() {
   assignmentsSelectedGroup = null;
   // Approvals
   approvalsLoaded = false; approvalsRaw = [];
+  // BitLocker
+  bitlockerLoaded = false; bitlockerRows = [];
   // Remediation / Vulnerabilities
   remediationLoaded = false; remediationRows = [];
   vulnLoaded = false; vulnRows = [];
@@ -3849,6 +3914,7 @@ function switchSubtab(name) {
   $('intuneSubApprovals').style.display = name === 'approvals' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
+  $('intuneSubBitlocker').style.display = name === 'bitlocker' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
@@ -3860,6 +3926,7 @@ function switchSubtab(name) {
   if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
+  if (name === 'bitlocker' && !bitlockerLoaded) loadBitlocker();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
   if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
@@ -5054,6 +5121,188 @@ document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
 });
 
 $('approvalActionModal').addEventListener('click', e => { if (e.target === $('approvalActionModal')) closeApprovalActionModal(); });
+
+// ============================================================
+// BitLocker sub-tab — escrow audit
+// Joins /deviceManagement/managedDevices (Windows only) with
+// /informationProtection/bitlocker/recoveryKeys (paginated) on
+// azureADDeviceId, surfaces devices encrypted-but-no-key-escrowed.
+// Uses BitlockerKey.ReadBasic.All — lists keys WITHOUT key value
+// so the dashboard never sees actual recovery key material.
+// ============================================================
+let bitlockerLoaded = false;
+let bitlockerRows = [];
+let bitlockerSortKey = 'gap';
+let bitlockerSortDir = 'desc';
+
+function bitlockerStateOf(r) {
+  if (!r.azureADDeviceId) return 'no-entra-link';
+  if (r.isEncrypted && r.keyCount === 0) return 'gap';
+  if (r.isEncrypted && r.keyCount > 0) return 'encrypted-with-key';
+  return 'not-encrypted';
+}
+
+function bitlockerStateBadge(state) {
+  const map = {
+    'gap':                { label: 'Gap', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    'encrypted-with-key': { label: 'OK', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
+    'not-encrypted':      { label: 'Not encrypted', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'no-entra-link':      { label: 'No Entra link', bg: '#f5f1ea', border: '#ece8e1', color: '#4a4a4f' }
+  };
+  const m = map[state];
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+}
+
+async function loadBitlocker(force = false) {
+  if (bitlockerLoaded && !force) return;
+  $('bitlockerLoading').style.display = '';
+  $('bitlockerContent').style.display = 'none';
+  $('bitlockerError').innerHTML = '';
+  try {
+    const deviceSelect = 'id,deviceName,userPrincipalName,operatingSystem,osVersion,isEncrypted,azureADDeviceId,lastSyncDateTime,manufacturer,model';
+    const deviceFilter = `operatingSystem eq 'Windows'`;
+    const [devices, keys] = await Promise.all([
+      graphGetAll(`beta/deviceManagement/managedDevices?$select=${deviceSelect}&$filter=${encodeURIComponent(deviceFilter)}`),
+      graphGetAll('v1.0/informationProtection/bitlocker/recoveryKeys')
+    ]);
+    // Build a map: azureADDeviceId → count of escrowed keys.
+    const keyCountByEntraId = new Map();
+    for (const k of keys) {
+      const id = (k.deviceId || '').toLowerCase();
+      if (!id) continue;
+      keyCountByEntraId.set(id, (keyCountByEntraId.get(id) || 0) + 1);
+    }
+    bitlockerRows = devices.map(d => {
+      const entraId = (d.azureADDeviceId || '').toLowerCase();
+      const keyCount = entraId ? (keyCountByEntraId.get(entraId) || 0) : 0;
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '',
+        userPrincipalName: d.userPrincipalName || '',
+        osVersion: d.osVersion || '',
+        model: d.model || '',
+        manufacturer: d.manufacturer || '',
+        isEncrypted: !!d.isEncrypted,
+        azureADDeviceId: d.azureADDeviceId || '',
+        keyCount,
+        lastSync: d.lastSyncDateTime || ''
+      };
+    });
+    bitlockerLoaded = true;
+    $('bitlockerLoading').style.display = 'none';
+    $('bitlockerContent').style.display = '';
+    renderBitlockerTiles();
+    renderBitlockerTable();
+  } catch (e) {
+    console.error('BitLocker load failed', e);
+    $('bitlockerLoading').style.display = 'none';
+    $('bitlockerError').innerHTML = `<div class="error-banner">Failed to load BitLocker data: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderBitlockerTiles() {
+  let total = 0, encrypted = 0, escrowed = 0, gap = 0;
+  for (const r of bitlockerRows) {
+    total++;
+    if (r.isEncrypted) encrypted++;
+    if (r.keyCount > 0) escrowed++;
+    if (r.isEncrypted && r.keyCount === 0) gap++;
+  }
+  $('blTileTotal').textContent = total;
+  $('blTileEncrypted').textContent = encrypted;
+  $('blTileEscrowed').textContent = escrowed;
+  $('blTileGap').textContent = gap;
+}
+
+function applyBitlockerFilters(rows) {
+  const q = ($('bitlockerFilter').value || '').toLowerCase().trim();
+  const state = $('bitlockerStateFilter').value;
+  return rows.filter(r => {
+    if (state && bitlockerStateOf(r) !== state) return false;
+    if (q) {
+      const hay = [r.deviceName, r.userPrincipalName, r.model, r.manufacturer].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderBitlockerTable() {
+  let rows = applyBitlockerFilters(bitlockerRows);
+  const dir = bitlockerSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (bitlockerSortKey === 'encryptionState') { av = a.isEncrypted ? 1 : 0; bv = b.isEncrypted ? 1 : 0; }
+    else if (bitlockerSortKey === 'gap') {
+      // sort gap-first when desc
+      av = (a.isEncrypted && a.keyCount === 0) ? 1 : 0;
+      bv = (b.isEncrypted && b.keyCount === 0) ? 1 : 0;
+    }
+    else { av = a[bitlockerSortKey] || ''; bv = b[bitlockerSortKey] || ''; if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); } }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return a.deviceName.toLowerCase().localeCompare(b.deviceName.toLowerCase());
+  });
+
+  const body = $('bitlockerRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const state = bitlockerStateOf(r);
+      const keyDisplay = r.keyCount > 0 ? `${r.keyCount} ${bitlockerStateBadge('encrypted-with-key')}` : (r.isEncrypted ? bitlockerStateBadge('gap') : '—');
+      return `
+        <tr>
+          <td>${esc(r.deviceName) || '—'}</td>
+          <td>${esc(r.userPrincipalName) || '—'}</td>
+          <td>${esc(r.osVersion) || '—'}</td>
+          <td>${esc(r.model) || '—'}</td>
+          <td>${r.isEncrypted ? bitlockerStateBadge(state === 'gap' ? 'gap' : 'encrypted-with-key') : bitlockerStateBadge('not-encrypted')}</td>
+          <td>${r.keyCount > 0 ? r.keyCount : (r.azureADDeviceId ? '0' : bitlockerStateBadge('no-entra-link'))}</td>
+          <td class="date">${r.lastSync ? new Date(r.lastSync).toLocaleString() : '—'}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  $('bitlockerCount').textContent = rows.length;
+}
+
+function exportBitlockerCsv() {
+  const rows = applyBitlockerFilters(bitlockerRows);
+  const header = ['DeviceName','User','OSVersion','Manufacturer','Model','IsEncrypted','KeyCount','State','AzureADDeviceId','LastSync'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.deviceName, r.userPrincipalName, r.osVersion, r.manufacturer, r.model,
+    r.isEncrypted ? 'true' : 'false', r.keyCount, bitlockerStateOf(r), r.azureADDeviceId, r.lastSync
+  ].map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bitlocker-escrow-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('bitlockerFilter').addEventListener('input', renderBitlockerTable);
+$('bitlockerStateFilter').addEventListener('change', renderBitlockerTable);
+$('btnBitlockerRefresh').addEventListener('click', () => loadBitlocker(true));
+$('btnBitlockerExport').addEventListener('click', exportBitlockerCsv);
+
+document.querySelectorAll('[data-bl-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    $('bitlockerStateFilter').value = tile.dataset.blTile;
+    renderBitlockerTable();
+  });
+});
+
+document.querySelectorAll('#intuneSubBitlocker th[data-bsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.bsort;
+    if (bitlockerSortKey === key) bitlockerSortDir = bitlockerSortDir === 'asc' ? 'desc' : 'asc';
+    else { bitlockerSortKey = key; bitlockerSortDir = 'desc'; }
+    renderBitlockerTable();
+  });
+});
 
 // ============================================================
 // Assignments Explorer sub-tab

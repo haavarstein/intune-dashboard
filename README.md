@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Eleven sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twelve sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, BitLocker, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all eleven sub-tabs share the same session.
+Sign in once with MSAL — all twelve sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -76,6 +76,14 @@ Sign in once with MSAL — all eleven sub-tabs share the same session.
 - Filters for platform (defaults to *Windows*), RAM bucket, storage bucket, and manufacturer.
 - Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, and last check-in. Click a device name to open its Hardware blade in the Intune admin center in a new tab.
 - `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
+
+**BitLocker** — escrow-coverage audit. Windows devices reported as encrypted by Intune cross-referenced with recovery keys actually backed up in Entra. The headline tile is the **Gap** — devices encrypted in Intune with zero recovery keys escrowed in Entra (your worst-case recovery scenario).
+
+- **KPI tiles**: Windows devices in scope · Encrypted (per Intune) · Keys escrowed (in Entra) · **Gap (clickable, filters to gap-only)**.
+- **State filter**: All / Gap / Encrypted with key / Not encrypted / No Entra link (orphaned managed devices that can't be cross-referenced).
+- Sortable table with Device · User · Windows version · Model · Encryption state · Keys escrowed · Last check-in. Default sort floats gap-devices to the top.
+- **⬇ Export CSV** for compliance evidence — current filtered view with state column included.
+- The dashboard requests `BitlockerKey.ReadBasic.All` — the listing scope that returns key *metadata only* (id, deviceId, createdDateTime, volumeType). Recovery key material is never fetched or rendered; viewing actual keys still requires the Entra admin center.
 
 **Vulnerabilities (P2/E5)** — software inventory from Microsoft Defender Vulnerability Management, surfaced via the Microsoft Graph Advanced Hunting API.
 
@@ -153,6 +161,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `DeviceManagementApps.Read.All` — read Intune app data and install reports
 - `DeviceManagementApps.ReadWrite.All` — **write scope** for deleting apps from Intune (Installed sub-tab → 🗑 Delete from Intune)
 - `Mail.Send` — **write scope** to send the MAA approver notification email from your own mailbox at the moment a delete is submitted; never used for anything else
+- `BitlockerKey.ReadBasic.All` — list BitLocker recovery-key metadata for the BitLocker sub-tab (returns id / deviceId / volumeType only — key material is never fetched)
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
@@ -177,6 +186,7 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `GET /beta/deviceManagement/operationApprovalRequests/{id}` — live status polling for an in-flight MAA delete request (30 s cadence while the modal is open; stops on approved/rejected/cancelled/expired/completed)
 - `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
+- `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
