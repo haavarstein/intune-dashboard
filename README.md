@@ -107,7 +107,14 @@ Sign in once with MSAL — all twelve sub-tabs share the same session.
 - Lazy-loaded: one KQL call against Defender on first open, cached for the session. Use **↻ Refresh** to force a re-fetch.
 - Because data is grouped by *software name + vendor*, this catches the cross-Intune-app product-family drift that the install-status reports can't see — apps installed outside Intune, image-baked software, and major-version splits are all visible.
 
-**Assignments** — group-centric reverse lookup. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
+**Assignments** — group-centric reverse lookup *plus* tenant-wide hygiene. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
+
+**Hygiene panel** (top of the tab) surfaces operational cruft computed from the same cache:
+- **Unassigned items** — policies / apps / scripts with no assignments at all (candidates for cleanup).
+- **Empty-group assignments** — silent no-ops where an assignment targets a group with zero members. Computed by parallel `GET /v1.0/groups/{id}/members/$count` for every unique group ID referenced across the seven categories.
+- **Orphaned filters** — assignment filters that exist but are referenced by no assignment.
+- **Filters in use** — assignment filters referenced by at least one assignment (click for the usage list).
+Click any tile to drill into the full list with deep-links into the Intune admin center. Closes the gap behind community tools like IntuneAssignmentChecker and SMSAgentSoftware's Power BI reports.
 
 - Type-ahead **group search** against `groups?$search="displayName:…"` (debounced 300ms, substring/token match). Pick a result to inspect.
 - KPI tiles for the seven counts.
@@ -187,6 +194,8 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
+- `GET /beta/deviceManagement/assignmentFilters` — assignment filters list for the Assignments → Hygiene panel (orphaned vs in-use detection)
+- `GET /v1.0/groups/{id}/members/$count` (with `ConsistencyLevel: eventual`) — per-group member counts for the Assignments → Hygiene panel's empty-group detector (parallelized for every unique group ID referenced in assignments)
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)

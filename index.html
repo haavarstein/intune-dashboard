@@ -1322,7 +1322,34 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubVulnerabilities -->
 
       <div id="intuneSubAssignments" style="display:none;">
-        <div class="tab-hint">Group-centric reverse lookup — pick an Entra group and see every policy, app, script, and update profile targeting it.</div>
+        <div class="tab-hint">Group-centric reverse lookup — pick an Entra group and see every policy, app, script, and update profile targeting it. The Hygiene panel above surfaces cruft: items with no assignments, assignments pointing at empty groups, and orphaned assignment filters.</div>
+
+        <!-- Assignment hygiene tiles -->
+        <div class="tiles" style="margin-bottom:16px;">
+          <div class="tile" data-hygiene-tile="unassigned" style="cursor:pointer;">
+            <div class="tile-label">Unassigned items</div>
+            <div class="tile-value" id="kHygUnassigned">0</div>
+            <div class="tile-sub">policies / apps / scripts with no assignment</div>
+          </div>
+          <div class="tile" data-hygiene-tile="emptyGroup" style="cursor:pointer;">
+            <div class="tile-label">Empty-group assignments</div>
+            <div class="tile-value accent" id="kHygEmptyGroup">0</div>
+            <div class="tile-sub">silent no-ops — group has zero members</div>
+          </div>
+          <div class="tile" data-hygiene-tile="orphanedFilters" style="cursor:pointer;">
+            <div class="tile-label">Orphaned filters</div>
+            <div class="tile-value" id="kHygOrphanedFilters">0</div>
+            <div class="tile-sub">assignment filters not referenced</div>
+          </div>
+          <div class="tile" data-hygiene-tile="filtersInUse" style="cursor:pointer;">
+            <div class="tile-label">Filters in use</div>
+            <div class="tile-value" id="kHygFiltersInUse">0</div>
+            <div class="tile-sub">filters referenced by ≥ 1 assignment</div>
+          </div>
+        </div>
+        <div id="hygieneStatus" class="meta" style="font-size:11px; margin-bottom:12px;"></div>
+        <div id="hygieneDetail" style="display:none; margin-bottom:24px;"></div>
+
         <div class="table-card" style="padding:20px; overflow:visible;">
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <div style="position:relative; flex:1; min-width:280px;">
@@ -5394,6 +5421,8 @@ async function loadAssignmentsPolicies(force = false) {
     assignmentsPoliciesLoaded = true;
     $('assignmentsLoadStatus').textContent = `Indexed ${apps.length} apps · ${configs.length} configs · ${settingsCatalog.length} settings catalog · ${compliance.length} compliance · ${psScripts.length} scripts · ${healthScripts.length} remediations · ${updateProfiles.length} update profiles. Type a group name above.`;
     if (assignmentsSelectedGroup) renderAssignmentsForGroup();
+    // Compute hygiene in the background after the main load — non-blocking.
+    computeAssignmentHygiene().catch(e => console.error('Hygiene compute failed', e));
   } catch (e) {
     console.error('Assignments policies load failed', e);
     $('assignmentsLoadStatus').innerHTML = `<span style="color:#c0392b;">Failed to load policies: ${esc(e.message || String(e))}</span>`;
@@ -5672,7 +5701,217 @@ $('assignmentsSearch').addEventListener('focus', () => {
 });
 $('btnAssignmentsRefresh').addEventListener('click', () => {
   assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
+  hygieneFiltersRaw = [];
+  hygieneGroupMembers = new Map();
+  hygieneComputed = null;
   loadAssignmentsPolicies(true);
+});
+
+// ============================================================
+// Assignment Hygiene — surfaces cruft on top of the existing
+// assignments cache: items with no assignments, assignments
+// pointing at empty groups, and orphaned assignment filters.
+// Reuses assignmentsRaw; adds /assignmentFilters + per-group
+// /members/$count calls (parallelized). All read-only.
+// ============================================================
+let hygieneFiltersRaw = [];
+let hygieneGroupMembers = new Map(); // groupId → memberCount
+let hygieneComputed = null;          // cached compute result
+
+const HYGIENE_CATEGORIES = [
+  { key: 'apps',            label: 'App',                bladePath: 'Microsoft_Intune_Apps/SettingsMenu/~/0/appId/' },
+  { key: 'configs',         label: 'Config profile',     bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
+  { key: 'compliance',      label: 'Compliance policy',  bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
+  { key: 'settingsCatalog', label: 'Settings catalog',   bladePath: 'Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/' },
+  { key: 'healthScripts',   label: 'Remediation',        bladePath: '' },
+  { key: 'psScripts',       label: 'PowerShell script',  bladePath: '' },
+  { key: 'updateProfiles',  label: 'Update profile',     bladePath: '' }
+];
+
+function hygieneBladeUrlForItem(category, item) {
+  if (category === 'apps') {
+    return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(item.id)}`;
+  }
+  // Most policy types open under PolicySummaryReportBlade; fall back to root admin center
+  return `https://intune.microsoft.com/`;
+}
+
+async function fetchGroupMemberCount(groupId) {
+  try {
+    const token = await getToken();
+    const res = await fetch(`https://graph.microsoft.com/v1.0/groups/${encodeURIComponent(groupId)}/members/$count`, {
+      headers: { Authorization: 'Bearer ' + token, 'ConsistencyLevel': 'eventual', Accept: 'text/plain' }
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const n = parseInt(text, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectAssignmentGroupIds() {
+  const ids = new Set();
+  for (const cat of HYGIENE_CATEGORIES) {
+    for (const item of (assignmentsRaw[cat.key] || [])) {
+      for (const a of (item.assignments || [])) {
+        const gid = a.target && a.target.groupId;
+        if (gid) ids.add(gid);
+      }
+    }
+  }
+  return ids;
+}
+
+async function computeAssignmentHygiene() {
+  if (!assignmentsPoliciesLoaded) return;
+  $('hygieneStatus').textContent = 'Computing hygiene — fetching assignment filters and group member counts…';
+
+  // Filters list — independent fetch
+  let filters = [];
+  try {
+    filters = await graphGetAll('beta/deviceManagement/assignmentFilters');
+  } catch (e) {
+    console.warn('Failed to load assignmentFilters', e);
+    filters = [];
+  }
+  hygieneFiltersRaw = filters;
+
+  // Group member counts — parallelized for all referenced groups
+  const groupIds = [...collectAssignmentGroupIds()];
+  const missing = groupIds.filter(id => !hygieneGroupMembers.has(id));
+  if (missing.length) {
+    const results = await Promise.all(missing.map(id => fetchGroupMemberCount(id).then(n => [id, n])));
+    for (const [id, n] of results) hygieneGroupMembers.set(id, n);
+  }
+
+  // Compute the four lists
+  const unassigned = [];
+  for (const cat of HYGIENE_CATEGORIES) {
+    for (const item of (assignmentsRaw[cat.key] || [])) {
+      const count = (item.assignments || []).length;
+      if (count === 0) {
+        unassigned.push({ category: cat.key, categoryLabel: cat.label, id: item.id, name: item.displayName || item.name || '(unnamed)', lastModified: item.lastModifiedDateTime || '' });
+      }
+    }
+  }
+
+  const emptyGroup = [];
+  const filterRefs = new Map(); // filterId → array of {category, itemName, groupId}
+  for (const cat of HYGIENE_CATEGORIES) {
+    for (const item of (assignmentsRaw[cat.key] || [])) {
+      for (const a of (item.assignments || [])) {
+        const gid = a.target && a.target.groupId;
+        if (gid) {
+          const count = hygieneGroupMembers.get(gid);
+          if (count === 0) {
+            emptyGroup.push({
+              category: cat.key, categoryLabel: cat.label,
+              itemId: item.id, itemName: item.displayName || item.name || '(unnamed)',
+              groupId: gid, intent: a.intent || '', isExclusion: (a.target['@odata.type'] || '').includes('exclusion')
+            });
+          }
+        }
+        const fid = a.target && a.target.deviceAndAppManagementAssignmentFilterId;
+        if (fid) {
+          if (!filterRefs.has(fid)) filterRefs.set(fid, []);
+          filterRefs.get(fid).push({ category: cat.key, categoryLabel: cat.label, itemName: item.displayName || item.name || '(unnamed)' });
+        }
+      }
+    }
+  }
+
+  const orphanedFilters = filters.filter(f => !filterRefs.has(f.id));
+  const filtersInUse = filters.filter(f => filterRefs.has(f.id));
+
+  hygieneComputed = { unassigned, emptyGroup, orphanedFilters, filtersInUse, filterRefs };
+
+  $('kHygUnassigned').textContent = unassigned.length;
+  $('kHygEmptyGroup').textContent = emptyGroup.length;
+  $('kHygOrphanedFilters').textContent = orphanedFilters.length;
+  $('kHygFiltersInUse').textContent = filtersInUse.length;
+  $('hygieneStatus').textContent = `Hygiene snapshot: ${filters.length} assignment filters · ${groupIds.length} unique groups referenced.`;
+}
+
+function closeHygieneDetail() {
+  $('hygieneDetail').style.display = 'none';
+  $('hygieneDetail').innerHTML = '';
+}
+
+function renderHygieneDetail(kind) {
+  if (!hygieneComputed) return;
+  const panel = $('hygieneDetail');
+  let title = '';
+  let tableHtml = '';
+  if (kind === 'unassigned') {
+    title = `Unassigned items (${hygieneComputed.unassigned.length})`;
+    const rows = hygieneComputed.unassigned;
+    tableHtml = !rows.length
+      ? `<div class="meta" style="padding:18px;">No unassigned items — everything is targeting something.</div>`
+      : `<table><thead><tr><th>Name</th><th>Type</th><th>Last modified</th></tr></thead><tbody>${rows.map(r => {
+          const link = r.category === 'apps'
+            ? `<a href="${hygieneBladeUrlForItem(r.category, r)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a>`
+            : esc(r.name);
+          return `<tr><td>${link}</td><td>${esc(r.categoryLabel)}</td><td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td></tr>`;
+        }).join('')}</tbody></table>`;
+  } else if (kind === 'emptyGroup') {
+    title = `Assignments targeting empty groups (${hygieneComputed.emptyGroup.length})`;
+    const rows = hygieneComputed.emptyGroup;
+    tableHtml = !rows.length
+      ? `<div class="meta" style="padding:18px;">No empty-group assignments — every targeted group has at least one member.</div>`
+      : `<table><thead><tr><th>Item</th><th>Type</th><th>Intent</th><th>Group ID</th></tr></thead><tbody>${rows.map(r => `
+          <tr>
+            <td>${esc(r.itemName)}</td>
+            <td>${esc(r.categoryLabel)}</td>
+            <td>${esc(r.intent || '—')}${r.isExclusion ? ' <span class="meta" style="font-size:11px;">(exclusion)</span>' : ''}</td>
+            <td><code style="font-size:11px;">${esc(r.groupId)}</code></td>
+          </tr>
+        `).join('')}</tbody></table>`;
+  } else if (kind === 'orphanedFilters') {
+    title = `Orphaned assignment filters (${hygieneComputed.orphanedFilters.length})`;
+    const rows = hygieneComputed.orphanedFilters;
+    tableHtml = !rows.length
+      ? `<div class="meta" style="padding:18px;">No orphaned filters — every assignment filter is referenced by at least one assignment.</div>`
+      : `<table><thead><tr><th>Filter name</th><th>Platform</th><th>Created</th><th>Last modified</th></tr></thead><tbody>${rows.map(f => `
+          <tr>
+            <td>${esc(f.displayName || '(unnamed)')}</td>
+            <td>${esc(f.platform || '—')}</td>
+            <td class="date">${f.createdDateTime ? new Date(f.createdDateTime).toLocaleString() : '—'}</td>
+            <td class="date">${f.lastModifiedDateTime ? new Date(f.lastModifiedDateTime).toLocaleString() : '—'}</td>
+          </tr>
+        `).join('')}</tbody></table>`;
+  } else if (kind === 'filtersInUse') {
+    title = `Assignment filters in use (${hygieneComputed.filtersInUse.length})`;
+    const rows = hygieneComputed.filtersInUse;
+    tableHtml = !rows.length
+      ? `<div class="meta" style="padding:18px;">No filters are currently referenced.</div>`
+      : `<table><thead><tr><th>Filter name</th><th>Platform</th><th>Referenced by</th></tr></thead><tbody>${rows.map(f => {
+          const refs = hygieneComputed.filterRefs.get(f.id) || [];
+          const refList = refs.slice(0, 8).map(r => `${esc(r.itemName)} <span class="meta" style="font-size:11px;">(${esc(r.categoryLabel)})</span>`).join('<br>');
+          const more = refs.length > 8 ? `<div class="meta" style="font-size:11px; margin-top:4px;">…and ${refs.length - 8} more</div>` : '';
+          return `<tr><td>${esc(f.displayName || '(unnamed)')}</td><td>${esc(f.platform || '—')}</td><td>${refList}${more}</td></tr>`;
+        }).join('')}</tbody></table>`;
+  }
+  panel.innerHTML = `
+    <div class="table-card">
+      <div class="table-toolbar">
+        <h2>${esc(title)}</h2>
+        <div class="controls">
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" onclick="closeHygieneDetail()">✕ Close</span>
+        </div>
+      </div>
+      ${tableHtml}
+    </div>
+  `;
+  panel.style.display = '';
+}
+
+document.querySelectorAll('[data-hygiene-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    if (!hygieneComputed) return;
+    renderHygieneDetail(tile.dataset.hygieneTile);
+  });
 });
 
 let uploadedLogs = [];
