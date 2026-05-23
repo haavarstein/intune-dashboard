@@ -1,3 +1,102 @@
+# Autopilot sub-tab (new)
+
+## Goal
+Surface orphaned Autopilot device records and hybrid-join duplicate Entra objects — the cleanup MSPs currently script themselves. New sub-tab "Autopilot", positioned right after Hardware. Bumps canonical sub-tab count from 13 → 14.
+
+## Scope decisions
+- Dedicated sub-tab (user-confirmed) rather than extending Hardware. Future-proofs adding deployment-profile assignment / ESP-stuck-state without overloading Hardware.
+- No new MSAL scope — `DeviceManagementServiceConfig.Read.All` is needed for `windowsAutopilotDeviceIdentities`. Verify whether the dashboard already has it or needs to add it (likely add). If a customer denies the new scope, the tab shows a single "Grant DeviceManagementServiceConfig.Read.All to audit Autopilot" empty state.
+- Hybrid duplicates: include a default-ON "Hide hybrid-by-design duplicates" toggle. Heuristic = same serial → 2+ Entra records where at least one has a hybrid join trust type.
+
+## Tiles
+1. **Autopilot devices** (total, in scope) — clickable → show all (`""`)
+2. **Orphan**: in Autopilot, no `managedDevice` (after retirement / reimage)
+3. **No profile**: Autopilot device with no deployment profile assigned
+4. **Duplicate Entra**: same serial → 2+ Entra device objects (subject to hybrid toggle)
+
+## Table columns
+Serial, Model, Manufacturer, Group Tag, Purchase Order, Profile (link to Intune blade), Last contact, Status badge (Orphan / No profile / Duplicate / OK). Serial deep-links to the Autopilot device blade in `intune.microsoft.com`. Profile name deep-links to its blade.
+
+## Tasks
+- [ ] Add `DeviceManagementServiceConfig.Read.All` to `SCOPES` if not present + visible scope strip
+- [ ] HTML: `<button class="subtab" data-subtab="autopilot">Autopilot</button>` after Hardware
+- [ ] HTML: `intuneSubAutopilot` container with 4 tiles, state filter dropdown, hybrid-duplicates toggle, search input, Clear KPI / Export / Refresh
+- [ ] Sub-tab show/hide wired in the tab switcher; load on first reveal
+- [ ] `loadAutopilot()` fetches `/deviceManagement/windowsAutopilotDeviceIdentities` + `/deviceManagement/managedDevices?$select=id,serialNumber,...` + Entra `/devices?$select=...,trustType,physicalIds` in parallel
+- [ ] Join on serial number (case-insensitive, trim) → `autopilotRows`
+- [ ] `autopilotStateOf(r)` returns orphan / noProfile / duplicate / ok
+- [ ] `apTileMap` + `syncAutopilotTileUi()` — toggle behavior + `.tile.active` highlight (pre-publish checklist)
+- [ ] Deep-link serial cell + profile cell (pre-publish checklist)
+- [ ] CSV export
+- [ ] README: add "Autopilot" to the sub-tab list (canonical count 13 → 14), add Autopilot endpoint line, add new scope line if added
+- [ ] Canonical-facts grep: confirm "13" → "14", verify no other stale counts
+- [ ] **Live verification before commit**: click each tile → table filters; click an active tile → toggles off; serial deep-links open the Autopilot device blade; hybrid toggle changes the Duplicate count
+
+## Out of scope (v1)
+- Bulk delete of orphaned Autopilot records (Graph supports `DELETE /windowsAutopilotDeviceIdentities/{id}` but that's a write action — defer until requested)
+- Deployment profile assignment status drill-down (separate feature; this tab focuses on reconciliation, not ESP/profile mechanics)
+- Reassigning a Group Tag inline
+- Surfacing Autopilot ESP failures (a future Autopilot deployment-health feature)
+
+---
+
+# Posture sub-tab (new)
+
+## Goal
+One-page MSP customer-review of compliance + Conditional Access *posture* — the unsafe defaults and assignment-target patterns auditors flag. Closes the gap that today an MSP has to open three admin-center blades and squint.
+
+## Scope decisions
+- Dedicated sub-tab named "Posture" (user-confirmed), positioned after Assignments.
+- Two sections in one tab: **Compliance** (always-on, uses existing scopes) and **Conditional Access** (gated on optional new scope `Policy.Read.All`).
+- `Policy.Read.All` is optional / graceful degrade (user-confirmed). If denied, the CA section shows an empty state "Grant Policy.Read.All to audit CA posture" and the Compliance section still works.
+- Bumps canonical sub-tab count from 14 → 15 (assuming Autopilot ships first; if these ship in either order, README math has to track).
+
+## Tiles
+**Compliance section** (always-on):
+- **Unsafe default**: tenant has `secureByDefault: false` (i.e. "no policy = compliant")
+- **No grace period**: compliance policies with `scheduledActionsForRule.gracePeriodHours = 0`
+- **Device-targeted**: count of compliance policies assigned to device groups instead of user groups
+- **No platform split**: count of tenants/policies relying on a single cross-platform policy
+
+**Conditional Access section** (requires `Policy.Read.All`):
+- **Report-only stale**: CA policies in `enabledForReportingButNotEnforced` state with `modifiedDateTime` > 30 days
+- **Compliant-device gap**: number of CA policies that don't require `compliantDevice` or `domainJoinedDevice` in `grantControls.builtInControls`
+- **Legacy auth not blocked**: no CA policy blocking `exchangeActiveSync` + `other` client app types
+
+Each tile clickable → drill-in panel listing the offending items with deep-links.
+
+## Tasks
+- [ ] Add `Policy.Read.All` to `SCOPES` as **optional** — request via `acquireTokenSilent` and tolerate denial
+- [ ] Helper `hasPolicyReadAll()` checks the active account's granted scopes
+- [ ] HTML: `<button class="subtab" data-subtab="posture">Posture</button>` after Assignments
+- [ ] HTML: `intuneSubPosture` with two `<section>`s, each with its own tiles row and drill-in panel
+- [ ] Sub-tab show/hide wired; load on first reveal
+- [ ] `loadPostureCompliance()` fetches `/deviceManagement/settings` + `/deviceManagement/deviceCompliancePolicies?$expand=assignments` and computes the 4 compliance tiles
+- [ ] `loadPostureCa()` (only if `Policy.Read.All` granted) fetches `/identity/conditionalAccess/policies` and computes the 3 CA tiles
+- [ ] CA section empty state when scope not granted: "Grant Policy.Read.All to audit CA posture" + a "Grant scope" button that calls `loginPopup` with the extra scope
+- [ ] Each tile drills to a `<div class="hygiene-detail">`-style panel listing the offending items with deep-links to the matching admin-center blade
+- [ ] `pTileMap` + `syncPostureTileUi()` — toggle + active highlight (pre-publish checklist)
+- [ ] CSV export per section
+- [ ] README: add "Posture" to the sub-tab list (canonical count → +1), add CA endpoint + Policy.Read.All scope line with the "optional" qualifier, bump scope count
+- [ ] Canonical-facts grep
+- [ ] **Live verification before commit**: each tile filters/drills correctly; CA section degrades gracefully when scope denied; "Grant scope" button works; deep-links open the right admin-center blade
+
+## Out of scope (v1)
+- Remediation actions (changing a setting from inside the dashboard — keep read-only stance)
+- Security baseline drift (separate feature; baselines have their own Graph surface)
+- Custom audit benchmarks / pluggable rulesets (one fixed set of checks in v1)
+- Defender for Cloud Apps / session policies
+- Per-customer threshold tuning (grace period > 0d is the only "rule", not configurable in v1)
+
+## Verifiable success
+1. Sign in with no `Policy.Read.All` consent → Posture tab loads, Compliance section works, CA section shows the empty state.
+2. Click "Grant scope" → MSAL popup, consent → CA section loads.
+3. Each tile click → drill-in panel populates with the offending items, each linked to its blade.
+4. `unsafe default = false` test tenant → "Unsafe default" tile is 0; flipping it back to default makes the tile light up.
+5. README sub-tab count grep returns the new number; old "13" mentions all bumped.
+
+---
+
 # Multi-customer / MSP tenant switcher
 
 ## Goal

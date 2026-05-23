@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Thirteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, BitLocker, Cert health, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Fourteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all thirteen sub-tabs share the same session.
+Sign in once with MSAL — all fourteen sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -77,6 +77,14 @@ Sign in once with MSAL — all thirteen sub-tabs share the same session.
 - Filters for platform (defaults to *Windows*), RAM bucket, storage bucket, and manufacturer.
 - Sortable table with device name, manufacturer, model, RAM, total/free storage, Windows version, last check-in, and a **📋 History** action. Click a device name to open its Hardware blade in the Intune admin center in a new tab; click **📋 History** to open a modal with audit events that touched that device (wipes / retires / syncs / renames / primary-user changes / RBAC). Scans `/deviceManagement/auditEvents` with a 180-day date filter and matches `resources[].resourceId` client-side — Graph's server-side `resources/any` filter on this endpoint is unreliable, so we scan up to 8 pages of 500 events. The modal shows the scan count even when zero matches, so it's clear the load worked. Uses the existing `DeviceManagementApps.Read.All` scope; Intune retains audit data up to ~1 year by default.
 - `physicalMemoryInBytes` is fetched per device (the `managedDevices` list endpoint does not populate it), so the initial load is slower on large tenants.
+
+**Autopilot** — reconciliation between Autopilot service records, Intune managed devices, and Entra device objects. Finds devices still registered in Autopilot after their Intune device was retired or reimaged, Autopilot devices with no deployment profile assigned, and duplicate Entra device objects pointing at the same Autopilot identity.
+
+- **KPI tiles**: Autopilot devices in scope · **Orphan** (Autopilot record references a managedDeviceId that no longer exists) · **No profile** (`deploymentProfileAssignmentStatus = notAssigned`) · **Duplicate Entra** (same ZTDID across 2+ Entra device records).
+- **Hide hybrid-by-design duplicates** toggle (default ON): hybrid Autopilot enrollment legitimately creates one Entra-joined + one hybrid-joined Entra record per device (`trustType: AzureAd` + `ServerAd`). Toggle off to see those too.
+- Sortable table with Serial · Manufacturer · Model · Group tag · PO · Profile assignment status · Last contact · Status badge. Serial deep-links to the matching managedDevice blade when one exists, otherwise to the Autopilot devices list.
+- **⬇ Export CSV** of the current filtered view.
+- Uses the new `DeviceManagementServiceConfig.Read.All` scope plus the existing `DeviceManagementManagedDevices.Read.All` and `Device.Read.All` (Entra fetch is best-effort — if denied, Duplicate Entra silently shows 0 and the rest still works).
 
 **BitLocker** — escrow-coverage audit. Windows devices reported as encrypted by Intune cross-referenced with recovery keys actually backed up in Entra. The headline tile is the **Gap** — devices encrypted in Intune with zero recovery keys escrowed in Entra (your worst-case recovery scenario).
 
@@ -184,6 +192,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
+- `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
 Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` — everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune and the approver-notification email will work.
 
@@ -205,6 +214,7 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
 - `GET /v1.0/devices?$select=deviceId` — Entra device IDs joined to `managedDevices.azureADDeviceId` for the Hardware tab's "Missing from Entra" hygiene tile
+- `GET /beta/deviceManagement/windowsAutopilotDeviceIdentities` — Autopilot device records for the Autopilot sub-tab; joined to `managedDevices` by `managedDeviceId` for orphan detection and to Entra `/devices` by ZTDID (extracted from `physicalIds`) for duplicate-Entra detection
 - `GET /v1.0/deviceManagement/auditEvents?$filter=activityDateTime ge <180d>` — per-device action history for the Hardware tab's 📋 History modal; scans up to 8 pages of 500 and matches `resources[].resourceId` client-side (server-side `resources/any` filter on this endpoint is unreliable)
 - `GET /beta/deviceManagement/assignmentFilters` — assignment filters list for the Assignments → Hygiene panel (orphaned vs in-use detection)
 - `GET /v1.0/groups/{id}/members/$count` (with `ConsistencyLevel: eventual`) — per-group member counts for the Assignments → Hygiene panel's empty-group detector (parallelized for every unique group ID referenced in assignments)

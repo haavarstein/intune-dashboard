@@ -736,7 +736,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · BitlockerKey.ReadBasic.All · Device.Read.All · Mail.Send · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · DeviceManagementServiceConfig.Read.All · BitlockerKey.ReadBasic.All · Device.Read.All · Mail.Send · User.Read</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -760,6 +760,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
         <button class="subtab" data-subtab="certhealth">Cert health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
@@ -1261,6 +1262,73 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubHardware -->
+
+      <div id="intuneSubAutopilot" style="display:none;">
+        <div class="tab-hint">Autopilot reconciliation — find Autopilot device records still registered after their Intune device was retired or reimaged, devices in Autopilot that haven't been assigned a deployment profile, and duplicate Entra device objects pointing at the same Autopilot identity. Hybrid-by-design duplicates (one Entra-joined + one hybrid-joined record per device) are hidden by default.</div>
+        <div class="tiles">
+          <div class="tile" data-ap-tile="" style="cursor:pointer;" title="Show all Autopilot devices">
+            <div class="tile-label">Autopilot devices</div>
+            <div class="tile-value" id="apTileTotal">0</div>
+            <div class="tile-sub">in scope</div>
+          </div>
+          <div class="tile" data-ap-tile="orphan" style="cursor:pointer;" title="Filter: orphaned (no Intune device)">
+            <div class="tile-label">Orphan</div>
+            <div class="tile-value accent" id="apTileOrphan">0</div>
+            <div class="tile-sub">no managed device</div>
+          </div>
+          <div class="tile" data-ap-tile="noProfile" style="cursor:pointer;" title="Filter: no deployment profile assigned">
+            <div class="tile-label">No profile</div>
+            <div class="tile-value" id="apTileNoProfile">0</div>
+            <div class="tile-sub">profile unassigned</div>
+          </div>
+          <div class="tile" data-ap-tile="duplicate" style="cursor:pointer;" title="Filter: duplicate Entra device objects">
+            <div class="tile-label">Duplicate Entra</div>
+            <div class="tile-value" id="apTileDuplicate">0</div>
+            <div class="tile-sub">≥ 2 Entra records</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Autopilot devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="autopilotFilter" placeholder="Search serial, model, group tag…">
+              <select class="filter-select" id="autopilotStateFilter">
+                <option value="" selected>All devices</option>
+                <option value="orphan">Orphan: no managed device</option>
+                <option value="noProfile">No profile</option>
+                <option value="duplicate">Duplicate Entra</option>
+                <option value="ok">OK</option>
+              </select>
+              <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); cursor:pointer;" title="Hybrid Autopilot enrollment legitimately creates one Entra-joined + one hybrid-joined record per device. Default ON ignores those.">
+                <input type="checkbox" id="autopilotHideHybrid" checked> Hide hybrid-by-design duplicates
+              </label>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="autopilotLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading Autopilot data…</div>
+          <div id="autopilotError"></div>
+          <div id="autopilotContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-apsort="serialNumber">Serial <span class="arrow">▼</span></th>
+                  <th data-apsort="manufacturer">Manufacturer <span class="arrow">▼</span></th>
+                  <th data-apsort="model">Model <span class="arrow">▼</span></th>
+                  <th data-apsort="groupTag">Group tag <span class="arrow">▼</span></th>
+                  <th data-apsort="purchaseOrderIdentifier">PO <span class="arrow">▼</span></th>
+                  <th data-apsort="assignmentStatus">Profile <span class="arrow">▼</span></th>
+                  <th data-apsort="lastContactedDateTime">Last contact <span class="arrow">▼</span></th>
+                  <th data-apsort="state">Status <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="autopilotRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="autopilotCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubAutopilot -->
 
       <div id="intuneSubBitlocker" style="display:none;">
         <div class="tab-hint">BitLocker escrow audit — Windows devices that report as encrypted in Intune cross-referenced with recovery keys actually backed up in Entra. The gap tile shows devices encrypted but with no key escrowed (your worst-case recovery scenario).</div>
@@ -2319,7 +2387,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -2550,6 +2618,8 @@ function resetTenantState() {
   assignmentsSelectedGroup = null;
   // Approvals
   approvalsLoaded = false; approvalsRaw = [];
+  // Autopilot
+  autopilotLoaded = false; autopilotRows = [];
   // BitLocker
   bitlockerLoaded = false; bitlockerRows = [];
   // Cert health
@@ -4193,6 +4263,7 @@ function switchSubtab(name) {
   $('intuneSubApprovals').style.display = name === 'approvals' ? '' : 'none';
   $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
   $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
+  $('intuneSubAutopilot').style.display = name === 'autopilot' ? '' : 'none';
   $('intuneSubBitlocker').style.display = name === 'bitlocker' ? '' : 'none';
   $('intuneSubCerthealth').style.display = name === 'certhealth' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
@@ -4206,6 +4277,7 @@ function switchSubtab(name) {
   if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
+  if (name === 'autopilot' && !autopilotLoaded) loadAutopilot();
   if (name === 'bitlocker' && !bitlockerLoaded) loadBitlocker();
   if (name === 'certhealth' && !certhealthLoaded) loadCerthealth();
   if (name === 'required' && !requiredLoaded) loadRequiredApps();
@@ -5768,6 +5840,266 @@ document.querySelectorAll('#intuneSubBitlocker th[data-bsort]').forEach(th => {
     if (bitlockerSortKey === key) bitlockerSortDir = bitlockerSortDir === 'asc' ? 'desc' : 'asc';
     else { bitlockerSortKey = key; bitlockerSortDir = 'desc'; }
     renderBitlockerTable();
+  });
+});
+
+// ============================================================
+// Autopilot sub-tab — reconciliation
+// Joins /deviceManagement/windowsAutopilotDeviceIdentities with
+// managedDevices (by managedDeviceId presence) and Entra /devices
+// (by ZTDID extracted from physicalIds) to surface orphan records
+// after retirement/reimage, unassigned deployment profiles, and
+// duplicate Entra device objects. Hybrid Autopilot enrollment
+// legitimately creates one Entra-joined + one hybrid-joined record
+// per device — those are detected (trustType: AzureAd + ServerAd)
+// and hidden by default via the toggle.
+// ============================================================
+let autopilotLoaded = false;
+let autopilotRows = [];
+let autopilotSortKey = 'lastContactedDateTime';
+let autopilotSortDir = 'desc';
+
+function autopilotStateOf(r, hideHybrid) {
+  if (r.orphan) return 'orphan';
+  if (r.noProfile) return 'noProfile';
+  if (r.duplicate && !(hideHybrid && r.isHybridDuplicate)) return 'duplicate';
+  return 'ok';
+}
+
+function autopilotStateBadge(state) {
+  const map = {
+    'orphan':    { label: 'Orphan',     bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    'noProfile': { label: 'No profile', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'duplicate': { label: 'Duplicate',  bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'ok':        { label: 'OK',         bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' }
+  };
+  const m = map[state] || map['ok'];
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+}
+
+async function loadAutopilot(force = false) {
+  if (autopilotLoaded && !force) return;
+  $('autopilotLoading').style.display = '';
+  $('autopilotContent').style.display = 'none';
+  $('autopilotError').innerHTML = '';
+  try {
+    const [apDevices, mdDevices, entraDevices] = await Promise.all([
+      graphGetAll('beta/deviceManagement/windowsAutopilotDeviceIdentities'),
+      graphGetAll(`beta/deviceManagement/managedDevices?$select=id,serialNumber&$filter=${encodeURIComponent("operatingSystem eq 'Windows'")}`),
+      // Entra fetch is best-effort — if the user denied Device.Read.All the
+      // Duplicate-Entra tile silently shows 0 and the rest still works.
+      graphGetAll(`v1.0/devices?$select=id,displayName,trustType,physicalIds`).catch(() => [])
+    ]);
+
+    const mdById = new Set(mdDevices.map(d => d.id));
+
+    // Group Entra devices by ZTDID extracted from physicalIds.
+    // physicalIds entries look like: "[ZTDID]:{guid}", "[USER-HWID]:...", etc.
+    const entraByZtdid = new Map();
+    for (const e of entraDevices) {
+      for (const p of (e.physicalIds || [])) {
+        const m = /^\[ZTDID\]:(.+)$/i.exec(p);
+        if (m) {
+          const ztdid = m[1].trim().toLowerCase();
+          if (!entraByZtdid.has(ztdid)) entraByZtdid.set(ztdid, []);
+          entraByZtdid.get(ztdid).push(e);
+          break;
+        }
+      }
+    }
+
+    autopilotRows = apDevices.map(ap => {
+      const ztdid = (ap.id || '').trim().toLowerCase();
+      const matchingEntra = entraByZtdid.get(ztdid) || [];
+      const trustTypes = new Set(matchingEntra.map(e => e.trustType || ''));
+      const duplicate = matchingEntra.length > 1;
+      const isHybridDuplicate = duplicate && trustTypes.has('AzureAd') && trustTypes.has('ServerAd');
+      const assignmentStatus = (ap.deploymentProfileAssignmentStatus || '').toString();
+      return {
+        id: ap.id,
+        serialNumber: ap.serialNumber || '',
+        manufacturer: ap.manufacturer || '',
+        model: ap.model || '',
+        groupTag: ap.groupTag || '',
+        purchaseOrderIdentifier: ap.purchaseOrderIdentifier || '',
+        lastContactedDateTime: ap.lastContactedDateTime || '',
+        assignmentStatus,
+        enrollmentState: ap.enrollmentState || '',
+        managedDeviceId: ap.managedDeviceId || '',
+        azureActiveDirectoryDeviceId: ap.azureActiveDirectoryDeviceId || '',
+        orphan: !!ap.managedDeviceId && !mdById.has(ap.managedDeviceId),
+        noProfile: assignmentStatus.toLowerCase().startsWith('notassigned'),
+        duplicate,
+        isHybridDuplicate
+      };
+    });
+
+    autopilotLoaded = true;
+    $('autopilotLoading').style.display = 'none';
+    $('autopilotContent').style.display = '';
+    renderAutopilotTiles();
+    renderAutopilotTable();
+  } catch (e) {
+    console.error('Autopilot load failed', e);
+    $('autopilotLoading').style.display = 'none';
+    const msg = String(e && e.message || e);
+    const friendlyHint = /forbidden|insufficient|consent|scope/i.test(msg)
+      ? ' This sub-tab requires DeviceManagementServiceConfig.Read.All — sign out and back in to consent to the new scope.'
+      : '';
+    $('autopilotError').innerHTML = `<div class="error-banner">Failed to load Autopilot data: ${esc(msg)}.${friendlyHint}</div>`;
+  }
+}
+
+function renderAutopilotTiles() {
+  const hideHybrid = $('autopilotHideHybrid').checked;
+  let total = 0, orphan = 0, noProfile = 0, duplicate = 0;
+  for (const r of autopilotRows) {
+    total++;
+    if (r.orphan) orphan++;
+    if (r.noProfile) noProfile++;
+    if (r.duplicate && !(hideHybrid && r.isHybridDuplicate)) duplicate++;
+  }
+  $('apTileTotal').textContent = total;
+  $('apTileOrphan').textContent = orphan;
+  $('apTileNoProfile').textContent = noProfile;
+  $('apTileDuplicate').textContent = duplicate;
+}
+
+function applyAutopilotFilters(rows) {
+  const q = ($('autopilotFilter').value || '').toLowerCase().trim();
+  const state = $('autopilotStateFilter').value;
+  const hideHybrid = $('autopilotHideHybrid').checked;
+  return rows.filter(r => {
+    if (state) {
+      const s = autopilotStateOf(r, hideHybrid);
+      if (s !== state) return false;
+    }
+    if (q) {
+      const hay = [r.serialNumber, r.manufacturer, r.model, r.groupTag, r.purchaseOrderIdentifier].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+const apTileMap = {
+  apTileTotal: '',
+  apTileOrphan: 'orphan',
+  apTileNoProfile: 'noProfile',
+  apTileDuplicate: 'duplicate'
+};
+
+function syncAutopilotTileUi() {
+  const current = $('autopilotStateFilter').value;
+  Object.keys(apTileMap).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    const target = apTileMap[id];
+    tile.classList.toggle('active', target !== '' && current === target);
+  });
+}
+
+function renderAutopilotTable() {
+  const stateActive = !!$('autopilotStateFilter').value;
+  const searchActive = !!($('autopilotFilter').value || '').trim();
+  $('btnAutopilotClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
+  syncAutopilotTileUi();
+  const hideHybrid = $('autopilotHideHybrid').checked;
+  let rows = applyAutopilotFilters(autopilotRows);
+  const dir = autopilotSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (autopilotSortKey === 'state') {
+      av = autopilotStateOf(a, hideHybrid); bv = autopilotStateOf(b, hideHybrid);
+    } else {
+      av = a[autopilotSortKey] || ''; bv = b[autopilotSortKey] || '';
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.serialNumber || '').toLowerCase().localeCompare((b.serialNumber || '').toLowerCase());
+  });
+
+  const body = $('autopilotRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No Autopilot devices match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const state = autopilotStateOf(r, hideHybrid);
+      // Serial deep-link: link to managed device blade when a live managedDevice exists,
+      // otherwise fall back to the Autopilot devices list view (per-Autopilot-id deep
+      // link is not a stable URL across Intune portal versions).
+      const liveManagedDevice = r.managedDeviceId && !r.orphan;
+      const serialUrl = liveManagedDevice
+        ? `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${encodeURIComponent(r.managedDeviceId)}`
+        : `https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesBlade`;
+      const serialCell = r.serialNumber
+        ? `<a href="${serialUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.serialNumber)}</a>`
+        : '—';
+      return `
+        <tr>
+          <td>${serialCell}</td>
+          <td>${esc(r.manufacturer) || '—'}</td>
+          <td>${esc(r.model) || '—'}</td>
+          <td>${esc(r.groupTag) || '—'}</td>
+          <td>${esc(r.purchaseOrderIdentifier) || '—'}</td>
+          <td>${esc(r.assignmentStatus) || '—'}</td>
+          <td class="date">${r.lastContactedDateTime ? new Date(r.lastContactedDateTime).toLocaleString() : '—'}</td>
+          <td>${autopilotStateBadge(state)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  $('autopilotCount').textContent = rows.length;
+}
+
+function exportAutopilotCsv() {
+  const hideHybrid = $('autopilotHideHybrid').checked;
+  const rows = applyAutopilotFilters(autopilotRows);
+  const header = ['Serial','Manufacturer','Model','GroupTag','PurchaseOrder','AssignmentStatus','EnrollmentState','ManagedDeviceId','EntraDeviceId','LastContacted','State'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.serialNumber, r.manufacturer, r.model, r.groupTag, r.purchaseOrderIdentifier,
+    r.assignmentStatus, r.enrollmentState, r.managedDeviceId, r.azureActiveDirectoryDeviceId,
+    r.lastContactedDateTime, autopilotStateOf(r, hideHybrid)
+  ].map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `autopilot-reconciliation-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('autopilotFilter').addEventListener('input', renderAutopilotTable);
+$('autopilotStateFilter').addEventListener('change', renderAutopilotTable);
+$('autopilotHideHybrid').addEventListener('change', () => { renderAutopilotTiles(); renderAutopilotTable(); });
+$('btnAutopilotRefresh').addEventListener('click', () => loadAutopilot(true));
+$('btnAutopilotExport').addEventListener('click', exportAutopilotCsv);
+$('btnAutopilotClearKpi').addEventListener('click', () => {
+  $('autopilotStateFilter').value = '';
+  $('autopilotFilter').value = '';
+  $('autopilotFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderAutopilotTable();
+});
+
+document.querySelectorAll('[data-ap-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const target = tile.dataset.apTile;
+    const current = $('autopilotStateFilter').value;
+    $('autopilotStateFilter').value = (target !== '' && current === target) ? '' : target;
+    renderAutopilotTable();
+  });
+});
+
+document.querySelectorAll('#intuneSubAutopilot th[data-apsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.apsort;
+    if (autopilotSortKey === key) autopilotSortDir = autopilotSortDir === 'asc' ? 'desc' : 'asc';
+    else { autopilotSortKey = key; autopilotSortDir = 'desc'; }
+    renderAutopilotTable();
   });
 });
 
