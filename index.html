@@ -6247,22 +6247,7 @@ async function confirmMeteringDeploy() {
     loadMetering(true);
   } catch (e) {
     console.error('Auto-deploy failed', e);
-    const raw = e.message || String(e);
-    const status = raw.match(/Graph (\d+)/);
-    const aadCode = raw.match(/AADSTS(\d{5,6})/);
-    const tenant = (customer.email || '').split('@')[1] || 'common';
-    const consentUrl = `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/adminconsent?client_id=10c9e900-db54-4aa1-979e-1351338a8c9b`;
-    const linkHtml = `<a href="${esc(consentUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600;">grant admin consent for ${esc(tenant)} here</a>`;
-    let html;
-    if ((aadCode && ['65001','90094','50105'].includes(aadCode[1])) || (status && status[1] === '403')) {
-      html = `<div class="error-banner"><strong>Admin consent required.</strong> The dashboard needs the <code>DeviceManagementConfiguration.ReadWrite.All</code> scope in this tenant. As an Intune/Global admin in <strong>${esc(tenant)}</strong>, ${linkHtml} (opens Microsoft's consent page in a new tab). After granting, close this modal, sign out of the dashboard, sign back in, and retry.</div>`;
-    } else if (status && status[1] === '401') {
-      html = `<div class="error-banner"><strong>Unauthorized (401).</strong> Sign out of the dashboard and back in to refresh consent for the new write scope.</div>`;
-    } else {
-      html = `<div class="error-banner">${esc(raw)}</div>`;
-    }
-    $('mdError').innerHTML = html;
-    $('mdError').style.display = '';
+    showMdError(e.message || String(e));
   } finally {
     mdDeploying = false;
     btn.disabled = false;
