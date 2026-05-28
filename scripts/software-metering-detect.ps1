@@ -1,19 +1,44 @@
 # Intune Dashboard - Software Metering (detection script)
 #
-# Collects last-execution timestamps from BAM (Background Activity Moderator),
-# maps them to installed apps via Add/Remove Programs InstallLocation, and emits
-# a gzip+base64-encoded snapshot on stdout. The Intune Dashboard reads this
-# snapshot per device via /deviceHealthScripts/{id}/deviceRunStates.
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  INTUNE PORTAL METADATA — copy/paste into the "Add" wizard               ║
+# ╠══════════════════════════════════════════════════════════════════════════╣
+# ║  Name        : Intune Dashboard - Software Metering                      ║
+# ║  Publisher   : Intune Dashboard                                          ║
+# ║  Description :                                                           ║
+# ║    Agentless software metering. Collects per-user application last-      ║
+# ║    execution data from Windows BAM (Background Activity Moderator) and   ║
+# ║    reports a gzip+base64-encoded snapshot via the detection script's     ║
+# ║    stdout channel. Read by the Intune Dashboard's Software Metering      ║
+# ║    sub-tab to surface idle-90d+ and never-launched installs for license  ║
+# ║    reclamation. Always exits 0; never triggers a remediation.            ║
+# ║                                                                          ║
+# ║    Privacy: only the first INITIAL of the username is sent. No window    ║
+# ║    titles, document names, URLs, or file paths are collected. Only       ║
+# ║    integer days-since-last-use is transmitted (no exact timestamps).     ║
+# ║                                                                          ║
+# ║    Per-run progress is logged to:                                        ║
+# ║    C:\ProgramData\Microsoft\IntuneManagementExtension\Logs               ║
+# ║      \IntuneDashboard-SoftwareMetering.log                               ║
+# ║                                                                          ║
+# ║    Source / setup: github.com/haavarstein/intune-dashboard               ║
+# ║                                                                          ║
+# ║  Settings:                                                               ║
+# ║    Detection script file                       : this .ps1               ║
+# ║    Remediation script file                     : (leave empty)           ║
+# ║    Run this script using the logged-on creds   : No   (= SYSTEM)         ║
+# ║    Enforce script signature check              : No                      ║
+# ║    Run script in 64-bit PowerShell             : Yes                     ║
+# ║    Assignment                                  : All Devices (or pilot)  ║
+# ║    Schedule                                    : Daily                   ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 #
-# Deploy as a Proactive Remediation DETECTION script only (no remediation).
-# Run as SYSTEM, 64-bit, on a Daily schedule. Always exits 0.
-#
-# Payload format:
-#   v1|<ISO timestamp>
+# Wire format (after gunzip + base64 decode):
+#   v1|<ISO timestamp>[|truncated=KofN]
 #   app|publisher|ver|userInitial|daysSinceUse
 #   <rows...>
-# On error:
-#   v1|error|<message>   (plain text, not base64)
+# On any failure the script writes a plain-text sentinel instead of base64:
+#   v1|error|<short message>
 
 $ErrorActionPreference = 'Stop'
 $MaxOutputBytes        = 1950   # ~2 KB cap on preRemediationDetectionScriptOutput
