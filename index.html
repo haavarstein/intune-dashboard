@@ -2106,7 +2106,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </details>
 
       <div style="padding:10px 12px; background:#f5f5f0; border-left:3px solid var(--accent); font-size:12px; margin-bottom:14px;">
-        This creates a Proactive Remediation in the active tenant and starts running on the targeted devices on the next sync. The script always exits 0 (detection-only — no remediation runs). On first use this requires re-consent for the <code>DeviceManagementConfiguration.ReadWrite.All</code> scope.
+        This creates a Proactive Remediation in the active tenant and starts running on the targeted devices on the next sync. The script always exits 0 (detection-only — no remediation runs). On first use this requires re-consent for the <code>DeviceManagementScripts.ReadWrite.All</code> scope.
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px;">
@@ -2549,7 +2549,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementConfiguration.ReadWrite.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementScripts.ReadWrite.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -6155,7 +6155,7 @@ function selectMeteringDeployGroup(g) {
 // popup if the cached refresh token can't deliver the write scope.
 async function ensureMeteringWriteConsent() {
   if (!msalApp) throw new Error('not signed in');
-  const writeScope = 'DeviceManagementConfiguration.ReadWrite.All';
+  const writeScope = 'DeviceManagementScripts.ReadWrite.All';
   const account = msalApp.getActiveAccount();
   const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
   try {

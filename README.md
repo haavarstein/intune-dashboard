@@ -202,13 +202,13 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
+- `DeviceManagementScripts.ReadWrite.All` — **write scope** for the Software Metering sub-tab's ⚡ Auto-deploy button (creates the Proactive Remediation in the tenant + assigns it to a chosen group or All Devices); not used for anything else
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
-- `DeviceManagementConfiguration.ReadWrite.All` — **write scope** for the Software Metering sub-tab's ⚡ Auto-deploy button (creates the Proactive Remediation in the tenant + assigns it to a chosen group or All Devices); not used for anything else
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
-Three write scopes total — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementConfiguration.ReadWrite.All` — everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, and ⚡ Auto-deploy will work.
+Three write scopes total — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, and ⚡ Auto-deploy will work.
 
-**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementConfiguration.ReadWrite.All` for the Software Metering auto-deploy button).
+**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementScripts.ReadWrite.All` for the Software Metering auto-deploy button).
 
 **Token storage.** Access tokens are held in browser session storage by MSAL and refreshed silently. Click **Sign out** to clear them.
 
