@@ -297,6 +297,11 @@
     margin: 0 0 20px;
     border-bottom: 1px solid var(--line);
   }
+  /* When two .subtabs rows stack (12 core + 3 specialty),
+     tighten the gap between them so they read as one control. */
+  .subtabs + .subtabs {
+    margin-top: -16px;
+  }
   .subtab {
     background: none;
     border: none;
@@ -766,6 +771,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="certhealth">Cert health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
+      </div>
+      <div class="subtabs">
         <button class="subtab" data-subtab="metering">Software Metering</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
