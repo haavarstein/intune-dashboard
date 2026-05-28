@@ -1804,7 +1804,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
         <div id="meteringEmpty" style="display:none; padding:20px 22px; background:#fcf9f4; border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
           <div style="font-weight:600; font-size:14px; margin-bottom:8px;">Software metering not configured for this customer</div>
-          <div style="font-size:13px; color:var(--muted); line-height:1.6;">Upload <code>scripts/software-metering-detect.ps1</code> to Intune as a Proactive Remediation (detection only, run as SYSTEM, 64-bit, daily schedule). Then paste its script ID into <strong>Settings → Customers</strong> for this customer. See <code>scripts/README.md</code> in the repo for the full setup recipe.</div>
+          <div style="font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:14px;">The metering collection script is a Proactive Remediation that needs to be created in this tenant before this tab has data to show. Deploy it directly from here, or upload <code>scripts/software-metering-detect.ps1</code> manually and paste its script ID into <strong>Settings → Customers</strong>.</div>
+          <button class="btn" id="btnMeteringDeploy" style="margin-right:8px;">⚡ Auto-deploy script…</button>
+          <span style="font-size:12px; color:var(--muted);">requires re-consent for one new write scope on first use</span>
         </div>
 
         <div id="meteringLoading" style="display:none; color:var(--muted); font-size:13px; padding:12px;">Loading metering data…</div>
@@ -2041,6 +2043,77 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <button class="close-btn" onclick="closeAuditModal()">×</button>
     </div>
     <div class="modal-body" id="auditBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="meteringDeployModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div>
+        <h3>Auto-deploy Software Metering script</h3>
+        <div class="panel-sub" id="mdSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" id="btnMeteringDeployClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="mdError" style="display:none; margin-bottom:14px;"></div>
+
+      <div id="mdConflict" style="display:none; padding:12px 14px; background:#fff4e0; border:1px solid #f0c674; border-radius:6px; margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">A script with this name already exists in this tenant.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;" id="mdConflictDetail"></div>
+        <button class="btn" id="mdBtnReuse" style="margin-right:8px;">Reuse existing</button>
+        <button class="btn btn-ghost" id="mdBtnRename">Rename and create new</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Name *</label>
+        <input type="text" class="search" id="mdName" value="Intune Dashboard - Software Metering">
+
+        <label style="font-size:12px; color:var(--muted);">Publisher *</label>
+        <input type="text" class="search" id="mdPublisher" value="Intune Dashboard">
+
+        <label style="font-size:12px; color:var(--muted); align-self:start; padding-top:6px;">Description</label>
+        <textarea id="mdDescription" class="search" rows="6" style="font-family:inherit; resize:vertical;"></textarea>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Assignment</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="mdTarget" value="group" checked> Specific group (recommended for first pilot)
+          </label>
+          <div id="mdGroupRow" style="padding-left:24px;">
+            <input type="text" class="search" id="mdGroupSearch" placeholder="Type to search groups…" style="width:100%;">
+            <div id="mdGroupResults" style="display:none; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:6px; background:white;"></div>
+            <div id="mdGroupSelected" style="display:none; margin-top:6px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="mdTarget" value="all"> All Devices (fleet-wide — only after a successful pilot)
+          </label>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Schedule</label>
+        <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+          Daily at <input type="text" id="mdScheduleTime" value="03:00" maxlength="5" class="search" style="width:70px; text-align:center;"> UTC
+        </div>
+      </div>
+
+      <details style="margin-bottom:14px;">
+        <summary style="cursor:pointer; font-size:12px; color:var(--muted);">Script content preview (<span id="mdScriptSize">loading…</span>)</summary>
+        <pre id="mdScriptPreview" style="max-height:220px; overflow:auto; background:#1e1e1e; color:#eee; padding:10px; border-radius:6px; font-size:11px; margin-top:8px; white-space:pre;"></pre>
+      </details>
+
+      <div style="padding:10px 12px; background:#f5f5f0; border-left:3px solid var(--accent); font-size:12px; margin-bottom:14px;">
+        This creates a Proactive Remediation in the active tenant and starts running on the targeted devices on the next sync. The script always exits 0 (detection-only — no remediation runs). On first use this requires re-consent for the <code>DeviceManagementConfiguration.ReadWrite.All</code> scope.
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-ghost" id="mdBtnCancel">Cancel</button>
+        <button class="btn" id="mdBtnDeploy">Deploy</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2476,7 +2549,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementConfiguration.ReadWrite.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -5942,6 +6015,271 @@ document.querySelectorAll('[data-sort-metering-drill]').forEach(th => {
     }
     renderMeteringDrillRows();
   });
+});
+
+// ============================================================
+// Software Metering — auto-deploy
+// One-click "create + assign" of the metering Proactive Remediation
+// against the active tenant. Requires DeviceManagementConfiguration
+// .ReadWrite.All (new write scope; triggers re-consent first time).
+// Idempotent: detects displayName collision and offers to reuse.
+// ============================================================
+
+const MD_DEFAULT_DESCRIPTION = `Agentless software metering. Collects per-user application last-execution data from Windows BAM (Background Activity Moderator) and reports a gzip+base64-encoded snapshot via the detection script's stdout channel. Read by the Intune Dashboard's Software Metering sub-tab to surface idle-90d+ and never-launched installs for license reclamation. Always exits 0; never triggers a remediation.
+
+Privacy: only the first INITIAL of the username is sent. No window titles, document names, URLs, or file paths are collected. Only integer days-since-last-use is transmitted (no exact timestamps).
+
+Per-run progress is logged to:
+C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\IntuneDashboard-SoftwareMetering.log
+
+Source / setup: github.com/haavarstein/intune-dashboard`;
+
+const MD_SCRIPT_PATH = 'scripts/software-metering-detect.ps1';
+
+let mdScriptText = null;
+let mdScriptB64 = null;
+let mdSelectedGroup = null;
+let mdSearchTimer = null;
+let mdDeploying = false;
+let mdExistingScriptId = null;
+
+async function openMeteringDeployModal() {
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  if (!customer) {
+    alert('No customer matched the signed-in account. Sign in via the Multi-Customer dropdown or add a customer in Settings.');
+    return;
+  }
+  $('mdSubtitle').textContent = `Tenant: ${customer.code} (${customer.email})`;
+  $('mdName').value = 'Intune Dashboard - Software Metering';
+  $('mdPublisher').value = 'Intune Dashboard';
+  $('mdDescription').value = MD_DEFAULT_DESCRIPTION;
+  $('mdScheduleTime').value = '03:00';
+  $('mdGroupSearch').value = '';
+  $('mdGroupResults').style.display = 'none';
+  $('mdGroupSelected').style.display = 'none';
+  $('mdError').style.display = 'none';
+  $('mdError').innerHTML = '';
+  $('mdConflict').style.display = 'none';
+  $('mdScriptPreview').textContent = 'Loading…';
+  $('mdScriptSize').textContent = 'loading…';
+  mdSelectedGroup = null;
+  mdExistingScriptId = null;
+  document.querySelector('input[name="mdTarget"][value="group"]').checked = true;
+  syncMdGroupRow();
+  $('meteringDeployModal').classList.add('show');
+
+  try {
+    if (!mdScriptText) {
+      const res = await fetch(MD_SCRIPT_PATH);
+      if (!res.ok) throw new Error(`fetch ${MD_SCRIPT_PATH} returned ${res.status}`);
+      mdScriptText = await res.text();
+      const enc = new TextEncoder().encode(mdScriptText);
+      let binary = '';
+      for (let i = 0; i < enc.length; i++) binary += String.fromCharCode(enc[i]);
+      mdScriptB64 = btoa(binary);
+    }
+    const lineCount = mdScriptText.split('\n').length;
+    const byteSize = new TextEncoder().encode(mdScriptText).length;
+    $('mdScriptSize').textContent = `${lineCount} lines · ${(byteSize / 1024).toFixed(1)} KB`;
+    $('mdScriptPreview').textContent = mdScriptText;
+  } catch (e) {
+    $('mdScriptPreview').textContent = '';
+    $('mdScriptSize').textContent = 'failed';
+    showMdError(`Could not fetch the script content from "${MD_SCRIPT_PATH}". Local file:// origins typically block sibling fetches — serve the dashboard via an HTTP server (or use the production GitHub Pages URL) and reopen this modal. Manual upload is the fallback.`);
+  }
+}
+
+function closeMeteringDeployModal() {
+  if (mdDeploying) return;
+  $('meteringDeployModal').classList.remove('show');
+}
+
+function showMdError(msg) {
+  $('mdError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+  $('mdError').style.display = '';
+}
+
+function syncMdGroupRow() {
+  const tgt = document.querySelector('input[name="mdTarget"]:checked').value;
+  $('mdGroupRow').style.opacity = tgt === 'group' ? '1' : '0.35';
+  $('mdGroupRow').style.pointerEvents = tgt === 'group' ? '' : 'none';
+}
+
+async function searchGroupsForMeteringDeploy(query) {
+  const box = $('mdGroupResults');
+  if (!query || query.length < 2) {
+    box.style.display = 'none';
+    return;
+  }
+  try {
+    const term = `"displayName:${query.replace(/"/g, '')}"`;
+    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`;
+    const data = await graphGet(path, { headers: { ConsistencyLevel: 'eventual' } });
+    const groups = data.value || [];
+    if (!groups.length) {
+      box.innerHTML = `<div class="meta" style="padding:10px;">No groups match "${esc(query)}"</div>`;
+    } else {
+      box.innerHTML = groups.map(g => `
+        <div data-md-group-id="${esc(g.id)}" data-md-group-name="${esc(g.displayName)}" style="padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--line);">
+          <div style="font-size:13px;">${esc(g.displayName)}</div>
+          <div style="font-size:11px; color:var(--muted);">${esc(g.description || g.id)}</div>
+        </div>
+      `).join('');
+      box.querySelectorAll('[data-md-group-id]').forEach(row => {
+        row.addEventListener('click', () => selectMeteringDeployGroup({ id: row.dataset.mdGroupId, displayName: row.dataset.mdGroupName }));
+        row.addEventListener('mouseenter', () => row.style.background = 'var(--accent-soft)');
+        row.addEventListener('mouseleave', () => row.style.background = '');
+      });
+    }
+    box.style.display = '';
+  } catch (e) {
+    box.innerHTML = `<div style="padding:10px; color:#c0392b; font-size:12px;">Search failed: ${esc(e.message || String(e))}</div>`;
+    box.style.display = '';
+  }
+}
+
+function selectMeteringDeployGroup(g) {
+  mdSelectedGroup = g;
+  $('mdGroupSearch').value = '';
+  $('mdGroupResults').style.display = 'none';
+  $('mdGroupSelected').style.display = '';
+  $('mdGroupSelected').innerHTML = `Selected: <strong>${esc(g.displayName)}</strong> <span style="color:var(--muted); font-family:ui-monospace,monospace; font-size:11px;">${esc(g.id)}</span>`;
+}
+
+async function confirmMeteringDeploy() {
+  if (mdDeploying) return;
+  $('mdError').style.display = 'none';
+  $('mdConflict').style.display = 'none';
+
+  const name = ($('mdName').value || '').trim();
+  const publisher = ($('mdPublisher').value || '').trim();
+  const description = ($('mdDescription').value || '').trim();
+  const targetType = document.querySelector('input[name="mdTarget"]:checked').value;
+  const timeStr = ($('mdScheduleTime').value || '').trim();
+
+  if (!name) return showMdError('Name is required.');
+  if (!publisher) return showMdError('Publisher is required.');
+  if (!mdScriptB64) return showMdError('Script content not loaded yet — try reopening the modal once it loads, or upload manually.');
+  if (targetType === 'group' && !mdSelectedGroup) return showMdError('Pick a group or switch to "All Devices".');
+  if (!/^[0-2]?\d:[0-5]\d$/.test(timeStr)) return showMdError('Schedule time must be HH:MM (24-hour).');
+
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  if (!customer) return showMdError('No customer matched.');
+
+  mdDeploying = true;
+  const btn = $('mdBtnDeploy');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+
+  try {
+    const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
+    const existing = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
+    const existingValue = (existing && existing.value) || [];
+    if (existingValue.length) {
+      mdExistingScriptId = existingValue[0].id;
+      $('mdConflictDetail').textContent = `Existing script ID: ${mdExistingScriptId}. "Reuse existing" just fills the ID into Settings — no new script is created, no new assignment is made. "Rename and create new" lets you change the name and try again.`;
+      $('mdConflict').style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Deploy';
+      mdDeploying = false;
+      return;
+    }
+
+    btn.textContent = 'Creating…';
+    const createBody = {
+      displayName: name,
+      description: description,
+      publisher: publisher,
+      detectionScriptContent: mdScriptB64,
+      runAsAccount: 'system',
+      runAs32Bit: false,
+      enforceSignatureCheck: false,
+      roleScopeTagIds: ['0'],
+    };
+    const created = await graphPost('beta/deviceManagement/deviceHealthScripts', createBody);
+    const scriptId = created.id;
+
+    btn.textContent = 'Assigning…';
+    const [hh, mm] = timeStr.split(':');
+    const target = targetType === 'all'
+      ? { '@odata.type': '#microsoft.graph.allDevicesAssignmentTarget' }
+      : { '@odata.type': '#microsoft.graph.groupAssignmentTarget', groupId: mdSelectedGroup.id };
+    const assignBody = {
+      deviceHealthScriptAssignments: [{
+        target,
+        runRemediationScript: false,
+        runSchedule: {
+          '@odata.type': '#microsoft.graph.deviceHealthScriptDailySchedule',
+          interval: 1,
+          time: `${hh.padStart(2, '0')}:${mm}:00.0000000`,
+          useUtc: true,
+        },
+      }],
+    };
+    await graphPost(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody);
+
+    saveMeteringScriptIdToActiveCustomer(scriptId);
+    closeMeteringDeployModal();
+    showMeteringDeployedBanner(scriptId, targetType === 'all' ? 'All Devices' : mdSelectedGroup.displayName);
+    meteringLoaded = false;
+    loadMetering(true);
+  } catch (e) {
+    console.error('Auto-deploy failed', e);
+    const status = (e.message || '').match(/Graph (\d+)/);
+    let msg = e.message || String(e);
+    if (status && status[1] === '403') {
+      msg = `Forbidden (403). You may need admin consent for DeviceManagementConfiguration.ReadWrite.All in this tenant before the dashboard can create scripts. Ask an Intune admin to grant consent for the app, then sign out and back in.`;
+    } else if (status && status[1] === '401') {
+      msg = `Unauthorized (401). Sign out and sign back in to refresh consent for the new write scope.`;
+    }
+    showMdError(msg);
+  } finally {
+    mdDeploying = false;
+    btn.disabled = false;
+    btn.textContent = 'Deploy';
+  }
+}
+
+function reuseExistingMeteringScript() {
+  if (!mdExistingScriptId) return;
+  saveMeteringScriptIdToActiveCustomer(mdExistingScriptId);
+  closeMeteringDeployModal();
+  showMeteringDeployedBanner(mdExistingScriptId, '(reused existing script — no new assignment created)');
+  meteringLoaded = false;
+  loadMetering(true);
+}
+
+function saveMeteringScriptIdToActiveCustomer(scriptId) {
+  const customers = loadCustomers();
+  const code = getActiveCustomerCode();
+  const idx = customers.findIndex(c => c.code === code);
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], meteringScriptId: scriptId };
+  saveCustomers(customers);
+}
+
+function showMeteringDeployedBanner(scriptId, target) {
+  $('meteringError').innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">✓ Deployed metering script (ID: <code>${esc(scriptId)}</code>) to <strong>${esc(target)}</strong>. Devices will run it on the next Intune sync; data will appear here as soon as the first device check-in cycle completes (typically within 24 hours).</div>`;
+}
+
+$('btnMeteringDeploy').addEventListener('click', openMeteringDeployModal);
+$('btnMeteringDeployClose').addEventListener('click', closeMeteringDeployModal);
+$('mdBtnCancel').addEventListener('click', closeMeteringDeployModal);
+$('mdBtnDeploy').addEventListener('click', confirmMeteringDeploy);
+$('mdBtnReuse').addEventListener('click', reuseExistingMeteringScript);
+$('mdBtnRename').addEventListener('click', () => {
+  $('mdConflict').style.display = 'none';
+  $('mdName').focus();
+  $('mdName').select();
+});
+$('mdGroupSearch').addEventListener('input', e => {
+  clearTimeout(mdSearchTimer);
+  const q = e.target.value.trim();
+  mdSearchTimer = setTimeout(() => searchGroupsForMeteringDeploy(q), 300);
+});
+document.querySelectorAll('input[name="mdTarget"]').forEach(r => r.addEventListener('change', syncMdGroupRow));
+$('meteringDeployModal').addEventListener('click', e => {
+  if (e.target.id === 'meteringDeployModal' && !mdDeploying) closeMeteringDeployModal();
 });
 
 // ============================================================
