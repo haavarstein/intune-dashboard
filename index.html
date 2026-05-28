@@ -2929,14 +2929,22 @@ async function graphGet(path, opts = {}) {
   return res.json();
 }
 
-async function graphPost(path, body) {
+async function graphPost(path, body, opts = {}) {
   const token = await getToken();
+  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+  if (opts.headers) Object.assign(headers, opts.headers);
   const res = await fetch('https://graph.microsoft.com/' + path, {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
+  if (!res.ok) {
+    const bodyText = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + bodyText);
+    err.status = res.status;
+    err.body = bodyText;
+    throw err;
+  }
   // Some action endpoints (e.g. .../assign) return 204 No Content with an empty body.
   // .json() on an empty body throws "Unexpected end of JSON input" — handle that.
   if (res.status === 204) return null;
@@ -6224,8 +6232,42 @@ async function confirmMeteringDeploy() {
       enforceSignatureCheck: false,
       roleScopeTagIds: ['0'],
     };
-    const created = await graphPost('beta/deviceManagement/deviceHealthScripts', createBody);
-    const scriptId = created.id;
+
+    // Multi-Admin Approval handling: if the tenant requires MAA, the first
+    // POST returns 400 "Header 'x-msft-approval-justification' is required".
+    // We prompt once, retry with the header. A retry that returns 412/409
+    // means the request was queued for an approver; treat as success-shaped
+    // and bail out with clear guidance (we can't proceed to assign until an
+    // admin approves the create).
+    let maaJust = null;
+    const postWithMaa = async (path, body, label) => {
+      try {
+        return { kind: 'ok', data: await graphPost(path, body) };
+      } catch (e) {
+        if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
+          if (!maaJust) {
+            maaJust = prompt(`Multi-Admin Approval is required in this tenant. Enter a justification for "${label}" (recorded in the audit log; ≤ 1024 chars):`);
+            if (!maaJust) throw new Error('Justification cancelled.');
+          }
+          try {
+            const data = await graphPost(path, body, { headers: { 'x-msft-approval-justification': btoa(maaJust) } });
+            return { kind: 'ok', data };
+          } catch (e2) {
+            if (e2.status === 412 || e2.status === 409) return { kind: 'pending', error: e2 };
+            throw e2;
+          }
+        }
+        throw e;
+      }
+    };
+
+    const createResult = await postWithMaa('beta/deviceManagement/deviceHealthScripts', createBody, 'create metering script');
+    if (createResult.kind === 'pending') {
+      $('mdError').innerHTML = `<div class="notice-banner"><strong>Submitted for Multi-Admin Approval.</strong> An admin must approve in <em>Tenant administration → Multi Admin Approval → Access requests</em>. Once approved, Intune creates the script automatically. After that, finish the deploy by either:<br><br>1. <strong>Re-running Auto-deploy</strong> here — the conflict modal will detect the now-created script and "Reuse existing" links the GUID; then create the assignment separately in Intune admin.<br><br>2. Or <strong>going to Intune admin → Devices → Scripts and remediations → [your script] → Properties</strong> to set the assignment manually.</div>`;
+      $('mdError').style.display = '';
+      return;
+    }
+    const scriptId = createResult.data.id;
 
     btn.textContent = 'Assigning…';
     const [hh, mm] = timeStr.split(':');
@@ -6244,7 +6286,13 @@ async function confirmMeteringDeploy() {
         },
       }],
     };
-    await graphPost(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody);
+    const assignResult = await postWithMaa(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody, 'assign metering script');
+    if (assignResult.kind === 'pending') {
+      saveMeteringScriptIdToActiveCustomer(scriptId);
+      closeMeteringDeployModal();
+      showMeteringDeployedBanner(scriptId, '(created; assignment submitted for Multi-Admin Approval — devices will start reporting once an admin approves)');
+      return;
+    }
 
     saveMeteringScriptIdToActiveCustomer(scriptId);
     closeMeteringDeployModal();
