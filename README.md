@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Fourteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Fifteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all fourteen sub-tabs share the same session.
+Sign in once with MSAL — all fifteen sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -147,6 +147,17 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 - Type to filter across script name and publisher.
 - Lazy-loaded: the call runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
 
+**Software Metering** — agentless per-user application usage on Intune-managed Windows devices. Closes the "is this license actually being used?" question without deploying a metering agent — the data is collected by a Proactive Remediation detection script that reads Windows' built-in BAM (Background Activity Moderator) registry on a daily schedule and emits a gzip-compressed snapshot via the detection script's stdout channel. The dashboard fans out across `/deviceHealthScripts/{id}/deviceRunStates`, decodes per-device, aggregates fleet-wide.
+
+> **Per-customer config required.** Upload `scripts/software-metering-detect.ps1` to Intune as a Proactive Remediation (detection only, run as SYSTEM, 64-bit, daily). Then paste the script's GUID into **Settings → Customers → Metering script ID** for the customer. If a customer has no metering script ID configured, the tab shows a setup empty-state. See `scripts/README.md` for the full deploy recipe.
+
+- **KPI tiles**: Devices reporting (with median snapshot-age subtitle) · Apps tracked across the fleet · **Likely unused** (install × device pairs idle 90+ days or never launched; clickable filter) · **Reclaim candidates** (apps installed on ≥10 devices where ≥50% of installs are idle 90+ days or never launched; clickable filter).
+- Sortable main table: **App** · **Publisher** · **Installs** · **Active 30d** · **Idle 90d+** · **Never launched** · **Last fleet use**. Default sort: Idle 90d+ desc. Reclaim-candidate rows have their Idle 90d+ cell highlighted.
+- Click any row to drill into a per-device list: **Device** · **User** (first initial only) · **Version** · **Days since use** · **Last reported**. Default sort: Days since use desc (dead first). Device name deep-links to its Intune blade. **⬇ Export CSV** of the drilldown gives you the exact list of devices to reclaim a seat from.
+- Lazy-loaded; one call per session against `/deviceRunStates`. Use **↻ Refresh** to invalidate the cache.
+- **Privacy posture**: the collection script reports only `(installed app, user-initial, days-since-use)` triples. No window titles, document names, URLs, file paths, or full usernames are collected or transmitted. Exact timestamps are reduced to integer day-counts before they leave the device. The dashboard mirrors this — drilldown shows "47d" not a wall-clock timestamp.
+- **Snapshot-only, no history**: this is a current-state view. Trend lines would require backend storage, which is out of scope for this client-side dashboard.
+
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
@@ -223,6 +234,7 @@ Two write scopes total — `DeviceManagementApps.ReadWrite.All` and `Mail.Send` 
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
 - `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
+- `GET /beta/deviceManagement/deviceHealthScripts/{id}/deviceRunStates?$expand=managedDevice` — per-device output from the software metering detection script (Software Metering sub-tab); decoded client-side from base64+gzip and aggregated for license-reclaim signal
 - `GET /v1.0/groups?$search="displayName:…"` — Entra group type-ahead search (Assignments sub-tab; sent with `ConsistencyLevel: eventual` header)
 - `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles (legacy) with their assignments (Assignments sub-tab)
 - `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments` — compliance policies with their assignments (Assignments sub-tab)
@@ -243,6 +255,7 @@ The dashboard supports a lightweight tenant switcher for consultants and MSPs ju
 - **Code** — required, 2–4 letters (e.g. `DB`, `XB`). The code is the *only* identifier that shows up in the dashboard's top-right tenant dropdown, so customer names stay off screenshots, recordings, and over-the-shoulder views.
 - **Email** — the account UPN you sign in with for that tenant (e.g. `consultant@customer.onmicrosoft.com`).
 - **Approvers** — optional comma-separated list of approver emails for that customer's MAA queue. When you submit an app delete on an MAA-enabled tenant, the dashboard immediately emails this list from your mailbox (subject: *[Intune MAA] App delete needs approval: …*) with the app name, approval code, and justification — closing the gap that Intune itself sends no notifications. Empty list = no email sent. Edit the list later by clicking the `📧 …` line inside the customer's row.
+- **Software metering script ID** — optional GUID of the Proactive Remediation script uploaded for software metering (see `scripts/README.md`). Required to enable the Software Metering sub-tab for that customer; if empty, that sub-tab shows a setup empty-state. Edit later by clicking the `🔧 …` line inside the customer's row.
 
 The customer list lives in `localStorage` under `intuneDashboard:customers`. **No tokens or refresh material is persisted** — MSAL continues to use `sessionStorage` exactly as before, so the only thing stored across sessions is the mapping itself.
 

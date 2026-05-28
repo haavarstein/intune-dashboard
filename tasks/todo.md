@@ -1,3 +1,112 @@
+# Software Metering sub-tab (new)
+
+## Goal
+Surface real per-user application usage on Intune-managed Windows devices — answers "this app is on 50 devices, 30 of them haven't opened it in 90 days" so an MSP can reclaim licenses. Agentless: a Proactive Remediation script collects from BAM (Background Activity Moderator) and emits a compressed snapshot via the detection-script stdout channel; the dashboard fans out across `deviceRunStates`, decodes, and aggregates. New sub-tab "Software Metering", positioned after Remediation. Bumps canonical sub-tab count from 14 → 15.
+
+## Scope decisions
+- **Detection-only Proactive Remediation pattern**, not detection+remediation. The script always exits 0 (no remediation runs). The detection script's stdout is captured per-device in `preRemediationDetectionScriptOutput` on each `deviceHealthScriptDeviceState`. ~2048-byte cap per device per run is the hard architectural constraint.
+- **BAM only for MVP** (user-confirmed). SRUM duration data deferred to v2 — BAM's last-execution-per-exe-per-user is sufficient for the reclaim-licenses use case and avoids ESE parsing edge cases.
+- **Per-user, per-device granularity** (user-confirmed). Output rows are `{app, userInitial, daysSinceUse, launchHint}` not just `{app, daysSinceUse}`. Matters on shared / multi-user devices: lets you reclaim Visio from Bob while Alice keeps it.
+- **Daily script cadence** (user-confirmed). BAM doesn't move fast enough to justify hourly runs.
+- **Per-customer script ID stored in Settings** (user-confirmed). Customer schema extends from `{code, email, approvers}` to `{code, email, approvers, meteringScriptId}`. Different tenants will upload the script with different IDs; auto-discovery by script name is fragile.
+- **No new MSAL scope** — `DeviceManagementConfiguration.Read.All` already in the consent set covers `deviceHealthScripts` and `deviceRunStates` reads. Verify before claiming this.
+- **No backend, no aggregation over time.** Dashboard sees only the current snapshot of each device's last successful run. Trend lines are out of scope; would require Azure Storage / Log Analytics → kills the no-server promise.
+- **Snapshot-stale tolerance**: surface the median age of the latest run per device as a KPI subtitle so users know how fresh the data is.
+- **Privacy posture baked in from day one**: no window titles, no document names, no URLs, no usernames (only first initial), no exact timestamps in the UI (only "days since last use"). README gets a Privacy section listing exactly what's collected so admins can paste it into their AUP.
+
+## The collection script (design)
+
+PowerShell, runs as SYSTEM via Proactive Remediation detection script. Roughly 150 lines. Pipeline:
+
+1. **Enumerate installed apps** from both `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*` and `HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*`. Keep `DisplayName, Publisher, DisplayVersion, InstallLocation`. Drop entries with no `InstallLocation` (can't map exes to them) and obvious OS components.
+2. **Walk BAM**: `HKLM:\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\<SID>\<path>`. Each value is REG_BINARY; first 8 bytes = FILETIME of last execution. For each SID, build `{exePath → lastRun}`. Resolve SID → username via `Get-LocalUser` / WMI lookup; reduce to first initial only.
+3. **Map exes → installed apps**: for each BAM `exePath`, find the ARP entry whose `InstallLocation` is the longest matching prefix. Skip exes that don't map to any installed app (system services, side-loaded tools, OS components).
+4. **Reduce per (app, user)**: keep the most recent `lastRun` across that app's exes. Compute `daysSinceUse = (now - lastRun).Days`.
+5. **Drop noise**: rows with `daysSinceUse > 180` (older than BAM's reliable window) or apps that never appear in BAM (= installed but never launched, also useful — emit as `daysSinceUse = -1` sentinel).
+6. **Serialize compact**: pipe-separated rows, single header line with schema version. Format:
+   ```
+   v1|<isoDate>
+   app|publisher|ver|userInitial|daysSinceUse
+   Microsoft|Visual Studio Code|1.96.2|t|0
+   Adobe|Acrobat Reader|24.2|t|92
+   ...
+   ```
+7. **gzip + base64**: pipe the payload through `[System.IO.Compression.GZipStream]` (Optimal), Convert-ToBase64String, single `Write-Output` line. Empirically should fit ~100–150 rows in 2 KB after compression.
+8. **Exit 0 always** (detection-only pattern; no remediation triggered).
+9. **Safety**: wrap in try/catch; on any failure emit `v1|error|<short message>` (uncompressed, well under 2 KB) so the dashboard can show a per-device error state.
+
+## Tiles
+1. **Devices reporting** — count of devices with a parseable latest snapshot. Subtitle: "median snapshot age: Xh."
+2. **Apps tracked** — count of unique app names across the fleet.
+3. **Likely unused** — distinct `(app, device, user)` triples where the app is installed and `daysSinceUse ≥ 90` (or `-1` = never launched). Clickable → filters table.
+4. **Reclaim candidates** — apps installed on ≥10 devices where ≥50% of those installs are unused 90d+. The actionable license-waste cluster. Clickable → filters table to those apps only.
+
+## Table columns
+**Main view** (one row per app): App · Publisher · Installed (device count) · Active 30d (count) · Idle 90d+ (count) · Never launched (count) · Last fleet-wide use (most recent across all reporters). Default sort: Idle 90d+ desc. Click a row → drilldown.
+
+**Drilldown view** (one row per `(device, user)` for the selected app): Device · User initial · Version · Days since use · Last reported. Default sort: days-since-use desc (dead first). Device name deep-links to the device's Intune blade. **⬇ Export CSV** of the filtered drilldown for "give me the group to remove this license from."
+
+## Tasks
+
+### Phase 1 — Collection script (deliverable: standalone .ps1 + setup README)
+- [ ] Write `scripts/software-metering-detect.ps1` — BAM walk, ARP enum, exe→app mapping, compact serialization, gzip+base64, error fallback
+- [ ] Local test on the dev machine: run as SYSTEM via psexec or scheduled task, inspect output, verify gzip-decode roundtrip in Node/Python
+- [ ] Verify byte budget: capture output from 5+ real devices (different app counts), confirm <2048 bytes for all, document where the breaking point is
+- [ ] Write `scripts/README.md` — upload instructions (Intune admin center → Devices → Scripts and remediations → Add → Windows → detection script only, no remediation; run as SYSTEM 64-bit; schedule Daily)
+- [ ] Note: this script ID becomes the value users paste into Settings → Customers
+
+### Phase 2 — Settings extension (deliverable: per-customer meteringScriptId field)
+- [ ] Extend customer schema `{code, email, approvers}` → `{code, email, approvers, meteringScriptId}`; backward-compatible (missing field treated as null = metering disabled for that customer)
+- [ ] Settings → Customers row: add `🔧 Metering: <id…>` line below the approvers line, with click-to-edit pattern matching the approvers UI
+- [ ] Validation: GUID format if present, else empty; show inline error on Save if malformed
+- [ ] No migration needed (just-in-time defaults to null)
+
+### Phase 3 — Software Metering sub-tab (deliverable: working tab against test tenant)
+- [ ] HTML: `<button class="subtab" data-subtab="metering">Software Metering</button>` after Remediation
+- [ ] HTML: `intuneSubMetering` container with 4 tiles, state filter (All / Likely unused / Reclaim candidates), search input, Clear KPI / Export / Refresh
+- [ ] Empty state when no `meteringScriptId` configured for the active customer: "Configure a metering script ID in Settings → Customers to enable this tab" with a link that opens Settings
+- [ ] `loadMetering()` paginates `GET /beta/deviceManagement/deviceHealthScripts/{id}/deviceRunStates` (uses active customer's `meteringScriptId`)
+- [ ] Decode pipeline per device: base64 → gunzip via DecompressionStream → split rows → parse header + data → produce `{deviceId, userInitial, app, publisher, version, daysSinceUse, capturedAt}` records
+- [ ] Catch per-device decode failures (malformed output, error sentinel, empty stdout) — surface per-device error count in a small `(N devices failed to report)` footnote rather than failing the whole load
+- [ ] Aggregate fleet-wide: `app → {installs, activeCount, idleCount, neverLaunchedCount, lastFleetUse}`
+- [ ] Render main table sortable; drilldown swap pattern matches Installed sub-tab
+- [ ] `mTileMap` + `syncMeteringTileUi()` — toggle + active highlight (pre-publish checklist)
+- [ ] CSV export of current filtered view (both main + drilldown)
+- [ ] Session cache + Refresh button (Drift & Compliance pattern)
+- [ ] Privacy footer in the tab: 1-line "Data source: BAM. Per-user, last-execution only. No filenames or window titles. Refreshed daily."
+
+### Phase 4 — Documentation
+- [ ] README: add "Software Metering" to the sub-tab list (canonical count 14 → 15)
+- [ ] README: add Software Metering endpoint line (`GET /beta/deviceManagement/deviceHealthScripts/{id}/deviceRunStates`)
+- [ ] README: new top-level section "Software Metering setup" — script upload steps + per-customer script ID config
+- [ ] README: Privacy paragraph in the Software Metering section listing exactly what's collected (BAM-derived last-exec per user-initial per installed app; no titles, no docs, no URLs, no PII beyond initial)
+- [ ] Canonical-facts grep: confirm "14" → "15", verify no other stale counts
+- [ ] **Live verification before commit**: configure a metering script ID against a test tenant where the script has run; tab loads; tiles match the table; drill-in shows per-device rows; CSV exports correctly; switching tenants in the MSP dropdown either re-loads against the new tenant's script ID or shows the empty state if not configured
+
+## Out of scope (v1)
+- **Trend / historical data** — would require backend (Azure Storage / Log Analytics / Sentinel). Snapshot-only is by design.
+- **SRUM-based usage duration** ("Visio open 14 minutes this month") — deferred to v2. BAM gives last-execution; duration adds ESE parsing complexity.
+- **Cost per seat** field → "$ reclaimable" KPI. Skip in v1; revisit if users ask. Easy add later: Settings → per-app cost map → tile shows `Σ(idle × $/seat)`.
+- **macOS / iOS / Android usage data** — Windows-only via BAM; no equivalent agentless source on other platforms (would require MDM custom config + a different collection path entirely).
+- **Auto-uninstall unused apps** — write action, separate feature, much higher consent bar.
+- **Per-window title / per-document tracking** — explicitly out for privacy; even if surfaced via UI later, never collected at the script.
+- **Real-time / on-demand refresh of a specific device** — script runs on its Intune schedule; no on-demand trigger.
+- **Cross-script-version compatibility** — v1 payload format only. If we change the schema later, bump the `v1` header to `v2` and have the dashboard reject older payloads with a clear "device running outdated metering script" badge.
+
+## Verifiable success
+1. Sign in to a test tenant with the metering script uploaded and Daily-scheduled; at least 3 devices have run it at least once. Software Metering tab appears after Remediation in the sub-tab strip.
+2. Without `meteringScriptId` set in Settings, the tab shows the empty state with a link to Settings.
+3. With `meteringScriptId` set, the tab loads, all 4 tiles populate, median snapshot age is shown.
+4. Click "Reclaim candidates" tile → table filters to apps with ≥10 installs and ≥50% idle 90d+.
+5. Click an app row → drilldown shows per-device rows with user initials and days-since-use. Default sort is dead-first.
+6. CSV export from drilldown produces the expected columns; pasting device names into Notepad gives a clean newline-separated list.
+7. Per-device decode failures (manually break one device's payload) surface in the footnote count but don't kill the rest of the load.
+8. MSP context: switch tenants via dropdown → if the new tenant has a different `meteringScriptId` configured, tab re-loads against it; if not configured, empty state.
+9. README sub-tab count grep returns 15; old "14" mentions all bumped; scope count unchanged (no new scope).
+10. Privacy footer present in the tab and README Privacy paragraph reflects exactly what the script collects.
+
+---
+
 # Autopilot sub-tab (new)
 
 ## Goal

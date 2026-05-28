@@ -765,6 +765,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="certhealth">Cert health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
+        <button class="subtab" data-subtab="metering">Software Metering</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
       </div>
@@ -1797,6 +1798,93 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubRemediation -->
+
+      <div id="intuneSubMetering" style="display:none;">
+        <div class="tab-hint">Real per-user application usage from Intune-managed Windows devices, agentless via Proactive Remediations. Surfaces "installed but never launched" and "idle 90+ days" candidates for licence reclamation. See <code>scripts/README.md</code> for the collection script. <strong>Privacy:</strong> usernames are reduced to a single initial; no window titles, document names, URLs, or file paths are collected.</div>
+
+        <div id="meteringEmpty" style="display:none; padding:20px 22px; background:#fcf9f4; border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
+          <div style="font-weight:600; font-size:14px; margin-bottom:8px;">Software metering not configured for this customer</div>
+          <div style="font-size:13px; color:var(--muted); line-height:1.6;">Upload <code>scripts/software-metering-detect.ps1</code> to Intune as a Proactive Remediation (detection only, run as SYSTEM, 64-bit, daily schedule). Then paste its script ID into <strong>Settings → Customers</strong> for this customer. See <code>scripts/README.md</code> in the repo for the full setup recipe.</div>
+        </div>
+
+        <div id="meteringLoading" style="display:none; color:var(--muted); font-size:13px; padding:12px;">Loading metering data…</div>
+        <div id="meteringError"></div>
+
+        <div id="meteringMain" style="display:none;">
+          <div class="tiles" style="margin-bottom:14px;">
+            <div class="tile" id="kMeteringDevicesTile" title="Devices that have run the metering script at least once">
+              <div class="tile-label">Devices reporting</div>
+              <div class="tile-value" id="kMeteringDevices">—</div>
+              <div class="tile-sub" id="kMeteringDevicesSub">—</div>
+            </div>
+            <div class="tile" id="kMeteringAppsTile" title="Unique apps tracked across the fleet">
+              <div class="tile-label">Apps tracked</div>
+              <div class="tile-value" id="kMeteringApps">—</div>
+              <div class="tile-sub">across fleet</div>
+            </div>
+            <div class="tile clickable" id="kMeteringIdleTile" title="Click to filter: apps with ≥1 install idle 90+ days or never launched">
+              <div class="tile-label">Likely unused</div>
+              <div class="tile-value" id="kMeteringIdle">—</div>
+              <div class="tile-sub">install × device pairs</div>
+            </div>
+            <div class="tile clickable" id="kMeteringReclaimTile" title="Click to filter: apps installed on ≥10 devices with ≥50% idle 90d+ or never launched">
+              <div class="tile-label">Reclaim candidates</div>
+              <div class="tile-value" id="kMeteringReclaim">—</div>
+              <div class="tile-sub">apps</div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2 id="meteringTableTitle">Apps</h2>
+              <div class="controls">
+                <input type="text" class="search" id="meteringFilter" placeholder="Search app or publisher…">
+                <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnMeteringClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringExport">⬇ Export CSV</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringRefresh">↻ Refresh</span>
+              </div>
+            </div>
+
+            <div id="meteringAppsView">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-sort-metering="app">App <span class="arrow">▼</span></th>
+                    <th data-sort-metering="publisher">Publisher <span class="arrow">▼</span></th>
+                    <th data-sort-metering="installs">Installs <span class="arrow">▼</span></th>
+                    <th data-sort-metering="active30d">Active 30d <span class="arrow">▼</span></th>
+                    <th data-sort-metering="idle90d">Idle 90d+ <span class="arrow">▼</span></th>
+                    <th data-sort-metering="neverLaunched">Never launched <span class="arrow">▼</span></th>
+                    <th data-sort-metering="lastFleetUse">Last fleet use <span class="arrow">▼</span></th>
+                  </tr>
+                </thead>
+                <tbody id="meteringAppRows"></tbody>
+              </table>
+              <div class="footer-count"><span id="meteringAppCount">0</span> apps shown<span id="meteringFootnote" style="color:var(--muted);"></span></div>
+            </div>
+
+            <div id="meteringDrillView" style="display:none;">
+              <div style="padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px;">
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringDrillBack">← Back to apps</span>
+                <span style="font-weight:600;" id="meteringDrillTitle"></span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th data-sort-metering-drill="deviceName">Device <span class="arrow">▼</span></th>
+                    <th data-sort-metering-drill="userInitial">User <span class="arrow">▼</span></th>
+                    <th data-sort-metering-drill="version">Version <span class="arrow">▼</span></th>
+                    <th data-sort-metering-drill="daysSinceUse">Days since use <span class="arrow">▼</span></th>
+                    <th data-sort-metering-drill="lastReported">Last reported <span class="arrow">▼</span></th>
+                  </tr>
+                </thead>
+                <tbody id="meteringDrillRows"></tbody>
+              </table>
+              <div class="footer-count"><span id="meteringDrillCount">0</span> device rows</div>
+            </div>
+          </div>
+        </div><!-- /meteringMain -->
+      </div><!-- /intuneSubMetering -->
     </div>
   </div><!-- /viewIntune -->
 
@@ -1840,7 +1928,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, and an optional approver list are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and an optional metering script ID are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
 
@@ -1850,6 +1938,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <button class="btn" id="btnAddCustomer">Add</button>
         </div>
         <input type="text" id="customerApproversInput" placeholder="Approvers — comma-separated emails (optional, for MAA delete notifications)" class="search" style="width:100%; margin-top:8px;">
+        <input type="text" id="customerMeteringIdInput" placeholder="Software metering script ID — GUID from Intune (optional)" class="search" style="width:100%; margin-top:8px; font-family:ui-monospace, monospace;">
         <div id="customerAddStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
 
@@ -2497,6 +2586,7 @@ function renderCustomerSwitcher() {
 }
 
 const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const GUID_RX  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseApprovers(raw) {
   return (raw || '')
@@ -2517,6 +2607,10 @@ function renderCustomersList() {
     const approverLine = approvers.length
       ? `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2);" title="Click to edit">📧 ${approvers.length} approver${approvers.length === 1 ? '' : 's'} — ${esc(approvers.join(', '))}</span>`
       : `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">📧 No approvers (click to add)</span>`;
+    const meteringId = c.meteringScriptId || '';
+    const meteringLine = meteringId
+      ? `<span data-customer-metering="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2); font-family:ui-monospace, monospace;" title="Click to edit">🔧 Metering: ${esc(meteringId.slice(0, 8))}…${esc(meteringId.slice(-4))}</span>`
+      : `<span data-customer-metering="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">🔧 No metering script (click to add)</span>`;
     return `
     <div style="padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
       <div style="display:flex; align-items:center; gap:12px;">
@@ -2525,6 +2619,7 @@ function renderCustomersList() {
         <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px;" data-customer-delete="${esc(c.code)}" title="Remove">🗑</span>
       </div>
       <div style="font-size:11px; margin-top:4px; padding-left:48px;">${approverLine}</div>
+      <div style="font-size:11px; margin-top:4px; padding-left:48px;">${meteringLine}</div>
     </div>
   `;
   }).join('');
@@ -2565,22 +2660,61 @@ function saveApprovers(code) {
   renderCustomersList();
 }
 
+function editMeteringId(code) {
+  const customers = loadCustomers();
+  const customer = customers.find(c => c.code === code);
+  if (!customer) return;
+  const current = customer.meteringScriptId || '';
+  const span = document.querySelector(`[data-customer-metering="${code}"]`);
+  if (!span) return;
+  span.outerHTML = `
+    <span data-editing-metering="${esc(code)}" style="display:inline-flex; gap:6px; align-items:center; width:100%;">
+      <input type="text" id="editMetering_${esc(code)}" class="search" style="flex:1; font-size:12px; padding:4px 8px; font-family:ui-monospace, monospace;" value="${esc(current)}" placeholder="GUID from Intune script (leave empty to disable)">
+      <button class="btn" data-save-metering="${esc(code)}" style="padding:4px 10px; font-size:11px;">Save</button>
+      <button class="btn btn-ghost" data-cancel-metering="${esc(code)}" style="padding:4px 10px; font-size:11px;">Cancel</button>
+    </span>
+  `;
+  setTimeout(() => $('editMetering_' + code)?.focus(), 0);
+  attachSearchClearButtons($('customersList'));
+}
+
+function saveMeteringId(code) {
+  const input = $('editMetering_' + code);
+  if (!input) return;
+  const raw = (input.value || '').trim().toLowerCase();
+  if (raw && !GUID_RX.test(raw)) {
+    alert(`"${raw}" doesn't look like a GUID. Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    return;
+  }
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === code);
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], meteringScriptId: raw || undefined };
+  saveCustomers(customers);
+  renderCustomersList();
+}
+
 function addCustomer() {
   const code = ($('customerCodeInput').value || '').trim().toUpperCase();
   const email = ($('customerEmailInput').value || '').trim().toLowerCase();
   const approvers = parseApprovers($('customerApproversInput').value);
+  const meteringScriptId = ($('customerMeteringIdInput').value || '').trim().toLowerCase();
   const status = $('customerAddStatus');
   if (!code || code.length > 4) { status.textContent = 'Code is required (max 4 chars).'; return; }
   if (!EMAIL_RX.test(email)) { status.textContent = 'Email looks invalid.'; return; }
   const invalidApprover = approvers.find(a => !EMAIL_RX.test(a));
   if (invalidApprover) { status.textContent = `Approver "${invalidApprover}" looks invalid.`; return; }
+  if (meteringScriptId && !GUID_RX.test(meteringScriptId)) { status.textContent = `Metering script ID must be a GUID (or empty).`; return; }
   const customers = loadCustomers();
   if (customers.some(c => c.code === code)) { status.textContent = `Code "${code}" is already used.`; return; }
-  customers.push({ code, email, approvers });
+  const newCustomer = { code, email, approvers };
+  if (meteringScriptId) newCustomer.meteringScriptId = meteringScriptId;
+  customers.push(newCustomer);
   saveCustomers(customers);
   $('customerCodeInput').value = '';
   $('customerEmailInput').value = '';
   $('customerApproversInput').value = '';
+  $('customerMeteringIdInput').value = '';
   status.textContent = `Added ${code}.`;
   setTimeout(() => { status.textContent = ''; }, 2000);
   renderCustomersList();
@@ -2629,6 +2763,12 @@ function resetTenantState() {
   vulnLoaded = false; vulnRows = [];
   // Drift
   driftLoaded = false; driftLoading = false; driftApps = []; driftFiltered = [];
+  // Software Metering
+  meteringLoaded = false; meteringLoading = false; meteringSnapshots = [];
+  meteringAggregated = []; meteringFiltered = [];
+  meteringTileFilter = null; meteringSelectedApp = null; meteringDecodeFailures = 0;
+  if ($('meteringAppsView')) $('meteringAppsView').style.display = '';
+  if ($('meteringDrillView')) $('meteringDrillView').style.display = 'none';
   // Overview
   overviewLoaded = false; overviewLoading = false;
   // PMPC
@@ -2661,12 +2801,16 @@ async function switchToCustomer(code) {
 $('btnAddCustomer').addEventListener('click', addCustomer);
 $('customerEmailInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customerApproversInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
+$('customerMeteringIdInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customersList').addEventListener('click', e => {
   const ds = e.target.dataset || {};
   if (ds.customerDelete) { deleteCustomer(ds.customerDelete); return; }
   if (ds.customerApprovers) { editApprovers(ds.customerApprovers); return; }
   if (ds.saveApprovers) { saveApprovers(ds.saveApprovers); return; }
   if (ds.cancelApprovers) { renderCustomersList(); return; }
+  if (ds.customerMetering) { editMeteringId(ds.customerMetering); return; }
+  if (ds.saveMetering) { saveMeteringId(ds.saveMetering); return; }
+  if (ds.cancelMetering) { renderCustomersList(); return; }
 });
 
 $('customerSwitcherToggle').addEventListener('click', e => {
@@ -4269,11 +4413,13 @@ function switchSubtab(name) {
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
+  $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
   $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
   $('intuneSubOverview').style.display = name === 'overview' ? '' : 'none';
   if (name === 'overview' && !overviewLoaded) loadOverview();
   if (name === 'drift' && !driftLoaded) loadDriftData();
   if (name === 'remediation' && !remediationLoaded) loadRemediation();
+  if (name === 'metering' && !meteringLoaded) loadMetering();
   if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
   if (name === 'failed' && !failedAppsLoaded) loadApps();
   if (name === 'hardware' && !hwLoaded) loadHardware();
@@ -5338,6 +5484,463 @@ document.querySelectorAll('#intuneSubRemediation th[data-rsort]').forEach(th => 
     if (remediationSortKey === key) remediationSortDir = remediationSortDir === 'asc' ? 'desc' : 'asc';
     else { remediationSortKey = key; remediationSortDir = 'asc'; }
     renderRemediation();
+  });
+});
+
+// ============================================================
+// Software Metering sub-tab
+// Reads per-device output from a Proactive Remediation detection
+// script (scripts/software-metering-detect.ps1) which emits a
+// base64+gzip snapshot of {app, userInitial, daysSinceUse} rows
+// in `preRemediationDetectionScriptOutput`. We fan out across
+// /deviceHealthScripts/{id}/deviceRunStates, decode, and roll up
+// fleet-wide for license-reclaim signal. No new scope —
+// DeviceManagementConfiguration.Read.All covers deviceRunStates.
+// ============================================================
+
+let meteringLoaded = false;
+let meteringLoading = false;
+let meteringSnapshots = [];      // [{deviceId, deviceName, lastStateUpdate, truncated, rows}]
+let meteringAggregated = [];     // per-app rollup with deviceRows for drilldown
+let meteringFiltered = [];
+let meteringTileFilter = null;   // null | 'idle' | 'reclaim'
+let meteringSelectedApp = null;  // currently drilled-down app
+let meteringDecodeFailures = 0;
+
+let meteringSortKey = 'idle90d';
+let meteringSortDir = 'desc';
+let meteringDrillSortKey = 'daysSinceUse';
+let meteringDrillSortDir = 'desc';
+
+const METERING_IDLE_DAYS = 90;
+const METERING_ACTIVE_DAYS = 30;
+const METERING_RECLAIM_MIN_INSTALLS = 10;
+const METERING_RECLAIM_MIN_IDLE_PCT = 0.5;
+
+async function loadMetering(force = false) {
+  if (meteringLoading) return;
+  if (meteringLoaded && !force) return;
+
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  const scriptId = customer && customer.meteringScriptId;
+
+  $('meteringEmpty').style.display = 'none';
+  $('meteringLoading').style.display = 'none';
+  $('meteringMain').style.display = 'none';
+  $('meteringError').innerHTML = '';
+
+  if (!scriptId) {
+    $('meteringEmpty').style.display = '';
+    return;
+  }
+
+  meteringLoading = true;
+  $('meteringLoading').style.display = '';
+
+  try {
+    const path = `beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/deviceRunStates?$expand=managedDevice($select=id,deviceName,userPrincipalName)&$top=200`;
+    const runStates = await graphGetAll(path);
+
+    const snapshots = [];
+    let decodeFailures = 0;
+    let errorSentinels = 0;
+
+    for (const rs of runStates) {
+      const raw = (rs.preRemediationDetectionScriptOutput || '').trim();
+      if (!raw) continue;
+
+      const md = rs.managedDevice || {};
+      const deviceId = md.id || rs.id || '';
+      const deviceName = md.deviceName || deviceId || '(unknown)';
+      const upn = md.userPrincipalName || '';
+      const lastStateUpdate = rs.lastStateUpdateDateTime || null;
+
+      if (raw.startsWith('v1|error|')) {
+        errorSentinels++;
+        continue;
+      }
+
+      try {
+        const decoded = await decodeMeteringPayload(raw);
+        if (decoded && decoded.rows.length) {
+          snapshots.push({
+            deviceId, deviceName, upn,
+            lastStateUpdate,
+            timestamp: decoded.timestamp,
+            truncated: decoded.truncated,
+            rows: decoded.rows,
+          });
+        }
+      } catch (e) {
+        decodeFailures++;
+      }
+    }
+
+    meteringSnapshots = snapshots;
+    meteringDecodeFailures = decodeFailures + errorSentinels;
+    meteringSelectedApp = null;
+    meteringTileFilter = null;
+    aggregateMetering();
+    meteringLoaded = true;
+
+    console.log(`[Metering] ${snapshots.length} device snapshots · ${meteringAggregated.length} apps · ${meteringDecodeFailures} decode failures. Inspect via window.meteringSnapshots / window.meteringAggregated`);
+    window.meteringSnapshots = meteringSnapshots;
+    window.meteringAggregated = meteringAggregated;
+
+    $('meteringLoading').style.display = 'none';
+    $('meteringMain').style.display = '';
+    showMeteringAppsView();
+    renderMeteringTab();
+  } catch (e) {
+    console.error('Metering load failed', e);
+    $('meteringLoading').style.display = 'none';
+    $('meteringError').innerHTML = `<div class="error-banner">Failed to load metering data: ${esc(e.message || String(e))}</div>`;
+  } finally {
+    meteringLoading = false;
+  }
+}
+
+async function decodeMeteringPayload(b64) {
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('DecompressionStream not supported in this browser');
+  }
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const ds = new DecompressionStream('gzip');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const text = await new Response(stream).text();
+  return parseMeteringPayload(text);
+}
+
+function parseMeteringPayload(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) throw new Error('payload too short');
+  const headerParts = lines[0].split('|');
+  if (headerParts[0] !== 'v1') throw new Error('unsupported version: ' + headerParts[0]);
+  const timestamp = headerParts[1] || '';
+  let truncated = null;
+  for (let i = 2; i < headerParts.length; i++) {
+    const eq = headerParts[i].indexOf('=');
+    if (eq < 0) continue;
+    const k = headerParts[i].slice(0, eq);
+    const v = headerParts[i].slice(eq + 1);
+    if (k === 'truncated') truncated = v;
+  }
+  const rows = [];
+  for (let i = 2; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split('|');
+    if (parts.length !== 5) continue;
+    const days = parseInt(parts[4], 10);
+    if (!parts[0] || Number.isNaN(days)) continue;
+    rows.push({
+      app: parts[0],
+      publisher: parts[1] || '',
+      version: parts[2] || '',
+      userInitial: parts[3] || '?',
+      daysSinceUse: days,
+    });
+  }
+  return { timestamp, truncated, rows };
+}
+
+function aggregateMetering() {
+  const byApp = new Map();
+  for (const snap of meteringSnapshots) {
+    for (const row of snap.rows) {
+      const key = row.app;
+      if (!byApp.has(key)) {
+        byApp.set(key, {
+          app: row.app,
+          publisherCounts: new Map(),
+          installsSet: new Set(),
+          active30dSet: new Set(),
+          idle90dSet: new Set(),
+          neverLaunchedSet: new Set(),
+          minDays: Infinity,
+          deviceRows: [],
+        });
+      }
+      const a = byApp.get(key);
+      if (row.publisher) a.publisherCounts.set(row.publisher, (a.publisherCounts.get(row.publisher) || 0) + 1);
+      a.installsSet.add(snap.deviceId);
+      if (row.daysSinceUse < 0) {
+        a.neverLaunchedSet.add(snap.deviceId);
+      } else if (row.daysSinceUse < METERING_ACTIVE_DAYS) {
+        a.active30dSet.add(snap.deviceId);
+        if (row.daysSinceUse < a.minDays) a.minDays = row.daysSinceUse;
+      } else if (row.daysSinceUse >= METERING_IDLE_DAYS) {
+        a.idle90dSet.add(snap.deviceId);
+        if (row.daysSinceUse < a.minDays) a.minDays = row.daysSinceUse;
+      } else {
+        if (row.daysSinceUse < a.minDays) a.minDays = row.daysSinceUse;
+      }
+      a.deviceRows.push({
+        deviceId: snap.deviceId,
+        deviceName: snap.deviceName,
+        userInitial: row.userInitial,
+        version: row.version,
+        daysSinceUse: row.daysSinceUse,
+        lastReported: snap.lastStateUpdate,
+      });
+    }
+  }
+  meteringAggregated = [...byApp.values()].map(a => {
+    // Pick the most-common publisher across reporting devices as the canonical display value.
+    let publisher = '';
+    let bestN = 0;
+    for (const [p, n] of a.publisherCounts) { if (n > bestN) { bestN = n; publisher = p; } }
+    return {
+      app: a.app,
+      publisher,
+      installs: a.installsSet.size,
+      active30d: a.active30dSet.size,
+      idle90d: a.idle90dSet.size,
+      neverLaunched: a.neverLaunchedSet.size,
+      lastFleetUse: a.minDays === Infinity ? -1 : a.minDays,
+      deviceRows: a.deviceRows,
+    };
+  });
+}
+
+function isMeteringReclaimCandidate(a) {
+  if (a.installs < METERING_RECLAIM_MIN_INSTALLS) return false;
+  const idleOrNever = a.idle90d + a.neverLaunched;
+  return (idleOrNever / a.installs) >= METERING_RECLAIM_MIN_IDLE_PCT;
+}
+
+function renderMeteringTab() {
+  renderMeteringKPIs();
+  applyMeteringFilter();
+}
+
+function renderMeteringKPIs() {
+  const devices = meteringSnapshots.length;
+  $('kMeteringDevices').textContent = devices || '—';
+
+  if (devices) {
+    const now = Date.now();
+    const ages = meteringSnapshots
+      .map(s => s.lastStateUpdate ? (now - new Date(s.lastStateUpdate).getTime()) / 3600000 : null)
+      .filter(v => v != null && !Number.isNaN(v))
+      .sort((a, b) => a - b);
+    if (ages.length) {
+      const median = ages[Math.floor(ages.length / 2)];
+      const label = median < 24 ? `${median.toFixed(0)}h` : `${(median / 24).toFixed(1)}d`;
+      $('kMeteringDevicesSub').textContent = `median age: ${label}` + (meteringDecodeFailures ? ` · ${meteringDecodeFailures} failed` : '');
+    } else {
+      $('kMeteringDevicesSub').textContent = meteringDecodeFailures ? `${meteringDecodeFailures} failed` : '—';
+    }
+  } else {
+    $('kMeteringDevicesSub').textContent = meteringDecodeFailures ? `${meteringDecodeFailures} failed` : '—';
+  }
+
+  $('kMeteringApps').textContent = meteringAggregated.length || '—';
+
+  let idleTotal = 0;
+  let reclaimCount = 0;
+  for (const a of meteringAggregated) {
+    idleTotal += a.idle90d + a.neverLaunched;
+    if (isMeteringReclaimCandidate(a)) reclaimCount++;
+  }
+  $('kMeteringIdle').textContent = idleTotal || '—';
+  $('kMeteringReclaim').textContent = reclaimCount || '—';
+
+  $('kMeteringIdleTile').classList.toggle('active', meteringTileFilter === 'idle');
+  $('kMeteringReclaimTile').classList.toggle('active', meteringTileFilter === 'reclaim');
+  $('btnMeteringClearKpi').style.display = meteringTileFilter ? '' : 'none';
+}
+
+function applyMeteringFilter() {
+  const q = ($('meteringFilter').value || '').toLowerCase().trim();
+  meteringFiltered = meteringAggregated.filter(a => {
+    if (meteringTileFilter === 'idle' && (a.idle90d + a.neverLaunched) === 0) return false;
+    if (meteringTileFilter === 'reclaim' && !isMeteringReclaimCandidate(a)) return false;
+    if (!q) return true;
+    return (a.app || '').toLowerCase().includes(q) ||
+           (a.publisher || '').toLowerCase().includes(q);
+  });
+  sortMeteringRows();
+  renderMeteringRows();
+}
+
+function sortMeteringRows() {
+  const k = meteringSortKey;
+  const dir = meteringSortDir === 'desc' ? -1 : 1;
+  meteringFiltered.sort((a, b) => {
+    const av = a[k], bv = b[k];
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av || '').localeCompare(String(bv || ''), undefined, { sensitivity: 'base' }) * dir;
+  });
+}
+
+function renderMeteringRows() {
+  const tbody = $('meteringAppRows');
+  $('meteringAppCount').textContent = meteringFiltered.length;
+  const truncCount = meteringSnapshots.filter(s => s.truncated).length;
+  const footParts = [];
+  if (truncCount) footParts.push(` · ${truncCount} device${truncCount === 1 ? '' : 's'} sent truncated snapshots`);
+  if (meteringDecodeFailures) footParts.push(` · ${meteringDecodeFailures} device${meteringDecodeFailures === 1 ? '' : 's'} failed to decode`);
+  $('meteringFootnote').textContent = footParts.join('');
+
+  if (!meteringFiltered.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">No apps to show.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = meteringFiltered.map(a => {
+    const lastUse = a.lastFleetUse < 0 ? '—' : `${a.lastFleetUse}d ago`;
+    const reclaim = isMeteringReclaimCandidate(a);
+    const idleCell = reclaim
+      ? `<td style="font-weight:700; color:var(--accent); background:var(--accent-soft);">${a.idle90d}</td>`
+      : `<td>${a.idle90d}</td>`;
+    return `<tr style="cursor:pointer;" data-metering-app="${esc(a.app)}">
+      <td>${esc(a.app)}</td>
+      <td>${esc(a.publisher) || '—'}</td>
+      <td>${a.installs}</td>
+      <td>${a.active30d}</td>
+      ${idleCell}
+      <td>${a.neverLaunched}</td>
+      <td>${lastUse}</td>
+    </tr>`;
+  }).join('');
+}
+
+function openMeteringDrilldown(appKey) {
+  const a = meteringAggregated.find(x => x.app === appKey);
+  if (!a) return;
+  meteringSelectedApp = a;
+  $('meteringAppsView').style.display = 'none';
+  $('meteringDrillView').style.display = '';
+  $('meteringDrillTitle').textContent = `${a.app} — ${a.installs} install${a.installs === 1 ? '' : 's'}, ${a.idle90d} idle 90d+, ${a.neverLaunched} never launched`;
+  $('meteringTableTitle').textContent = a.app;
+  renderMeteringDrillRows();
+}
+
+function showMeteringAppsView() {
+  meteringSelectedApp = null;
+  $('meteringDrillView').style.display = 'none';
+  $('meteringAppsView').style.display = '';
+  $('meteringTableTitle').textContent = 'Apps';
+}
+
+function sortMeteringDrillRows() {
+  if (!meteringSelectedApp) return;
+  const k = meteringDrillSortKey;
+  const dir = meteringDrillSortDir === 'desc' ? -1 : 1;
+  meteringSelectedApp.deviceRows.sort((a, b) => {
+    const av = a[k], bv = b[k];
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av || '').localeCompare(String(bv || ''), undefined, { sensitivity: 'base' }) * dir;
+  });
+}
+
+function renderMeteringDrillRows() {
+  if (!meteringSelectedApp) return;
+  sortMeteringDrillRows();
+  const tbody = $('meteringDrillRows');
+  $('meteringDrillCount').textContent = meteringSelectedApp.deviceRows.length;
+  if (!meteringSelectedApp.deviceRows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">No devices.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = meteringSelectedApp.deviceRows.map(r => {
+    const days = r.daysSinceUse < 0 ? 'never' : `${r.daysSinceUse}d`;
+    const lastRep = r.lastReported ? new Date(r.lastReported).toISOString().slice(0, 10) : '—';
+    const nameCell = r.deviceId
+      ? `<a href="${intuneDeviceUrl(r.deviceId)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.deviceName)}</a>`
+      : esc(r.deviceName);
+    return `<tr>
+      <td>${nameCell}</td>
+      <td>${esc(r.userInitial)}</td>
+      <td class="version">${esc(r.version) || '—'}</td>
+      <td>${days}</td>
+      <td>${lastRep}</td>
+    </tr>`;
+  }).join('');
+}
+
+function exportMeteringCSV() {
+  const blob = (text, filename) => {
+    const b = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (meteringSelectedApp) {
+    const header = ['App', 'Device', 'UserInitial', 'Version', 'DaysSinceUse', 'LastReported'];
+    const lines = [header.join(',')];
+    for (const r of meteringSelectedApp.deviceRows) {
+      lines.push([
+        meteringSelectedApp.app, r.deviceName, r.userInitial, r.version,
+        r.daysSinceUse < 0 ? 'never' : r.daysSinceUse,
+        r.lastReported || '',
+      ].map(escCsv).join(','));
+    }
+    blob(lines.join('\n'), 'software-metering-' + meteringSelectedApp.app.replace(/[^a-z0-9-]/gi, '_').slice(0, 40) + '.csv');
+  } else {
+    const header = ['App', 'Publisher', 'Installs', 'Active 30d', 'Idle 90d+', 'Never launched', 'Last fleet use (days ago)'];
+    const lines = [header.join(',')];
+    for (const a of meteringFiltered) {
+      lines.push([
+        a.app, a.publisher, a.installs, a.active30d, a.idle90d, a.neverLaunched,
+        a.lastFleetUse < 0 ? 'never' : a.lastFleetUse,
+      ].map(escCsv).join(','));
+    }
+    blob(lines.join('\n'), 'software-metering.csv');
+  }
+}
+
+$('kMeteringIdleTile').addEventListener('click', () => {
+  meteringTileFilter = meteringTileFilter === 'idle' ? null : 'idle';
+  renderMeteringTab();
+});
+$('kMeteringReclaimTile').addEventListener('click', () => {
+  meteringTileFilter = meteringTileFilter === 'reclaim' ? null : 'reclaim';
+  renderMeteringTab();
+});
+$('btnMeteringClearKpi').addEventListener('click', () => {
+  meteringTileFilter = null;
+  renderMeteringTab();
+});
+
+$('btnMeteringRefresh').addEventListener('click', () => loadMetering(true));
+$('btnMeteringExport').addEventListener('click', exportMeteringCSV);
+$('meteringFilter').addEventListener('input', applyMeteringFilter);
+$('btnMeteringDrillBack').addEventListener('click', showMeteringAppsView);
+
+$('meteringAppRows').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-metering-app]');
+  if (!tr) return;
+  openMeteringDrilldown(tr.dataset.meteringApp);
+});
+
+document.querySelectorAll('[data-sort-metering]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sortMetering;
+    if (meteringSortKey === k) {
+      meteringSortDir = meteringSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      meteringSortKey = k;
+      meteringSortDir = ['installs', 'active30d', 'idle90d', 'neverLaunched', 'lastFleetUse'].includes(k) ? 'desc' : 'asc';
+    }
+    sortMeteringRows();
+    renderMeteringRows();
+  });
+});
+
+document.querySelectorAll('[data-sort-metering-drill]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sortMeteringDrill;
+    if (meteringDrillSortKey === k) {
+      meteringDrillSortDir = meteringDrillSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      meteringDrillSortKey = k;
+      meteringDrillSortDir = ['daysSinceUse'].includes(k) ? 'desc' : 'asc';
+    }
+    renderMeteringDrillRows();
   });
 });
 
