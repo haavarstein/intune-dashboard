@@ -10,6 +10,20 @@ PowerShell detection script for the Intune Dashboard's Software Metering sub-tab
 4. Adds rows for **installed-but-never-launched** apps (`daysSinceUse = -1`) — the strongest reclaim-license signal.
 5. Sorts by reclaim value (never-launched first, then idle-descending), serializes to a compact pipe-separated format, gzip+base64-encodes it, and writes the result to stdout on a single line.
 6. Always exits 0. If anything fails, writes `v1|error|<message>` (uncompressed, well under 2 KB) instead.
+7. Appends a structured log line per checkpoint to `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneDashboard-SoftwareMetering.log` (alongside IME's own logs), auto-rotating at 1 MB. Counts only — no exe paths or usernames — so the log leaks nothing the wire payload doesn't already. Inspect on a real device for live debugging:
+   ```
+   Get-Content 'C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneDashboard-SoftwareMetering.log' -Tail 20
+   ```
+   Typical successful run:
+   ```
+   2026-05-28 03:01:14 [INFO] === Run started · schema v1 · PS 5.1.19041.4291 · OS 10.0.22631.0 ===
+   2026-05-28 03:01:14 [INFO] Drive map: 2 entries
+   2026-05-28 03:01:15 [INFO] Installed apps with InstallLocation: 142
+   2026-05-28 03:01:16 [INFO] BAM entries: 1247 total · 612 mapped to installed apps · 3 user initial(s)
+   2026-05-28 03:01:16 [INFO] Rows built: 87 launched · 55 never-launched · 4 dropped (>180 days old)
+   2026-05-28 03:01:16 [INFO] Payload: 142 rows · 1816 bytes base64-gzip (cap 1950)
+   2026-05-28 03:01:16 [INFO] === Run completed ===
+   ```
 
 ## What it does NOT collect
 

@@ -19,6 +19,29 @@ $ErrorActionPreference = 'Stop'
 $MaxOutputBytes        = 1950   # ~2 KB cap on preRemediationDetectionScriptOutput
 $MaxAgeDays            = 180    # BAM beyond this is unreliable
 $NeverLaunchedSentinel = -1
+$LogDir                = 'C:\ProgramData\Microsoft\IntuneManagementExtension\Logs'
+$LogPath               = Join-Path $LogDir 'IntuneDashboard-SoftwareMetering.log'
+$LogMaxBytes           = 1MB    # rotate (truncate) when log exceeds this
+
+# --- Logging ------------------------------------------------------------------
+# Writes alongside IME's own logs in C:\ProgramData\Microsoft\IntuneManagement
+# Extension\Logs. Counts only — no exe paths or usernames — so logs leak
+# nothing the wire payload doesn't already. All writes are best-effort;
+# logging failure never breaks the collection.
+function Write-MeteringLog {
+    param([string]$Level, [string]$Message)
+    try {
+        if (-not (Test-Path $LogDir)) {
+            New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+        }
+        if ((Test-Path $LogPath) -and (Get-Item $LogPath).Length -gt $LogMaxBytes) {
+            $rotateLine = "$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) [INFO] === log rotated (exceeded $($LogMaxBytes/1KB) KB) ==="
+            Set-Content -LiteralPath $LogPath -Value $rotateLine -Encoding UTF8
+        }
+        $line = "$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) [$Level] $Message"
+        Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+    } catch {}
+}
 
 # --- Drive map: \Device\HarddiskVolumeN -> C: ---------------------------------
 Add-Type -Namespace IntuneDashboard -Name Kernel32 -MemberDefinition @'
@@ -178,24 +201,37 @@ function Build-Payload {
 
 # --- Main ---------------------------------------------------------------------
 try {
+    $osVer = try { [System.Environment]::OSVersion.Version.ToString() } catch { '?' }
+    $psVer = $PSVersionTable.PSVersion.ToString()
+    Write-MeteringLog 'INFO' "=== Run started · schema v1 · PS $psVer · OS $osVer ==="
+
     $driveMap = Get-DriveMap
     if ($driveMap.Count -eq 0) { throw 'no drive map' }
+    Write-MeteringLog 'INFO' "Drive map: $($driveMap.Count) entr$(if ($driveMap.Count -eq 1) {'y'} else {'ies'})"
 
     $installedApps = Get-InstalledApps
+    Write-MeteringLog 'INFO' "Installed apps with InstallLocation: $($installedApps.Count)"
     if (-not $installedApps -or $installedApps.Count -eq 0) {
+        Write-MeteringLog 'WARN' 'No installed apps with InstallLocation found; emitting empty payload'
         Write-Output (Compress-Payload (Build-Payload @()))
         exit 0
     }
     $appsByLen = $installedApps | Sort-Object { $_.InstallLocation.Length } -Descending
 
     # Aggregate BAM hits per (DisplayName, userInitial)
-    $now   = [System.DateTime]::UtcNow
-    $usage = @{}
+    $now            = [System.DateTime]::UtcNow
+    $usage          = @{}
+    $bamEntryCount  = 0
+    $bamUserSids    = New-Object System.Collections.Generic.HashSet[string]
+    $bamMatchCount  = 0
     foreach ($entry in Get-BamEntries) {
+        $bamEntryCount++
+        [void]$bamUserSids.Add($entry.Initial)
         $win = Convert-BamPath -BamPath $entry.ExePath -DriveMap $driveMap
         if (-not $win) { continue }
         $app = Find-AppForExe -ExePathWin $win -AppsByLengthDesc $appsByLen
         if (-not $app) { continue }
+        $bamMatchCount++
         $key = "$($app.DisplayName)|$($entry.Initial)"
         if (-not $usage.ContainsKey($key) -or $usage[$key].LastRun -lt $entry.LastRun) {
             $usage[$key] = [PSCustomObject]@{
@@ -205,27 +241,34 @@ try {
             }
         }
     }
+    Write-MeteringLog 'INFO' "BAM entries: $bamEntryCount total · $bamMatchCount mapped to installed apps · $($bamUserSids.Count) user initial(s)"
 
     # Build rows: launched + installed-but-never-launched
     $launchedNames = New-Object System.Collections.Generic.HashSet[string]
     $rows = New-Object System.Collections.Generic.List[object]
+    $launchedCount = 0
+    $droppedAged   = 0
 
     foreach ($v in $usage.Values) {
         [void]$launchedNames.Add($v.App.DisplayName)
         $days = [int]($now - $v.LastRun).TotalDays
         if ($days -lt 0) { $days = 0 }
-        if ($days -gt $MaxAgeDays) { continue }   # unreliable
+        if ($days -gt $MaxAgeDays) { $droppedAged++; continue }   # unreliable
         $line = '{0}|{1}|{2}|{3}|{4}' -f (Format-Field $v.App.DisplayName), (Format-Field $v.App.Publisher), (Format-Field $v.App.Version), $v.Initial, $days
         # ReclaimValue: higher = more valuable to keep under budget pressure (idle/never-launched
         # are the reclaim signal). Active rows are dropped first when bytes get tight.
         $rows.Add([PSCustomObject]@{ Line = $line; Days = $days; ReclaimValue = $days })
+        $launchedCount++
     }
+    $neverLaunchedCount = 0
     foreach ($app in $installedApps) {
         if ($launchedNames.Contains($app.DisplayName)) { continue }
         $line = '{0}|{1}|{2}|{3}|{4}' -f (Format-Field $app.DisplayName), (Format-Field $app.Publisher), (Format-Field $app.Version), '?', $NeverLaunchedSentinel
         # Never-launched outranks any launched row — these are the strongest reclaim signal.
         $rows.Add([PSCustomObject]@{ Line = $line; Days = $NeverLaunchedSentinel; ReclaimValue = 999 })
+        $neverLaunchedCount++
     }
+    Write-MeteringLog 'INFO' "Rows built: $launchedCount launched · $neverLaunchedCount never-launched · $droppedAged dropped (>$MaxAgeDays days old)"
 
     # Sort by reclaim value DESCENDING: keep never-launched + idle, drop active under pressure.
     $sorted = @($rows | Sort-Object @{Expression='ReclaimValue';Descending=$true}, Line)
@@ -233,6 +276,7 @@ try {
 
     # Compress and enforce byte budget; drop from the TAIL (= lowest reclaim value = active).
     $encoded = Compress-Payload (Build-Payload $sorted $originalCount)
+    $initialEncodedLen = $encoded.Length
     if ($encoded.Length -gt $MaxOutputBytes) {
         $list = New-Object System.Collections.Generic.List[object]
         $list.AddRange($sorted)
@@ -244,13 +288,19 @@ try {
             $list.RemoveAt($list.Count - 1)
             $encoded = Compress-Payload (Build-Payload $list $originalCount)
         }
+        Write-MeteringLog 'WARN' "Payload truncated: kept $($list.Count) of $originalCount rows · $initialEncodedLen → $($encoded.Length) bytes (cap $MaxOutputBytes)"
+    } else {
+        Write-MeteringLog 'INFO' "Payload: $originalCount rows · $($encoded.Length) bytes base64-gzip (cap $MaxOutputBytes)"
     }
 
     Write-Output $encoded
+    Write-MeteringLog 'INFO' '=== Run completed ==='
     exit 0
 }
 catch {
     $msg = "$($_.Exception.Message)"
+    $where = if ($_.InvocationInfo) { " at line $($_.InvocationInfo.ScriptLineNumber)" } else { '' }
+    Write-MeteringLog 'ERROR' "Run failed: $msg$where"
     if ($msg.Length -gt 200) { $msg = $msg.Substring(0, 200) }
     $msg = ($msg -replace '[\|\r\n\t]', ' ').Trim()
     Write-Output "v1|error|$msg"
