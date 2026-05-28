@@ -2936,7 +2936,12 @@ async function graphPost(path, body) {
     body: JSON.stringify(body)
   });
   if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
-  return res.json();
+  // Some action endpoints (e.g. .../assign) return 204 No Content with an empty body.
+  // .json() on an empty body throws "Unexpected end of JSON input" — handle that.
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
 }
 
 async function graphDelete(path, opts = {}) {
