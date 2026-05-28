@@ -6146,6 +6146,26 @@ function selectMeteringDeployGroup(g) {
   $('mdGroupSelected').innerHTML = `Selected: <strong>${esc(g.displayName)}</strong> <span style="color:var(--muted); font-family:ui-monospace,monospace; font-size:11px;">${esc(g.id)}</span>`;
 }
 
+// Proactively obtain consent for the metering write scope BEFORE the first
+// graphPost call. Works around an MSAL footgun: when SCOPES is extended in
+// a release, acquireTokenSilent can silently return a token that lacks the
+// new scope (mints from a refresh token that was only consented to the old
+// scope set), so the POST then hits Graph 403. By asking explicitly here
+// — and checking the granted scopes on the response — we force an interactive
+// popup if the cached refresh token can't deliver the write scope.
+async function ensureMeteringWriteConsent() {
+  if (!msalApp) throw new Error('not signed in');
+  const writeScope = 'DeviceManagementConfiguration.ReadWrite.All';
+  const account = msalApp.getActiveAccount();
+  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
+    if (granted(r)) return;
+  } catch (e) { /* fall through to popup */ }
+  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
+  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
+}
+
 async function confirmMeteringDeploy() {
   if (mdDeploying) return;
   $('mdError').style.display = 'none';
@@ -6169,9 +6189,11 @@ async function confirmMeteringDeploy() {
   mdDeploying = true;
   const btn = $('mdBtnDeploy');
   btn.disabled = true;
-  btn.textContent = 'Checking…';
+  btn.textContent = 'Consent…';
 
   try {
+    await ensureMeteringWriteConsent();
+    btn.textContent = 'Checking…';
     const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
     const existing = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
     const existingValue = (existing && existing.value) || [];
@@ -6225,14 +6247,22 @@ async function confirmMeteringDeploy() {
     loadMetering(true);
   } catch (e) {
     console.error('Auto-deploy failed', e);
-    const status = (e.message || '').match(/Graph (\d+)/);
-    let msg = e.message || String(e);
-    if (status && status[1] === '403') {
-      msg = `Forbidden (403). You may need admin consent for DeviceManagementConfiguration.ReadWrite.All in this tenant before the dashboard can create scripts. Ask an Intune admin to grant consent for the app, then sign out and back in.`;
+    const raw = e.message || String(e);
+    const status = raw.match(/Graph (\d+)/);
+    const aadCode = raw.match(/AADSTS(\d{5,6})/);
+    const tenant = (customer.email || '').split('@')[1] || 'common';
+    const consentUrl = `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/adminconsent?client_id=10c9e900-db54-4aa1-979e-1351338a8c9b`;
+    const linkHtml = `<a href="${esc(consentUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600;">grant admin consent for ${esc(tenant)} here</a>`;
+    let html;
+    if ((aadCode && ['65001','90094','50105'].includes(aadCode[1])) || (status && status[1] === '403')) {
+      html = `<div class="error-banner"><strong>Admin consent required.</strong> The dashboard needs the <code>DeviceManagementConfiguration.ReadWrite.All</code> scope in this tenant. As an Intune/Global admin in <strong>${esc(tenant)}</strong>, ${linkHtml} (opens Microsoft's consent page in a new tab). After granting, close this modal, sign out of the dashboard, sign back in, and retry.</div>`;
     } else if (status && status[1] === '401') {
-      msg = `Unauthorized (401). Sign out and sign back in to refresh consent for the new write scope.`;
+      html = `<div class="error-banner"><strong>Unauthorized (401).</strong> Sign out of the dashboard and back in to refresh consent for the new write scope.</div>`;
+    } else {
+      html = `<div class="error-banner">${esc(raw)}</div>`;
     }
-    showMdError(msg);
+    $('mdError').innerHTML = html;
+    $('mdError').style.display = '';
   } finally {
     mdDeploying = false;
     btn.disabled = false;
