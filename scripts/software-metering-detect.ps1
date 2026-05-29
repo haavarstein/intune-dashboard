@@ -126,7 +126,11 @@ function Get-BamEntries {
             if (-not $rk) { continue }
             try {
                 foreach ($sidName in $rk.GetSubKeyNames()) {
-                    if ($sidName -notmatch '^S-1-5-21-') { continue }   # user SIDs only
+                    # User SIDs only: S-1-5-21-* (local/AD) and S-1-12-1-* (Microsoft
+                    # Account / Entra-joined). Do not narrow to just 5-21-* — that drops
+                    # every interactive user on AAD-joined devices.
+                    if ($sidName -notmatch '^(S-1-5-21-|S-1-12-1-)') { continue }
+                    $sidFormat = if ($sidName.StartsWith('S-1-12-1-')) { 'aad' } else { 'local' }
                     $user = Resolve-SidToUser $sidName
                     if (-not $user) { continue }
                     $initial = $user.Substring(0, 1).ToLower()
@@ -143,9 +147,10 @@ function Get-BamEntries {
                                 $last = [System.DateTime]::FromFileTimeUtc($ft)
                             } catch { continue }
                             [PSCustomObject]@{
-                                ExePath  = $valueName
-                                LastRun  = $last
-                                Initial  = $initial
+                                ExePath   = $valueName
+                                LastRun   = $last
+                                Initial   = $initial
+                                SidFormat = $sidFormat
                             }
                         }
                     } finally { $uk.Close() }
@@ -249,9 +254,11 @@ try {
     $bamEntryCount  = 0
     $bamUserSids    = New-Object System.Collections.Generic.HashSet[string]
     $bamMatchCount  = 0
+    $bamSidFormats  = @{ aad = 0; local = 0 }
     foreach ($entry in Get-BamEntries) {
         $bamEntryCount++
         [void]$bamUserSids.Add($entry.Initial)
+        $bamSidFormats[$entry.SidFormat]++
         $win = Convert-BamPath -BamPath $entry.ExePath -DriveMap $driveMap
         if (-not $win) { continue }
         $app = Find-AppForExe -ExePathWin $win -AppsByLengthDesc $appsByLen
@@ -266,7 +273,7 @@ try {
             }
         }
     }
-    Write-MeteringLog 'INFO' "BAM entries: $bamEntryCount total · $bamMatchCount mapped to installed apps · $($bamUserSids.Count) user initial(s)"
+    Write-MeteringLog 'INFO' "BAM entries: $bamEntryCount total ($($bamSidFormats.aad) aad · $($bamSidFormats.local) local) · $bamMatchCount mapped to installed apps · $($bamUserSids.Count) user initial(s)"
 
     # Build rows: launched + installed-but-never-launched
     $launchedNames = New-Object System.Collections.Generic.HashSet[string]
