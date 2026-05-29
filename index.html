@@ -1853,6 +1853,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnMeteringClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringExport">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringRefresh">↻ Refresh</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnMeteringRedeploy" title="Re-run the Auto-deploy wizard (e.g. after deleting the script in Intune, or to change the assignment / schedule)">⚡ Redeploy script…</span>
               </div>
             </div>
 
@@ -5712,7 +5713,10 @@ async function loadMetering(force = false) {
       empty.style.display = '';
     } else {
       console.error('Metering load failed', e);
-      $('meteringError').innerHTML = `<div class="error-banner">Failed to load metering data: ${esc(e.message || String(e))}</div>`;
+      // Include an escape-hatch redeploy button so a transient Graph error
+      // (or a deleted script that returns something other than 404) doesn't
+      // strand the user on a banner with no recovery path.
+      $('meteringError').innerHTML = `<div class="error-banner">Failed to load metering data: ${esc(e.message || String(e))} <button class="btn" style="margin-left:12px; padding:4px 10px; font-size:12px;" onclick="openMeteringDeployModal()">⚡ Redeploy script…</button></div>`;
     }
   } finally {
     meteringLoading = false;
@@ -6375,6 +6379,7 @@ function showMeteringDeployedBanner(scriptId, target) {
 }
 
 $('btnMeteringDeploy').addEventListener('click', openMeteringDeployModal);
+$('btnMeteringRedeploy').addEventListener('click', openMeteringDeployModal);
 $('btnMeteringDeployClose').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnCancel').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnDeploy').addEventListener('click', confirmMeteringDeploy);
