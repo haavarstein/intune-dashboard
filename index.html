@@ -2933,7 +2933,13 @@ async function graphGet(path, opts = {}) {
   const headers = { Authorization: 'Bearer ' + token };
   if (opts.headers) Object.assign(headers, opts.headers);
   const res = await fetch('https://graph.microsoft.com/' + path, { headers });
-  if (!res.ok) throw new Error('Graph ' + res.status + ': ' + await res.text());
+  if (!res.ok) {
+    const bodyText = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + bodyText);
+    err.status = res.status;
+    err.body = bodyText;
+    throw err;
+  }
   return res.json();
 }
 
@@ -5687,12 +5693,41 @@ async function loadMetering(force = false) {
     showMeteringAppsView();
     renderMeteringTab();
   } catch (e) {
-    console.error('Metering load failed', e);
     $('meteringLoading').style.display = 'none';
-    $('meteringError').innerHTML = `<div class="error-banner">Failed to load metering data: ${esc(e.message || String(e))}</div>`;
+    // 404 = the saved scriptId no longer exists in Intune (an admin deleted
+    // the deviceHealthScript). Self-heal: clear the stale GUID from the
+    // customer record and drop back into the wizard so a fresh Auto-deploy
+    // creates a new script. Without this, the user is stuck on an error
+    // banner with no UI path to redeploy.
+    if (e.status === 404) {
+      console.warn('Metering scriptId not found in Intune; clearing stale local state', scriptId);
+      clearMeteringScriptIdForActiveCustomer();
+      // Surface the explanation as a one-shot banner at the top of the
+      // wizard. Lives in meteringError (cleared on next loadMetering call),
+      // not meteringEmpty (whose HTML is static and owns the deploy button).
+      $('meteringError').innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">The previously-configured metering script (<code>${esc(scriptId)}</code>) was not found in Intune — it looks like it was deleted. Local state has been cleared; click <strong>⚡ Auto-deploy script…</strong> below to redeploy.</div>`;
+      // Visually float the notice above the wizard so cause precedes effect.
+      const empty = $('meteringEmpty');
+      empty.parentNode.insertBefore($('meteringError'), empty);
+      empty.style.display = '';
+    } else {
+      console.error('Metering load failed', e);
+      $('meteringError').innerHTML = `<div class="error-banner">Failed to load metering data: ${esc(e.message || String(e))}</div>`;
+    }
   } finally {
     meteringLoading = false;
   }
+}
+
+function clearMeteringScriptIdForActiveCustomer() {
+  const customers = loadCustomers();
+  const code = getActiveCustomerCode();
+  const idx = customers.findIndex(c => c.code === code);
+  if (idx === -1) return;
+  if (!customers[idx].meteringScriptId) return;
+  const { meteringScriptId, ...rest } = customers[idx];
+  customers[idx] = rest;
+  saveCustomers(customers);
 }
 
 async function decodeMeteringPayload(b64) {
