@@ -2072,6 +2072,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div style="font-weight:600; font-size:13px; margin-bottom:6px;">A script with this name already exists in this tenant.</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;" id="mdConflictDetail"></div>
         <button class="btn" id="mdBtnReuse" style="margin-right:8px;">Reuse existing</button>
+        <button class="btn" id="mdBtnReplace" style="margin-right:8px; background:#c0392b; color:#fff; border-color:#c0392b;">Delete existing and create new</button>
         <button class="btn btn-ghost" id="mdBtnRename">Rename and create new</button>
       </div>
 
@@ -6260,7 +6261,7 @@ async function confirmMeteringDeploy() {
     const existingValue = (existing && existing.value) || [];
     if (existingValue.length) {
       mdExistingScriptId = existingValue[0].id;
-      $('mdConflictDetail').textContent = `Existing script ID: ${mdExistingScriptId}. "Reuse existing" just fills the ID into Settings — no new script is created, no new assignment is made. "Rename and create new" lets you change the name and try again.`;
+      $('mdConflictDetail').textContent = `Existing script ID: ${mdExistingScriptId}. "Reuse existing" just fills the ID into Settings — no new script is created, no new assignment is made. "Delete existing and create new" deletes the script in Intune (and its assignment) then re-runs this Auto-deploy from scratch — use this when you want a clean redeploy of the same name. "Rename and create new" lets you change the name and try again.`;
       $('mdConflict').style.display = '';
       btn.disabled = false;
       btn.textContent = 'Deploy';
@@ -6365,6 +6366,39 @@ function reuseExistingMeteringScript() {
   loadMetering(true);
 }
 
+// Hard-reset path for the "displayName collision but I just want a clean
+// redeploy" case (e.g. the old script lost its assignment, or local state
+// got out of sync). DELETEs the existing deviceHealthScript in Intune,
+// clears the collision marker, and re-enters confirmMeteringDeploy so the
+// usual create + assign flow runs from scratch under the same name.
+async function replaceExistingMeteringScript() {
+  if (!mdExistingScriptId) return;
+  if (mdDeploying) return;
+  const doomedId = mdExistingScriptId;
+  const btn = $('mdBtnReplace');
+  const reuseBtn = $('mdBtnReuse');
+  const renameBtn = $('mdBtnRename');
+  btn.disabled = true; reuseBtn.disabled = true; renameBtn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Deleting…';
+  try {
+    await graphDelete(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`);
+    mdExistingScriptId = null;
+    $('mdConflict').style.display = 'none';
+    // Drop the stale GUID locally too — if it happened to match what we
+    // just deleted, leaving it would mislead the next loadMetering call.
+    const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+    if (customer && customer.meteringScriptId === doomedId) {
+      clearMeteringScriptIdForActiveCustomer();
+    }
+    await confirmMeteringDeploy();
+  } catch (e) {
+    showMdError(`Could not delete existing script ${doomedId}: ${e.message || String(e)}`);
+    btn.disabled = false; reuseBtn.disabled = false; renameBtn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
 function saveMeteringScriptIdToActiveCustomer(scriptId) {
   const customers = loadCustomers();
   const code = getActiveCustomerCode();
@@ -6384,6 +6418,7 @@ $('btnMeteringDeployClose').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnCancel').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnDeploy').addEventListener('click', confirmMeteringDeploy);
 $('mdBtnReuse').addEventListener('click', reuseExistingMeteringScript);
+$('mdBtnReplace').addEventListener('click', replaceExistingMeteringScript);
 $('mdBtnRename').addEventListener('click', () => {
   $('mdConflict').style.display = 'none';
   $('mdName').focus();
