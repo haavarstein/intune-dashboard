@@ -1803,6 +1803,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <th>Device name</th>
                 <th>OS</th>
                 <th>Trust type</th>
+                <th>Last sign-in</th>
                 <th>Deleted at</th>
                 <th>Days remaining</th>
                 <th>Enabled at delete</th>
@@ -5008,7 +5009,7 @@ function renderSoftdeleted() {
     !q || d.displayName.toLowerCase().includes(q) || d.operatingSystem.toLowerCase().includes(q));
   const tbody = $('sdRows');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
   } else {
     tbody.innerHTML = rows.map(d => {
       const daysCell = d.daysRemaining <= 5
@@ -5022,6 +5023,7 @@ function renderSoftdeleted() {
           <td class="app-name">${esc(d.displayName)}</td>
           ${osCell}
           <td>${esc(d.trustType)}</td>
+          <td class="date">${esc(fmtIntuneDate(d.lastSignIn))}</td>
           <td class="date">${esc(fmtIntuneDate(d.deletedAt))}</td>
           ${daysCell}
           <td>${d.accountEnabled ? 'Yes' : 'No'}</td>
@@ -6422,7 +6424,7 @@ async function onRestoreClick(btn) {
     if (row) row.remove();
     $('sdCount').textContent = sdDevices.length;
     if (!sdDevices.length) {
-      $('sdRows').innerHTML = '<tr><td colspan="7" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
+      $('sdRows').innerHTML = '<tr><td colspan="8" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
     }
     $('sdNotice').innerHTML =
       `<div class="notice-banner">✓ Restored <strong>${esc(name)}</strong>. It should reappear in Entra and re-link to its Intune managed-device record within a few minutes.</div>`;
