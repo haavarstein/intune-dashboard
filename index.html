@@ -777,6 +777,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
+        <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
       </div>
 
       <div id="intuneError"></div>
@@ -1777,6 +1778,42 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubDrift -->
+
+      <div id="intuneSubSoftdeleted" style="display:none;">
+        <div class="tab-hint">
+          Entra ID device recycle bin (preview). Soft-deleted devices remain restorable for
+          <strong>30 days</strong> with BitLocker recovery keys, LAPS passwords, and key material preserved.
+          Only Cloud Device Administrator, Intune Administrator, or Global Administrator can restore.
+          <strong>Hybrid-joined devices are hard-deleted and do not appear here.</strong>
+        </div>
+        <div id="sdLoading" class="loading">Loading soft-deleted devices…</div>
+        <div id="sdError"></div>
+        <div id="sdNotice"></div>
+        <div id="sdContent" style="display:none;">
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2>Soft-deleted devices</h2>
+              <div class="controls">
+                <input type="text" class="search" id="sdFilter" placeholder="Search device, OS…">
+                <span id="btnSdRefresh" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;">↻ Refresh</span>
+              </div>
+            </div>
+            <table>
+              <thead><tr>
+                <th>Device name</th>
+                <th>OS</th>
+                <th>Trust type</th>
+                <th>Deleted at</th>
+                <th>Days remaining</th>
+                <th>Enabled at delete</th>
+                <th>Action</th>
+              </tr></thead>
+              <tbody id="sdRows"></tbody>
+            </table>
+            <div class="footer-count"><span id="sdCount">0</span> soft-deleted devices</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubSoftdeleted -->
 
       <div id="intuneSubRemediation" style="display:none;">
         <div class="tab-hint">All proactive remediation scripts (<code>deviceHealthScripts</code>) with their schedules. Click a script to open its Intune admin-center blade.</div>
@@ -4515,6 +4552,7 @@ function switchSubtab(name) {
   $('intuneSubCerthealth').style.display = name === 'certhealth' ? '' : 'none';
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
+  $('intuneSubSoftdeleted').style.display = name === 'softdeleted' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
   $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
@@ -4534,6 +4572,7 @@ function switchSubtab(name) {
   if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
   if (name === 'approvals' && !approvalsLoaded) loadApprovals();
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
+  if (name === 'softdeleted' && !softdeletedLoaded) loadSoftdeleted();
 }
 
 // ============================================================
@@ -4906,6 +4945,105 @@ function renderHardware() {
     }
   });
 }
+
+// ============================================================
+// Soft-deleted devices sub-tab — Entra ID recycle bin (preview).
+// LIST piggybacks on existing Device.Read.All. RESTORE requires
+// Directory.AccessAsUser.All, fetched just-in-time at click.
+// ============================================================
+let softdeletedLoaded = false;
+let softdeletedLoading = false;
+let sdDevices = [];
+
+async function loadSoftdeleted() {
+  if (softdeletedLoading) return;
+  softdeletedLoading = true;
+  softdeletedLoaded = true;
+  $('sdLoading').style.display = '';
+  $('sdContent').style.display = 'none';
+  $('sdError').innerHTML = '';
+  $('sdNotice').innerHTML = '';
+  try {
+    const select = 'id,displayName,deletedDateTime,operatingSystem,operatingSystemVersion,' +
+                   'accountEnabled,trustType,deviceOwnership,approximateLastSignInDateTime';
+    const path = 'beta/directory/deletedItems/microsoft.graph.device?$select=' +
+                 encodeURIComponent(select) + '&$top=100';
+    const all = await graphGetAll(path);
+    const now = Date.now();
+    sdDevices = all.map(d => {
+      const deletedMs = d.deletedDateTime ? Date.parse(d.deletedDateTime) : 0;
+      const daysSinceDelete = deletedMs ? Math.floor((now - deletedMs) / 86400000) : 0;
+      return {
+        id: d.id,
+        displayName: d.displayName || `(unnamed — ${(d.id || '').slice(0,8)})`,
+        operatingSystem: d.operatingSystem || '—',
+        osVersion: d.operatingSystemVersion || '',
+        trustType: d.trustType || '—',
+        deletedAt: d.deletedDateTime || '',
+        daysRemaining: Math.max(0, 30 - daysSinceDelete),
+        accountEnabled: !!d.accountEnabled,
+        ownership: d.deviceOwnership || '',
+        lastSignIn: d.approximateLastSignInDateTime || ''
+      };
+    });
+    sdDevices.sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
+    renderSoftdeleted();
+    $('sdLoading').style.display = 'none';
+    $('sdContent').style.display = '';
+  } catch (e) {
+    softdeletedLoaded = false;
+    $('sdLoading').style.display = 'none';
+    const hint = e.status === 403
+      ? ' You may need Cloud Device Administrator, Intune Administrator, or Global Administrator in this tenant.'
+      : '';
+    $('sdError').innerHTML = `<div class="error-banner">Failed to load soft-deleted devices: ${esc(e.message || e)}${hint}</div>`;
+  } finally {
+    softdeletedLoading = false;
+  }
+}
+
+function renderSoftdeleted() {
+  const q = ($('sdFilter').value || '').toLowerCase().trim();
+  const rows = sdDevices.filter(d =>
+    !q || d.displayName.toLowerCase().includes(q) || d.operatingSystem.toLowerCase().includes(q));
+  const tbody = $('sdRows');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(d => {
+      const daysCell = d.daysRemaining <= 5
+        ? `<td class="warn-cell">${d.daysRemaining}</td>`
+        : `<td>${d.daysRemaining}</td>`;
+      const osCell = d.osVersion
+        ? `<td title="${esc(d.osVersion)}">${esc(d.operatingSystem)}</td>`
+        : `<td>${esc(d.operatingSystem)}</td>`;
+      return `
+        <tr>
+          <td class="app-name">${esc(d.displayName)}</td>
+          ${osCell}
+          <td>${esc(d.trustType)}</td>
+          <td class="date">${esc(fmtIntuneDate(d.deletedAt))}</td>
+          ${daysCell}
+          <td>${d.accountEnabled ? 'Yes' : 'No'}</td>
+          <td><button class="btn" data-restore-id="${esc(d.id)}" data-restore-name="${esc(d.displayName)}">↻ Restore</button></td>
+        </tr>`;
+    }).join('');
+    tbody.querySelectorAll('[data-restore-id]').forEach(btn => {
+      btn.addEventListener('click', () => onRestoreClick(btn));
+    });
+  }
+  $('sdCount').textContent = rows.length;
+}
+
+(function wireSoftdeletedControls() {
+  const filter = $('sdFilter');
+  if (filter) filter.addEventListener('input', renderSoftdeleted);
+  const refresh = $('btnSdRefresh');
+  if (refresh) refresh.addEventListener('click', () => {
+    softdeletedLoaded = false;
+    loadSoftdeleted();
+  });
+})();
 
 function renderHwDonut() {
   // RAM distribution donut — inline SVG, theme-consistent colors
@@ -6226,6 +6364,78 @@ async function ensureMeteringWriteConsent() {
   } catch (e) { /* fall through to popup */ }
   const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
   if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
+}
+
+// Directory.AccessAsUser.All is requested just-in-time so list-only viewers
+// aren't prompted at sign-in. graphPost can't be reused here — it acquires a
+// token for the static SCOPES array, which (deliberately) does not include
+// this scope. We mint a token explicitly and POST via fetch.
+async function ensureDirectoryWriteConsent() {
+  if (!msalApp) throw new Error('not signed in');
+  const writeScope = 'Directory.AccessAsUser.All';
+  const account = msalApp.getActiveAccount();
+  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
+    if (granted(r)) return r.accessToken;
+  } catch (_) { /* fall through to popup */ }
+  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
+  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
+  return r.accessToken;
+}
+
+async function restoreDeletedDevice(id) {
+  const token = await ensureDirectoryWriteConsent();
+  const res = await fetch(
+    `https://graph.microsoft.com/beta/directory/deletedItems/${encodeURIComponent(id)}/restore`,
+    {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: '{}'
+    }
+  );
+  if (res.status === 404) return null;  // already restored / aged out — treat as success
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + body);
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function onRestoreClick(btn) {
+  if (btn.disabled) return;
+  const id = btn.dataset.restoreId;
+  const name = btn.dataset.restoreName;
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Restoring…';
+  try {
+    await restoreDeletedDevice(id);
+    sdDevices = sdDevices.filter(d => d.id !== id);
+    const row = btn.closest('tr');
+    if (row) row.remove();
+    $('sdCount').textContent = sdDevices.length;
+    if (!sdDevices.length) {
+      $('sdRows').innerHTML = '<tr><td colspan="7" class="empty">No soft-deleted devices. Anything deleted in the last 30 days will appear here.</td></tr>';
+    }
+    $('sdNotice').innerHTML =
+      `<div class="notice-banner">✓ Restored <strong>${esc(name)}</strong>. It should reappear in Entra and re-link to its Intune managed-device record within a few minutes.</div>`;
+    setTimeout(() => { const n = $('sdNotice'); if (n) n.innerHTML = ''; }, 8000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    const roleHint = e.status === 403
+      ? ' You need Cloud Device Administrator, Intune Administrator, or Global Administrator.'
+      : '';
+    $('sdError').innerHTML =
+      `<div class="error-banner">Restore failed for <strong>${esc(name)}</strong>: ${esc(e.message || e)}${roleHint}</div>`;
+  }
 }
 
 async function confirmMeteringDeploy() {
