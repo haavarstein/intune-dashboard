@@ -1803,7 +1803,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <th>Device name</th>
                 <th>OS</th>
                 <th>Trust type</th>
-                <th>Last sign-in</th>
+                <th>Object ID</th>
                 <th>Deleted at</th>
                 <th>Days remaining</th>
                 <th>Enabled at delete</th>
@@ -4966,7 +4966,7 @@ async function loadSoftdeleted() {
   $('sdNotice').innerHTML = '';
   try {
     const select = 'id,displayName,deletedDateTime,operatingSystem,operatingSystemVersion,' +
-                   'accountEnabled,trustType,deviceOwnership,approximateLastSignInDateTime';
+                   'accountEnabled,trustType,deviceOwnership';
     const path = 'beta/directory/deletedItems/microsoft.graph.device?$select=' +
                  encodeURIComponent(select) + '&$top=100';
     const all = await graphGetAll(path);
@@ -4983,8 +4983,7 @@ async function loadSoftdeleted() {
         deletedAt: d.deletedDateTime || '',
         daysRemaining: Math.max(0, 30 - daysSinceDelete),
         accountEnabled: !!d.accountEnabled,
-        ownership: d.deviceOwnership || '',
-        lastSignIn: d.approximateLastSignInDateTime || ''
+        ownership: d.deviceOwnership || ''
       };
     });
     sdDevices.sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
@@ -5023,7 +5022,7 @@ function renderSoftdeleted() {
           <td class="app-name">${esc(d.displayName)}</td>
           ${osCell}
           <td>${esc(d.trustType)}</td>
-          <td class="date">${esc(fmtIntuneDate(d.lastSignIn))}</td>
+          <td title="${esc(d.id)}" style="font-family:monospace; font-size:12px;">${esc((d.id || '').slice(0, 8))}…</td>
           <td class="date">${esc(fmtIntuneDate(d.deletedAt))}</td>
           ${daysCell}
           <td>${d.accountEnabled ? 'Yes' : 'No'}</td>

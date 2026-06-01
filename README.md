@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Fifteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), and Drift & Compliance (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Sixteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), and Soft-deleted (Entra recycle bin).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all fifteen sub-tabs share the same session.
+Sign in once with MSAL — all sixteen sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -124,6 +124,16 @@ Sign in once with MSAL — all fifteen sub-tabs share the same session.
 - **⬇ Export CSV** for a snapshot of the at-risk fleet.
 - Uses the existing `DeviceManagementManagedDevices.Read.All` scope — no new consent.
 
+**Soft-deleted** — Entra ID device recycle bin (preview). Lists soft-deleted Entra device objects with a per-row **↻ Restore** action so admins can recover accidentally deleted devices within the 30-day window without dropping to Microsoft Graph PowerShell. The recycle bin preserves BitLocker recovery keys, LAPS passwords, device identity, and key material — restoring the object brings all of that back and the Intune managed-device record auto-relinks within a few minutes.
+
+- Sortable table with **Device name**, **OS**, **Trust type**, **Object ID** (first 8 chars; hover for full GUID), **Deleted at**, **Days remaining** (warn-cell when ≤ 5), **Enabled at delete**, and **Action**. Default sort is *deleted-at descending* so the most recent deletions float to the top.
+- The **Object ID** column is the disambiguator when the same hostname has multiple stale objects in the recycle bin — common after re-enrollment loops or stale-device cleanup sweeps. Each entry is a distinct directory object with its own GUID.
+- 404 on restore is treated as success (already restored / aged out — the row is removed and a success banner shown).
+- LIST piggybacks on the existing `Device.Read.All` scope (no extra consent to view the bin).
+- RESTORE requires `Directory.AccessAsUser.All` — requested **just-in-time** on first click so list-only viewers aren't pestered at sign-in. Only Cloud Device Administrator, Intune Administrator, or Global Administrator can complete the restore (Entra role requirement, enforced by Graph).
+- **Hybrid-joined devices are hard-deleted on removal** and never appear here — Microsoft only soft-deletes Entra-joined and Entra-registered devices in the current preview.
+- Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
+
 **Assignments** — group-centric reverse lookup *plus* tenant-wide hygiene. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
 
 **Hygiene panel** (top of the tab) surfaces operational cruft computed from the same cache:
@@ -206,7 +216,11 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
-Three write scopes total — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, and ⚡ Auto-deploy will work.
+**Just-in-time scope (not requested at sign-in):**
+
+- `Directory.AccessAsUser.All` — **write scope** for the Soft-deleted sub-tab's ↻ Restore button. Requested via a popup the first time you click Restore in a session, so list-only viewers of the Entra recycle bin are never prompted. Requires admin consent and an Entra role of Cloud Device Administrator, Intune Administrator, or Global Administrator on the signed-in account; the LIST call uses the existing `Device.Read.All` scope.
+
+Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — plus one JIT write scope (`Directory.AccessAsUser.All`). Everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, and ↻ Restore (Soft-deleted sub-tab) will work.
 
 **First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementScripts.ReadWrite.All` for the Software Metering auto-deploy button).
 
@@ -246,6 +260,8 @@ Three write scopes total — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, 
 - `GET /beta/deviceManagement/windowsFeatureUpdateProfiles?$expand=assignments` — Windows Feature Update profiles (Assignments sub-tab)
 - `GET /beta/deviceManagement/windowsQualityUpdateProfiles?$expand=assignments` — Windows Quality Update profiles (Assignments sub-tab)
 - `GET /beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments` — Windows Driver Update profiles (Assignments sub-tab; requires Autopatch licensing in some tenants — silently skipped if 403)
+- `GET /beta/directory/deletedItems/microsoft.graph.device?$select=...&$top=100` — soft-deleted Entra device objects with their `deletedDateTime`, `trustType`, `accountEnabled`, etc. (Soft-deleted sub-tab); paginated via `@odata.nextLink`
+- `POST /beta/directory/deletedItems/{id}/restore` — restore a soft-deleted Entra device object (Soft-deleted sub-tab → ↻ Restore); uses a token minted just-in-time for `Directory.AccessAsUser.All` rather than the static `SCOPES` array
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 
