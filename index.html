@@ -2708,6 +2708,22 @@ async function initIntune() {
     showIntuneError('MSAL library failed to load. Check your network or CDN access.');
     return;
   }
+  // Entra rejects file:// as a redirectUri scheme (AADSTS500111), so opening
+  // index.html by double-clicking fails sign-in. Tell the user up front
+  // rather than letting MSAL throw a cryptic error mid-popup.
+  if (location.protocol === 'file:') {
+    $('intuneError').innerHTML =
+      '<div class="error-banner">' +
+      'Sign-in won’t work when this page is opened as a local file ' +
+      '(<code>file://</code>). Entra only accepts <code>http://localhost</code> ' +
+      'or <code>https://</code> redirect URIs. Either use the hosted version at ' +
+      '<a href="https://haavarstein.github.io/intune-dashboard/" target="_blank" rel="noopener">' +
+      'haavarstein.github.io/intune-dashboard</a>, or serve the folder over ' +
+      'HTTP locally (e.g. <code>python -m http.server 8080</code> then open ' +
+      '<code>http://localhost:8080/</code>).' +
+      '</div>';
+    return;
+  }
   msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
   await msalApp.initialize();
   const accounts = msalApp.getAllAccounts();
