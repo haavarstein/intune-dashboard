@@ -7290,55 +7290,39 @@ async function loadDiskspace(force = false) {
   $('diskspaceContent').style.display = 'none';
   $('diskspaceError').innerHTML = '';
   try {
-    // Storage fields in the LIST $select route the call through Intune's
-    // DeviceFE proxy which 401s in some tenants ("Forbidden / WWW-Authenticate:
-    // Bearer") even with DeviceManagementManagedDevices.Read.All granted.
-    // Workaround: LIST with basic fields only, then per-device GET to fill
-    // storage — same pattern Hardware uses at L4859 for physicalMemoryInBytes.
-    const select = 'id,deviceName,userPrincipalName,operatingSystem,osVersion,model,manufacturer,'
-                 + 'lastSyncDateTime,azureADDeviceId';
+    // Use the exact same $select shape as the Hardware sub-tab (L4814) —
+    // that one works in this tenant, our slimmer custom selects 401 from
+    // the DeviceFE proxy. Storage comes back in the LIST so no per-device
+    // GET loop is needed.
+    const select = 'id,deviceName,manufacturer,model,physicalMemoryInBytes,totalStorageSpaceInBytes,'
+                 + 'freeStorageSpaceInBytes,osVersion,operatingSystem,lastSyncDateTime,'
+                 + 'serialNumber,userPrincipalName,azureADDeviceId';
     const devices = await graphGetAll(
       'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select)
     );
     const MB = 1024 * 1024;
-    diskspaceRows = devices.filter(d => d.operatingSystem === 'Windows').map(d => ({
-      id: d.id,
-      deviceName: d.deviceName || '',
-      userPrincipalName: d.userPrincipalName || '',
-      osVersion: d.osVersion || '',
-      model: d.model || '',
-      manufacturer: d.manufacturer || '',
-      freeMB: null,
-      totalMB: null,
-      freePct: null,
-      lastSync: d.lastSyncDateTime || ''
-    }));
+    diskspaceRows = devices.filter(d => d.operatingSystem === 'Windows').map(d => {
+      const freeBytes  = d.freeStorageSpaceInBytes  || 0;
+      const totalBytes = d.totalStorageSpaceInBytes || 0;
+      const freeMB  = freeBytes  ? Math.floor(freeBytes  / MB) : null;
+      const totalMB = totalBytes ? Math.floor(totalBytes / MB) : null;
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '',
+        userPrincipalName: d.userPrincipalName || '',
+        osVersion: d.osVersion || '',
+        model: d.model || '',
+        manufacturer: d.manufacturer || '',
+        freeMB,
+        totalMB,
+        freePct: (freeMB != null && totalMB) ? (freeMB / totalMB) * 100 : null,
+        lastSync: d.lastSyncDateTime || ''
+      };
+    });
 
-    // Show the table immediately with storage placeholders so the user sees
-    // progress on large tenants while the per-device fetch runs.
     diskspaceLoaded = true;
     $('diskspaceLoading').style.display = 'none';
     $('diskspaceContent').style.display = '';
-    renderDiskspaceTiles();
-    renderDiskspaceTable();
-
-    // Per-device GET fills storage — chunked 20-at-a-time to match Hardware.
-    const CHUNK = 20;
-    for (let i = 0; i < diskspaceRows.length; i += CHUNK) {
-      const slice = diskspaceRows.slice(i, i + CHUNK);
-      await Promise.all(slice.map(async row => {
-        try {
-          const detail = await graphGet(
-            `beta/deviceManagement/managedDevices/${row.id}?$select=freeStorageSpaceInBytes,totalStorageSpaceInBytes`
-          );
-          const freeBytes  = detail.freeStorageSpaceInBytes  || 0;
-          const totalBytes = detail.totalStorageSpaceInBytes || 0;
-          row.freeMB  = freeBytes  ? Math.floor(freeBytes  / MB) : null;
-          row.totalMB = totalBytes ? Math.floor(totalBytes / MB) : null;
-          row.freePct = (row.freeMB != null && row.totalMB) ? (row.freeMB / row.totalMB) * 100 : null;
-        } catch (_) { /* leave row's storage as null */ }
-      }));
-    }
     renderDiskspaceTiles();
     renderDiskspaceTable();
   } catch (e) {
