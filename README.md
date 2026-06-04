@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Seventeen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), and Disk space.
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Seventeen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Disk space, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), and Soft-deleted (Entra recycle bin).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
