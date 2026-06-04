@@ -55,6 +55,30 @@
   .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.04); }
   .tile.clickable { cursor: pointer; }
   .tile.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  /* Stoplight KPI tiles — full 2px border + light tinted background + colored value.
+     Active state on these uses an outline so the status border stays visible. */
+  .tile.tile-good,
+  .tile.tile-watch,
+  .tile.tile-warn,
+  .tile.tile-bad { border-width: 2px; padding: 19px; }
+  .tile.tile-good  { border-color: #1f7a3a; background: #eaf6ee; }
+  .tile.tile-watch { border-color: #d4a017; background: #fff8d6; }
+  .tile.tile-warn  { border-color: #c97a1f; background: #fff0db; }
+  .tile.tile-bad   { border-color: #c0392b; background: #fde6e6; }
+  .tile.tile-good  .tile-value { color: #14512a; }
+  .tile.tile-watch .tile-value { color: #6a5314; }
+  .tile.tile-warn  .tile-value { color: #7a4500; }
+  .tile.tile-bad   .tile-value { color: #8a2020; }
+  .tile.tile-good.active,
+  .tile.tile-watch.active,
+  .tile.tile-warn.active,
+  .tile.tile-bad.active {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .tile.tile-good.active  { border-color: #1f7a3a; }
+  .tile.tile-watch.active { border-color: #d4a017; }
+  .tile.tile-warn.active  { border-color: #c97a1f; }
+  .tile.tile-bad.active   { border-color: #c0392b; }
   .tile-label {
     font-size: 10px;
     font-weight: 600;
@@ -770,8 +794,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="remediation">Remediation</button>
       </div>
       <div class="subtabs">
-        <button class="subtab" data-subtab="diskspace">Disk space</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="diskspace">Disk space</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
         <button class="subtab" data-subtab="certhealth">Cert health</button>
@@ -1350,19 +1374,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="blTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-bl-tile="encrypted-with-key" style="cursor:pointer; box-shadow: inset 0 3px 0 #1f5d33;" title="Filter: encrypted devices with a recovery key escrowed in Entra">
+          <div class="tile tile-good" data-bl-tile="encrypted-with-key" style="cursor:pointer;" title="Filter: encrypted devices with a recovery key escrowed in Entra">
             <div class="tile-label">Encrypted + Key</div>
-            <div class="tile-value" id="blTileSafe" style="color:#1f5d33;">0</div>
+            <div class="tile-value" id="blTileSafe">0</div>
             <div class="tile-sub">fully protected</div>
           </div>
-          <div class="tile" data-bl-tile="gap" style="cursor:pointer; box-shadow: inset 0 3px 0 #8a2020;" title="Filter: encrypted in Intune but zero recovery keys in Entra — real data-loss risk">
+          <div class="tile tile-bad" data-bl-tile="gap" style="cursor:pointer;" title="Filter: encrypted in Intune but zero recovery keys in Entra — real data-loss risk">
             <div class="tile-label">Encrypted, no key</div>
-            <div class="tile-value" id="blTileGap" style="color:#8a2020;">0</div>
+            <div class="tile-value" id="blTileGap">0</div>
             <div class="tile-sub">critical — no recovery</div>
           </div>
-          <div class="tile" data-bl-tile="not-encrypted" style="cursor:pointer; box-shadow: inset 0 3px 0 #b07a1f;" title="Filter: devices not encrypted (policy non-compliance)">
+          <div class="tile tile-warn" data-bl-tile="not-encrypted" style="cursor:pointer;" title="Filter: devices not encrypted (policy non-compliance)">
             <div class="tile-label">Not encrypted</div>
-            <div class="tile-value" id="blTileNotEnc" style="color:#704500;">0</div>
+            <div class="tile-value" id="blTileNotEnc">0</div>
             <div class="tile-sub">policy gap</div>
           </div>
           <div class="tile" title="Key Escrow Success Rate — share of encrypted devices that also have a recovery key escrowed in Entra">
@@ -1843,19 +1867,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="dsTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-ds-tile="1024" style="cursor:pointer; box-shadow: inset 0 3px 0 #8a2020;" title="Filter: devices with less than 1 GB free — emergency / Windows breaking, most Win32 requirement rules will fail">
+          <div class="tile tile-bad" data-ds-tile="1024" style="cursor:pointer;" title="Filter: devices with less than 1 GB free — emergency / Windows breaking, most Win32 requirement rules will fail">
             <div class="tile-label">&lt; 1 GB free</div>
-            <div class="tile-value" id="dsTileCrit" style="color:#8a2020;">0</div>
+            <div class="tile-value" id="dsTileCrit">0</div>
             <div class="tile-sub">emergency</div>
           </div>
-          <div class="tile" data-ds-tile="5120" style="cursor:pointer; box-shadow: inset 0 3px 0 #b07a1f;" title="Filter: devices with less than 5 GB free — common helpdesk pain, most installers struggle">
+          <div class="tile tile-warn" data-ds-tile="5120" style="cursor:pointer;" title="Filter: devices with less than 5 GB free — common helpdesk pain, most installers struggle">
             <div class="tile-label">&lt; 5 GB free</div>
-            <div class="tile-value" id="dsTileWarn" style="color:#704500;">0</div>
+            <div class="tile-value" id="dsTileWarn">0</div>
             <div class="tile-sub">at risk</div>
           </div>
-          <div class="tile" data-ds-tile="20480" style="cursor:pointer; box-shadow: inset 0 3px 0 #c9a64a;" title="Filter: devices with less than 20 GB free — proactive monitoring band (Syst &amp; Deploy warning default)">
+          <div class="tile tile-watch" data-ds-tile="20480" style="cursor:pointer;" title="Filter: devices with less than 20 GB free — proactive monitoring band (Syst &amp; Deploy warning default)">
             <div class="tile-label">&lt; 20 GB free</div>
-            <div class="tile-value" id="dsTileWatch" style="color:#7a5f1f;">0</div>
+            <div class="tile-value" id="dsTileWatch">0</div>
             <div class="tile-sub">watch</div>
           </div>
           <div class="tile" title="Lowest free-space device in the fleet (worst offender)">
