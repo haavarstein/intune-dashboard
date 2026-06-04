@@ -778,6 +778,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
+        <button class="subtab" data-subtab="diskspace">Disk space</button>
       </div>
 
       <div id="intuneError"></div>
@@ -1831,6 +1832,80 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubSoftdeleted -->
+
+      <div id="intuneSubDiskspace" style="display:none;">
+        <div class="tab-hint">
+          Windows devices below your selected free-disk-space threshold. The Win32 app <code>Disk space required (MB)</code> requirement rule silently marks a device as <strong>Requirements not met</strong> or <strong>Not Applicable</strong> when free space is below the rule — no obvious error in the Intune console, just a missing install. When an install does attempt and fails on disk, the IME logs commonly show <code>0x80070070</code> (not enough space on disk) or <code>0x87D30067</code> (extraction failed, often disk-related). Background context: Microsoft incident <strong>IT1168328</strong> (the Intune Store / WinGet log bloat bug) silently filled <code>%windir%\Temp\WinGet\defaultState</code> on many tenants through 2025, and Windows 11 24H2 upgrades have pushed disk pressure up across the fleet.
+        </div>
+        <div class="tiles">
+          <div class="tile" data-ds-tile="" style="cursor:pointer;" title="Show all Windows devices">
+            <div class="tile-label">Windows devices</div>
+            <div class="tile-value" id="dsTileTotal">0</div>
+            <div class="tile-sub">in scope</div>
+          </div>
+          <div class="tile" data-ds-tile="1024" style="cursor:pointer; box-shadow: inset 0 3px 0 #8a2020;" title="Filter: devices with less than 1 GB free — emergency / Windows breaking, most Win32 requirement rules will fail">
+            <div class="tile-label">&lt; 1 GB free</div>
+            <div class="tile-value" id="dsTileCrit" style="color:#8a2020;">0</div>
+            <div class="tile-sub">emergency</div>
+          </div>
+          <div class="tile" data-ds-tile="5120" style="cursor:pointer; box-shadow: inset 0 3px 0 #b07a1f;" title="Filter: devices with less than 5 GB free — common helpdesk pain, most installers struggle">
+            <div class="tile-label">&lt; 5 GB free</div>
+            <div class="tile-value" id="dsTileWarn" style="color:#704500;">0</div>
+            <div class="tile-sub">at risk</div>
+          </div>
+          <div class="tile" data-ds-tile="20480" style="cursor:pointer; box-shadow: inset 0 3px 0 #c9a64a;" title="Filter: devices with less than 20 GB free — proactive monitoring band (Syst &amp; Deploy warning default)">
+            <div class="tile-label">&lt; 20 GB free</div>
+            <div class="tile-value" id="dsTileWatch" style="color:#7a5f1f;">0</div>
+            <div class="tile-sub">watch</div>
+          </div>
+          <div class="tile" title="Lowest free-space device in the fleet (worst offender)">
+            <div class="tile-label">Lowest free</div>
+            <div class="tile-value" id="dsTileLowest" style="font-size:30px;">—</div>
+            <div class="tile-sub" id="dsTileLowestSub">on —</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="diskspaceFilter" placeholder="Search device, user, model…">
+              <select class="filter-select" id="diskspaceBandFilter" title="Free-disk-space threshold (MB)">
+                <option value="" selected>All devices</option>
+                <option value="250">&lt; 250 MB (small Win32 rule fails)</option>
+                <option value="500">&lt; 500 MB (medium Win32 rule fails)</option>
+                <option value="1024">&lt; 1 GB (emergency)</option>
+                <option value="2048">&lt; 2 GB (most installers fail)</option>
+                <option value="5120">&lt; 5 GB (helpdesk pain)</option>
+                <option value="10240">&lt; 10 GB (alert default)</option>
+                <option value="20480">&lt; 20 GB (warning band)</option>
+              </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnDiskspaceClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDiskspaceExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnDiskspaceRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="diskspaceLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading disk-space inventory…</div>
+          <div id="diskspaceError"></div>
+          <div id="diskspaceContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-dsort="deviceName">Device <span class="arrow">▼</span></th>
+                  <th data-dsort="userPrincipalName">User <span class="arrow">▼</span></th>
+                  <th data-dsort="osVersion">Windows <span class="arrow">▼</span></th>
+                  <th data-dsort="model">Model <span class="arrow">▼</span></th>
+                  <th data-dsort="freeMB">Free <span class="arrow">▼</span></th>
+                  <th data-dsort="totalMB">Total <span class="arrow">▼</span></th>
+                  <th data-dsort="freePct">Free % <span class="arrow">▼</span></th>
+                  <th data-dsort="lastSync">Last check-in <span class="arrow">▼</span></th>
+                </tr>
+              </thead>
+              <tbody id="diskspaceRowsBody"></tbody>
+            </table>
+            <div class="footer-count"><span id="diskspaceCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubDiskspace -->
 
       <div id="intuneSubRemediation" style="display:none;">
         <div class="tab-hint">All proactive remediation scripts (<code>deviceHealthScripts</code>) with their schedules. Click a script to open its Intune admin-center blade.</div>
@@ -2894,6 +2969,8 @@ function resetTenantState() {
   autopilotLoaded = false; autopilotRows = [];
   // BitLocker
   bitlockerLoaded = false; bitlockerRows = [];
+  // Disk space
+  diskspaceLoaded = false; diskspaceRows = [];
   // Cert health
   certhealthLoaded = false; certhealthRows = [];
   // Remediation / Vulnerabilities
@@ -4570,6 +4647,7 @@ function switchSubtab(name) {
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubSoftdeleted').style.display = name === 'softdeleted' ? '' : 'none';
+  $('intuneSubDiskspace').style.display = name === 'diskspace' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
   $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
@@ -4590,6 +4668,7 @@ function switchSubtab(name) {
   if (name === 'approvals' && !approvalsLoaded) loadApprovals();
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
   if (name === 'softdeleted' && !softdeletedLoaded) loadSoftdeleted();
+  if (name === 'diskspace' && !diskspaceLoaded) loadDiskspace();
 }
 
 // ============================================================
@@ -7189,6 +7268,247 @@ document.querySelectorAll('#intuneSubBitlocker th[data-bsort]').forEach(th => {
     if (bitlockerSortKey === key) bitlockerSortDir = bitlockerSortDir === 'asc' ? 'desc' : 'asc';
     else { bitlockerSortKey = key; bitlockerSortDir = 'desc'; }
     renderBitlockerTable();
+  });
+});
+
+// ============================================================
+// Disk space sub-tab — Win32 app requirement-rule pre-flight
+// Pulls Windows managedDevices with freeStorageSpaceInBytes and
+// totalStorageSpaceInBytes (already in the scope you have), surfaces
+// devices that are about to silently fail the "Disk space required
+// (MB)" requirement rule on Win32 apps. Self-contained Graph call
+// (slim $select) so the tab loads fast even if Hardware hasn't run.
+// ============================================================
+let diskspaceLoaded = false;
+let diskspaceRows = [];
+let diskspaceSortKey = 'freeMB';
+let diskspaceSortDir = 'asc'; // worst (lowest free) first
+
+async function loadDiskspace(force = false) {
+  if (diskspaceLoaded && !force) return;
+  $('diskspaceLoading').style.display = '';
+  $('diskspaceContent').style.display = 'none';
+  $('diskspaceError').innerHTML = '';
+  try {
+    const select = 'id,deviceName,userPrincipalName,operatingSystem,osVersion,model,manufacturer,'
+                 + 'freeStorageSpaceInBytes,totalStorageSpaceInBytes,lastSyncDateTime,azureADDeviceId';
+    const filter = `operatingSystem eq 'Windows'`;
+    const devices = await graphGetAll(
+      `beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}`
+    );
+    const MB = 1024 * 1024;
+    diskspaceRows = devices.map(d => {
+      const freeMB  = d.freeStorageSpaceInBytes  ? Math.floor(d.freeStorageSpaceInBytes  / MB) : null;
+      const totalMB = d.totalStorageSpaceInBytes ? Math.floor(d.totalStorageSpaceInBytes / MB) : null;
+      const freePct = (freeMB != null && totalMB) ? (freeMB / totalMB) * 100 : null;
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '',
+        userPrincipalName: d.userPrincipalName || '',
+        osVersion: d.osVersion || '',
+        model: d.model || '',
+        manufacturer: d.manufacturer || '',
+        freeMB,
+        totalMB,
+        freePct,
+        lastSync: d.lastSyncDateTime || ''
+      };
+    });
+    diskspaceLoaded = true;
+    $('diskspaceLoading').style.display = 'none';
+    $('diskspaceContent').style.display = '';
+    renderDiskspaceTiles();
+    renderDiskspaceTable();
+  } catch (e) {
+    console.error('Disk space load failed', e);
+    $('diskspaceLoading').style.display = 'none';
+    $('diskspaceError').innerHTML = `<div class="error-banner">Failed to load disk-space data: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+// Format free/total space — show MB under 1 GB so the < 250 MB / < 500 MB
+// bands stay readable, GB above. null → em-dash.
+function dsFormatMB(mb) {
+  if (mb == null) return '—';
+  if (mb < 1024) return mb + ' MB';
+  const gb = mb / 1024;
+  return (gb < 10 ? gb.toFixed(1) : Math.round(gb)) + ' GB';
+}
+
+// Color band for a given free-MB value — matches the dropdown bands.
+function dsColorForFreeMB(freeMB) {
+  if (freeMB == null) return 'var(--muted)';
+  if (freeMB < 1024)  return '#8a2020'; // red — emergency
+  if (freeMB < 5120)  return '#704500'; // amber — at risk
+  if (freeMB < 20480) return '#7a5f1f'; // yellow — watch
+  return '#1f5d33';                     // green — healthy
+}
+
+function renderDiskspaceTiles() {
+  let total = 0, crit = 0, warn = 0, watch = 0;
+  let lowest = null; // row with smallest freeMB (ignoring null)
+  for (const r of diskspaceRows) {
+    total++;
+    if (r.freeMB == null) continue;
+    if (r.freeMB < 1024)  crit++;
+    if (r.freeMB < 5120)  warn++;
+    if (r.freeMB < 20480) watch++;
+    if (lowest == null || r.freeMB < lowest.freeMB) lowest = r;
+  }
+  $('dsTileTotal').textContent = total;
+  $('dsTileCrit').textContent  = crit;
+  $('dsTileWarn').textContent  = warn;
+  $('dsTileWatch').textContent = watch;
+  if (lowest) {
+    $('dsTileLowest').textContent = dsFormatMB(lowest.freeMB);
+    $('dsTileLowest').style.color = dsColorForFreeMB(lowest.freeMB);
+    $('dsTileLowestSub').textContent = 'on ' + (lowest.deviceName || '—');
+  } else {
+    $('dsTileLowest').textContent = '—';
+    $('dsTileLowest').style.color = 'var(--muted)';
+    $('dsTileLowestSub').textContent = 'on —';
+  }
+}
+
+function applyDiskspaceFilters(rows) {
+  const q = ($('diskspaceFilter').value || '').toLowerCase().trim();
+  const bandRaw = $('diskspaceBandFilter').value;
+  const band = bandRaw ? parseInt(bandRaw, 10) : null;
+  return rows.filter(r => {
+    if (band != null) {
+      if (r.freeMB == null || r.freeMB >= band) return false;
+    }
+    if (q) {
+      const hay = [r.deviceName, r.userPrincipalName, r.model, r.manufacturer].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// Map tile-id → band value the tile filters to. Used for active-tile
+// highlighting and the click-to-toggle behaviour.
+const dsTileMap = {
+  dsTileTotal: '',
+  dsTileCrit:  '1024',
+  dsTileWarn:  '5120',
+  dsTileWatch: '20480'
+};
+
+function syncDiskspaceTileUi() {
+  const current = $('diskspaceBandFilter').value;
+  Object.keys(dsTileMap).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    const target = dsTileMap[id];
+    tile.classList.toggle('active', target !== '' && current === target);
+  });
+}
+
+function renderDiskspaceTable() {
+  const bandActive   = !!$('diskspaceBandFilter').value;
+  const searchActive = !!($('diskspaceFilter').value || '').trim();
+  $('btnDiskspaceClearKpi').style.display = (bandActive || searchActive) ? '' : 'none';
+  syncDiskspaceTileUi();
+
+  let rows = applyDiskspaceFilters(diskspaceRows);
+  const dir = diskspaceSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (diskspaceSortKey === 'freeMB' || diskspaceSortKey === 'totalMB' || diskspaceSortKey === 'freePct') {
+      // numeric — push nulls to the bottom regardless of direction
+      av = a[diskspaceSortKey]; bv = b[diskspaceSortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+    } else {
+      av = a[diskspaceSortKey] || ''; bv = b[diskspaceSortKey] || '';
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.deviceName || '').toLowerCase().localeCompare((b.deviceName || '').toLowerCase());
+  });
+
+  const body = $('diskspaceRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const deviceCell = r.id
+        ? `<a href="https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${encodeURIComponent(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.deviceName) || '—'}</a>`
+        : (esc(r.deviceName) || '—');
+      const color = dsColorForFreeMB(r.freeMB);
+      const pct = r.freePct == null ? '—' : r.freePct.toFixed(1) + '%';
+      return `
+        <tr>
+          <td>${deviceCell}</td>
+          <td>${esc(r.userPrincipalName) || '—'}</td>
+          <td>${esc(r.osVersion) || '—'}</td>
+          <td>${esc(r.model) || '—'}</td>
+          <td style="color:${color}; font-weight:600;">${dsFormatMB(r.freeMB)}</td>
+          <td>${dsFormatMB(r.totalMB)}</td>
+          <td>${pct}</td>
+          <td class="date">${r.lastSync ? new Date(r.lastSync).toLocaleString() : '—'}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  $('diskspaceCount').textContent = rows.length;
+}
+
+function exportDiskspaceCsv() {
+  const rows = applyDiskspaceFilters(diskspaceRows);
+  const header = ['DeviceName','User','OSVersion','Manufacturer','Model','FreeMB','TotalMB','FreePct','LastSync'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.deviceName, r.userPrincipalName, r.osVersion, r.manufacturer, r.model,
+    r.freeMB == null ? '' : r.freeMB,
+    r.totalMB == null ? '' : r.totalMB,
+    r.freePct == null ? '' : r.freePct.toFixed(2),
+    r.lastSync
+  ].map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `disk-space-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('diskspaceFilter').addEventListener('input', renderDiskspaceTable);
+$('diskspaceBandFilter').addEventListener('change', renderDiskspaceTable);
+$('btnDiskspaceRefresh').addEventListener('click', () => loadDiskspace(true));
+$('btnDiskspaceExport').addEventListener('click', exportDiskspaceCsv);
+$('btnDiskspaceClearKpi').addEventListener('click', () => {
+  $('diskspaceBandFilter').value = '';
+  $('diskspaceFilter').value = '';
+  $('diskspaceFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderDiskspaceTable();
+});
+
+document.querySelectorAll('[data-ds-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const target = tile.dataset.dsTile;
+    const current = $('diskspaceBandFilter').value;
+    // Total tile ('') always clears; other tiles toggle off when already active.
+    $('diskspaceBandFilter').value = (target !== '' && current === target) ? '' : target;
+    renderDiskspaceTable();
+  });
+});
+
+document.querySelectorAll('#intuneSubDiskspace th[data-dsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.dsort;
+    if (diskspaceSortKey === key) diskspaceSortDir = diskspaceSortDir === 'asc' ? 'desc' : 'asc';
+    else {
+      diskspaceSortKey = key;
+      // Default to ascending for numeric so the worst row floats up.
+      diskspaceSortDir = (key === 'freeMB' || key === 'freePct' || key === 'totalMB') ? 'asc' : 'desc';
+    }
+    renderDiskspaceTable();
   });
 });
 

@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Sixteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), and Soft-deleted (Entra recycle bin).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Seventeen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), and Disk space.
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -138,6 +138,15 @@ Sign in once with MSAL — all sixteen sub-tabs share the same session.
 - RESTORE requires `Directory.AccessAsUser.All` — requested **just-in-time** on first click so list-only viewers aren't pestered at sign-in. Only Cloud Device Administrator, Intune Administrator, or Global Administrator can complete the restore (Entra role requirement, enforced by Graph).
 - **Hybrid-joined devices are hard-deleted on removal** and never appear here — Microsoft only soft-deletes Entra-joined and Entra-registered devices in the current preview.
 - Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
+
+**Disk space** — Win32 app requirement-rule pre-flight. The Intune Win32 `Disk space required (MB)` requirement rule silently marks devices as **Requirements not met** or **Not Applicable** when free space is below the rule — no obvious error in the Intune console, just a missing install. This tab lists Windows devices below a chosen free-space threshold so you can find the silent victims before they call helpdesk. Background context for *why* this matters in 2025–2026: Microsoft incident **IT1168328** (the Intune Store / WinGet log bloat bug) silently filled `%windir%\Temp\WinGet\defaultState`, and Windows 11 24H2 upgrades have pushed disk pressure up across the fleet.
+
+- **KPI tiles**: Windows devices in scope · **< 1 GB free** (red, emergency / Windows breaking) · **< 5 GB free** (amber, at-risk / common helpdesk pain) · **< 20 GB free** (yellow, watch / proactive monitoring band) · **Lowest free** (worst offender in the fleet, with device name). The three coloured tiles are click-to-filter; click again to clear.
+- **Threshold dropdown** with seven MB-based bands matching Intune's own `Disk space required (MB)` field: `< 250 MB` (small Win32 rule fails) · `< 500 MB` (medium Win32 rule fails) · `< 1 GB` (emergency) · `< 2 GB` (most installers fail) · `< 5 GB` (helpdesk pain) · `< 10 GB` (alert default) · `< 20 GB` (warning band). MB-based on purpose — matches the unit admins type into the Win32 requirement rule, so a 2 GB filter shows exactly the devices that would fail a 2 GB requirement.
+- Sortable table with Device · User · Windows · Model · Free · Total · Free % · Last check-in. Default sort is **Free ascending** so the worst-off devices float to the top. Free-space cell is colour-coded by band (red < 1 GB, amber < 5 GB, yellow < 20 GB, green ≥ 20 GB).
+- Common error codes when an install does attempt and fails on disk: `0x80070070` (not enough space on disk) and `0x87D30067` (extraction failed, often disk-related). The IME log at `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneManagementExtension.log` is where to confirm root cause.
+- **⬇ Export CSV** for the current filtered view.
+- Uses the existing `DeviceManagementManagedDevices.Read.All` scope — **no new consent**. Self-contained Graph call (`beta/deviceManagement/managedDevices` with a slim `$select` filtered to `operatingSystem eq 'Windows'`) so the tab loads fast even if Hardware hasn't been opened yet.
 
 **Assignments** — group-centric reverse lookup *plus* tenant-wide hygiene. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
 
