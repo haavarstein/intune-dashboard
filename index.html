@@ -7290,24 +7290,22 @@ async function loadDiskspace(force = false) {
   $('diskspaceContent').style.display = 'none';
   $('diskspaceError').innerHTML = '';
   try {
-    // hardwareInformation.freeStorageSpace / .totalStorageSpace is the
-    // supported field path — the top-level freeStorageSpaceInBytes /
-    // totalStorageSpaceInBytes fields trigger an Intune DeviceFE proxy
-    // hop that 401s with "Forbidden / WWW-Authenticate: Bearer" in some
-    // tenants even when DeviceManagementManagedDevices.Read.All is granted.
-    // Asking for the whole hardwareInformation object is one extra payload
-    // field but stays on the regular Graph path.
+    // Match the Hardware sub-tab's query shape exactly — same $select fields,
+    // URL-encoded $select (Hardware is the only tab that encodes it), no
+    // $filter (Windows filter applied client-side). Other shapes (raw $select,
+    // hardwareInformation nested field, $filter=operatingSystem) route the
+    // call through Intune's DeviceFE proxy which 401s in some tenants with
+    // "Forbidden / WWW-Authenticate: Bearer" even when the Graph scope is
+    // granted. Hardware's pattern is the proven-working shape.
     const select = 'id,deviceName,userPrincipalName,operatingSystem,osVersion,model,manufacturer,'
-                 + 'hardwareInformation,lastSyncDateTime,azureADDeviceId';
-    // No $filter on operatingSystem — apply Windows filter client-side. Some
-    // tenants treat $filter on managedDevices as a "deep" query and re-route
-    // through the same proxy that fails above; keeping the URL minimal avoids it.
-    const devices = await graphGetAll(`beta/deviceManagement/managedDevices?$select=${select}`);
+                 + 'freeStorageSpaceInBytes,totalStorageSpaceInBytes,lastSyncDateTime,azureADDeviceId';
+    const devices = await graphGetAll(
+      'beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select)
+    );
     const MB = 1024 * 1024;
     diskspaceRows = devices.filter(d => d.operatingSystem === 'Windows').map(d => {
-      const hw = d.hardwareInformation || {};
-      const freeBytes  = hw.freeStorageSpace  || 0;
-      const totalBytes = hw.totalStorageSpace || 0;
+      const freeBytes  = d.freeStorageSpaceInBytes  || 0;
+      const totalBytes = d.totalStorageSpaceInBytes || 0;
       const freeMB  = freeBytes  ? Math.floor(freeBytes  / MB) : null;
       const totalMB = totalBytes ? Math.floor(totalBytes / MB) : null;
       const freePct = (freeMB != null && totalMB) ? (freeMB / totalMB) * 100 : null;
