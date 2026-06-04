@@ -1,4 +1,4 @@
-# The Intune Dashboard
+# THE Intune Dashboard
 
 A clean, client-side dashboard with four tabs:
 
