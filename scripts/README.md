@@ -1,6 +1,6 @@
 # Software Metering — collection script
 
-PowerShell detection script for the Intune Dashboard's Software Metering sub-tab. Reports per-user application last-execution data on Windows devices, agentless, via Microsoft's existing Intune Management Extension.
+PowerShell detection script for THE Intune Dashboard's Software Metering sub-tab. Reports per-user application last-execution data on Windows devices, agentless, via Microsoft's existing Intune Management Extension.
 
 ## What it does
 
@@ -40,7 +40,7 @@ The dashboard surfaces all of this further reduced (aggregates to "days since la
 ## Deploying to Intune
 
 1. **Intune admin center** → **Devices** → **Scripts and remediations** → **Add** → **Windows**.
-2. Name: `Intune Dashboard - Software Metering`. Description: copy from this README's "What it does / does not collect."
+2. Name: `THE Intune Dashboard - Software Metering`. Description: copy from this README's "What it does / does not collect."
 3. **Detection script file**: upload `software-metering-detect.ps1`.
 4. **Remediation script file**: leave **empty**. This is a detection-only deployment — there's nothing to remediate.
 5. **Run this script using the logged-on credentials**: **No** (run as SYSTEM).
@@ -52,7 +52,7 @@ The dashboard surfaces all of this further reduced (aggregates to "days since la
 
 ## Configuring the dashboard
 
-In the Intune Dashboard:
+In THE Intune Dashboard:
 - **Settings** → **Customers** → click your customer's row.
 - Paste the script GUID into **Metering script ID**.
 - Save.

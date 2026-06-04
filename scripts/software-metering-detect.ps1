@@ -1,15 +1,15 @@
-# Intune Dashboard - Software Metering (detection script)
+# THE Intune Dashboard - Software Metering (detection script)
 #
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  INTUNE PORTAL METADATA — copy/paste into the "Add" wizard               ║
 # ╠══════════════════════════════════════════════════════════════════════════╣
-# ║  Name        : Intune Dashboard - Software Metering                      ║
-# ║  Publisher   : Intune Dashboard                                          ║
+# ║  Name        : THE Intune Dashboard - Software Metering                  ║
+# ║  Publisher   : THE Intune Dashboard                                      ║
 # ║  Description :                                                           ║
 # ║    Agentless software metering. Collects per-user application last-      ║
 # ║    execution data from Windows BAM (Background Activity Moderator) and   ║
 # ║    reports a gzip+base64-encoded snapshot via the detection script's     ║
-# ║    stdout channel. Read by the Intune Dashboard's Software Metering      ║
+# ║    stdout channel. Read by THE Intune Dashboard's Software Metering      ║
 # ║    sub-tab to surface idle-90d+ and never-launched installs for license  ║
 # ║    reclamation. Always exits 0; never triggers a remediation.            ║
 # ║                                                                          ║
