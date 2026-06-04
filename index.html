@@ -1342,27 +1342,43 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubAutopilot -->
 
       <div id="intuneSubBitlocker" style="display:none;">
-        <div class="tab-hint">BitLocker escrow audit — Windows devices that report as encrypted in Intune cross-referenced with recovery keys actually backed up in Entra. The gap tile shows devices encrypted but with no key escrowed (your worst-case recovery scenario).</div>
+        <div class="tab-hint">BitLocker escrow audit — Windows devices that report as encrypted in Intune cross-referenced with recovery keys actually backed up in Entra. Split into three risk tiers: <strong>Encrypted + Key</strong> (fully protected), <strong>Encrypted, no key</strong> (critical — real data-loss risk if the drive fails), and <strong>Not encrypted</strong> (policy non-compliance).</div>
         <div class="tiles">
           <div class="tile" data-bl-tile="" style="cursor:pointer;" title="Show all devices">
             <div class="tile-label">Windows devices</div>
             <div class="tile-value" id="blTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-bl-tile="encrypted-any" style="cursor:pointer;" title="Filter: encrypted (any)">
-            <div class="tile-label">Encrypted</div>
-            <div class="tile-value" id="blTileEncrypted">0</div>
-            <div class="tile-sub">per Intune</div>
+          <div class="tile" data-bl-tile="encrypted-with-key" style="cursor:pointer; box-shadow: inset 0 3px 0 #1f5d33;" title="Filter: encrypted devices with a recovery key escrowed in Entra">
+            <div class="tile-label">Encrypted + Key</div>
+            <div class="tile-value" id="blTileSafe" style="color:#1f5d33;">0</div>
+            <div class="tile-sub">fully protected</div>
           </div>
-          <div class="tile" data-bl-tile="key-escrowed-any" style="cursor:pointer;" title="Filter: keys escrowed in Entra">
-            <div class="tile-label">Keys escrowed</div>
-            <div class="tile-value" id="blTileEscrowed">0</div>
-            <div class="tile-sub">in Entra</div>
+          <div class="tile" data-bl-tile="gap" style="cursor:pointer; box-shadow: inset 0 3px 0 #8a2020;" title="Filter: encrypted in Intune but zero recovery keys in Entra — real data-loss risk">
+            <div class="tile-label">Encrypted, no key</div>
+            <div class="tile-value" id="blTileGap" style="color:#8a2020;">0</div>
+            <div class="tile-sub">critical — no recovery</div>
           </div>
-          <div class="tile" data-bl-tile="gap" style="cursor:pointer;" title="Filter: encrypted but no key escrowed">
-            <div class="tile-label">Gap</div>
-            <div class="tile-value accent" id="blTileGap">0</div>
-            <div class="tile-sub">encrypted, no key</div>
+          <div class="tile" data-bl-tile="not-encrypted" style="cursor:pointer; box-shadow: inset 0 3px 0 #b07a1f;" title="Filter: devices not encrypted (policy non-compliance)">
+            <div class="tile-label">Not encrypted</div>
+            <div class="tile-value" id="blTileNotEnc" style="color:#704500;">0</div>
+            <div class="tile-sub">policy gap</div>
+          </div>
+          <div class="tile" title="Key Escrow Success Rate — share of encrypted devices that also have a recovery key escrowed in Entra">
+            <div class="tile-label">Key escrow rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="blEscrowRing" cx="25" cy="25" r="20" fill="none" stroke="#1f5d33" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="blTileRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">of encrypted</div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="table-card">
@@ -1372,11 +1388,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <input type="text" class="search" id="bitlockerFilter" placeholder="Search device, user, model…">
               <select class="filter-select" id="bitlockerStateFilter">
                 <option value="" selected>All devices</option>
+                <option value="encrypted-with-key">Encrypted + Key (safe)</option>
+                <option value="gap">Encrypted, no key (critical)</option>
+                <option value="not-encrypted">Not encrypted</option>
                 <option value="encrypted-any">Encrypted (any)</option>
                 <option value="key-escrowed-any">Keys escrowed</option>
-                <option value="gap">Gap: encrypted, no key</option>
-                <option value="encrypted-with-key">Encrypted with key</option>
-                <option value="not-encrypted">Not encrypted</option>
                 <option value="no-entra-link">No Entra device link</option>
               </select>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnBitlockerClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
@@ -7006,17 +7022,46 @@ async function loadBitlocker(force = false) {
 }
 
 function renderBitlockerTiles() {
-  let total = 0, encrypted = 0, escrowed = 0, gap = 0;
+  // Three risk tiers (mutually exclusive at the row level):
+  //   safe         = encrypted AND key escrowed       → green
+  //   gap          = encrypted AND no key in Entra    → red (the dangerous one)
+  //   notEncrypted = not encrypted                    → amber (policy gap)
+  let total = 0, encrypted = 0, safe = 0, gap = 0, notEncrypted = 0;
   for (const r of bitlockerRows) {
     total++;
-    if (r.isEncrypted) encrypted++;
-    if (r.keyCount > 0) escrowed++;
-    if (r.isEncrypted && r.keyCount === 0) gap++;
+    if (r.isEncrypted) {
+      encrypted++;
+      if (r.keyCount > 0) safe++; else gap++;
+    } else {
+      notEncrypted++;
+    }
   }
   $('blTileTotal').textContent = total;
-  $('blTileEncrypted').textContent = encrypted;
-  $('blTileEscrowed').textContent = escrowed;
+  $('blTileSafe').textContent = safe;
   $('blTileGap').textContent = gap;
+  $('blTileNotEnc').textContent = notEncrypted;
+
+  // Key Escrow Success Rate = devices with key / encrypted devices.
+  // Undefined when no encrypted devices exist (show em-dash + empty ring).
+  const ring = $('blEscrowRing');
+  const CIRC = 125.66; // 2 * π * 20
+  if (encrypted === 0) {
+    $('blTileRate').textContent = '—';
+    $('blTileRate').style.color = 'var(--muted)';
+    if (ring) { ring.style.strokeDashoffset = CIRC; ring.style.stroke = 'var(--line)'; }
+  } else {
+    const rate = (safe / encrypted) * 100;
+    // Round to nearest integer unless we'd round 99.x → 100 while gap > 0 (don't lie).
+    const display = (gap > 0 && rate >= 99.5) ? '99%' : Math.round(rate) + '%';
+    $('blTileRate').textContent = display;
+    // Color the percentage by health band: red <90, amber <99, green ≥99.
+    const color = rate < 90 ? '#8a2020' : (rate < 99 ? '#704500' : '#1f5d33');
+    $('blTileRate').style.color = color;
+    if (ring) {
+      ring.style.strokeDashoffset = CIRC * (1 - rate / 100);
+      ring.style.stroke = color;
+    }
+  }
 }
 
 function applyBitlockerFilters(rows) {
@@ -7036,9 +7081,9 @@ function applyBitlockerFilters(rows) {
 
 const blTileMap = {
   blTileTotal: '',
-  blTileEncrypted: 'encrypted-any',
-  blTileEscrowed: 'key-escrowed-any',
-  blTileGap: 'gap'
+  blTileSafe: 'encrypted-with-key',
+  blTileGap: 'gap',
+  blTileNotEnc: 'not-encrypted'
 };
 
 function syncBitlockerTileUi() {

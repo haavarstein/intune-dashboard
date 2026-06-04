@@ -86,10 +86,15 @@ Sign in once with MSAL — all sixteen sub-tabs share the same session.
 - **⬇ Export CSV** of the current filtered view.
 - Uses the new `DeviceManagementServiceConfig.Read.All` scope plus the existing `DeviceManagementManagedDevices.Read.All` and `Device.Read.All` (Entra fetch is best-effort — if denied, Duplicate Entra silently shows 0 and the rest still works).
 
-**BitLocker** — escrow-coverage audit. Windows devices reported as encrypted by Intune cross-referenced with recovery keys actually backed up in Entra. The headline tile is the **Gap** — devices encrypted in Intune with zero recovery keys escrowed in Entra (your worst-case recovery scenario).
+**BitLocker** — escrow-coverage audit. Windows devices reported as encrypted by Intune cross-referenced with recovery keys actually backed up in Entra. The headline number is **Encrypted, no key** — devices encrypted in Intune with zero recovery keys escrowed in Entra (your worst-case recovery scenario). What looked like a single "gap" number in earlier versions actually mixed two very different risks; the tiles now split them so the critical (red) bucket can't hide behind the policy-compliance (amber) bucket.
 
-- **KPI tiles**: Windows devices in scope · Encrypted (per Intune) · Keys escrowed (in Entra) · **Gap (clickable, filters to gap-only)**.
-- **State filter**: All / Gap / Encrypted with key / Not encrypted / No Entra link (orphaned managed devices that can't be cross-referenced).
+- **KPI tiles** (three risk tiers + a rate, all clickable except the rate):
+  - **Windows devices in scope** (neutral)
+  - **Encrypted + Key** (green) — fully protected
+  - **Encrypted, no key** (red) — critical, real data-loss risk if the drive fails
+  - **Not encrypted** (amber) — policy non-compliance
+  - **Key escrow rate** — `devices with key ÷ encrypted devices`, big % with a progress ring (green ≥99 / amber <99 / red <90)
+- **State filter**: All / Encrypted + Key / Encrypted, no key / Not encrypted / Encrypted (any) / Keys escrowed / No Entra link (orphaned managed devices that can't be cross-referenced).
 - Sortable table with Device · User · Windows version · Model · Encryption state · Keys escrowed · Last check-in. Default sort floats gap-devices to the top.
 - **⬇ Export CSV** for compliance evidence — current filtered view with state column included.
 - The dashboard requests `BitlockerKey.ReadBasic.All` — the listing scope that returns key *metadata only* (id, deviceId, createdDateTime, volumeType). Recovery key material is never fetched or rendered; viewing actual keys still requires the Entra admin center.
