@@ -1065,6 +1065,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="apTileExpired">0</div>
             <div class="tile-sub">last 7 days</div>
           </div>
+          <div class="tile" title="Share of last-7-days requests that received a decision (approved or rejected). Pending and expired count as no decision. Green ≥ 90%, yellow ≥ 75%, red below.">
+            <div class="tile-label">Resolution rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="aprResRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="aprResRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">decided / seen</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="table-card">
           <div class="table-toolbar">
@@ -1157,6 +1173,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
             <div class="hw-tiles">
+              <div class="tile" title="Windows 11 share of Windows fleet — green ≥ 85%, yellow ≥ 50%, red below">
+                <div class="tile-label">Modern OS rate</div>
+                <div style="display:flex; align-items:center; gap:14px;">
+                  <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                    <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                    <circle id="hwOsRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                            stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                            transform="rotate(-90 25 25)" stroke-linecap="round"
+                            style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+                  </svg>
+                  <div>
+                    <div class="tile-value" id="hwOsRate" style="font-size:30px;">—</div>
+                    <div class="tile-sub" style="margin-top:4px;">on Windows 11</div>
+                  </div>
+                </div>
+              </div>
               <div class="tile tile-warn clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
                 <div class="tile-label">Windows 10</div>
                 <div class="tile-value" id="hwWin10">0</div>
@@ -1322,6 +1354,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="apTileDuplicate">0</div>
             <div class="tile-sub">≥ 2 Entra records</div>
           </div>
+          <div class="tile" title="Share of Autopilot devices with no orphan / profile / duplicate flags — green ≥ 95%, yellow ≥ 80%, red below">
+            <div class="tile-label">Autopilot health</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="apHealthRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="apHealthRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">clean records</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="table-card">
           <div class="table-toolbar">
@@ -1469,6 +1517,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-label">Stale sync</div>
             <div class="tile-value" id="chTileStale">0</div>
             <div class="tile-sub">no check-in ≥ 14 days</div>
+          </div>
+          <div class="tile" title="Share of Windows devices with no expiring / expired / stale-sync flag — green ≥ 95%, yellow ≥ 85%, red below">
+            <div class="tile-label">Cert health rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="chHealthRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="chHealthRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">no flag</div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="table-card">
@@ -1772,10 +1836,21 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="kDriftHighCount">0</div>
             <div class="tile-sub">≥ 1 device on a non-dominant version</div>
           </div>
-          <div class="tile">
-            <div class="tile-label">Fleet Drift Average</div>
-            <div class="tile-value" id="kDriftAvg">0%</div>
-            <div class="tile-sub">Mean drift across software</div>
+          <div class="tile" title="Average share of devices on the dominant version across software components (100% − mean drift). Green ≥ 90%, yellow ≥ 75%, red below.">
+            <div class="tile-label">Fleet compliance rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="kDriftCompRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="kDriftAvg" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">on dominant version</div>
+              </div>
+            </div>
           </div>
           <div class="tile">
             <div class="tile-label">Devices Affected</div>
@@ -1887,6 +1962,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="dsTileLowest" style="font-size:30px;">—</div>
             <div class="tile-sub" id="dsTileLowestSub">on —</div>
           </div>
+          <div class="tile" title="Share of Windows devices with at least 20 GB free — green ≥ 95%, yellow ≥ 80%, red below">
+            <div class="tile-label">Disk health rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="dsHealthRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="dsHealthRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">≥ 20 GB free</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="table-card">
           <div class="table-toolbar">
@@ -1995,6 +2086,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="tile-label">Reclaim candidates</div>
               <div class="tile-value" id="kMeteringReclaim">—</div>
               <div class="tile-sub">apps</div>
+            </div>
+            <div class="tile" title="Share of installs that are not idle 90+ days or never-launched — i.e. licences actually being used. Green ≥ 75%, yellow ≥ 50%, red below.">
+              <div class="tile-label">Utilization rate</div>
+              <div style="display:flex; align-items:center; gap:14px;">
+                <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                  <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                  <circle id="kMeteringUtilRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                          stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                          transform="rotate(-90 25 25)" stroke-linecap="round"
+                          style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+                </svg>
+                <div>
+                  <div class="tile-value" id="kMeteringUtilRate" style="font-size:30px;">—</div>
+                  <div class="tile-sub" style="margin-top:4px;">of installs in use</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -5027,6 +5134,12 @@ function renderHardware() {
   $('hwStor256').textContent = storCounts['256'];
   $('hwStor512').textContent = storCounts.ge512;
 
+  // Modern OS rate = Win11 / (Win10 + Win11). Null when fleet has no
+  // Windows devices in scope (e.g. macOS-only platform filter).
+  const winTotal = winCounts.win10 + winCounts.win11;
+  const osRate = winTotal === 0 ? null : (winCounts.win11 / winTotal) * 100;
+  setGaugeKpi('hwOsRing', 'hwOsRate', osRate, { thresholds: { good: 85, watch: 50 } });
+
   renderHwDonut();
 
   let rows = filterHw();
@@ -5643,7 +5756,14 @@ function renderDriftKPIs() {
   const top = driftApps.filter(a => a.driftPct > 0).sort((a, b) => b.driftPct - a.driftPct)[0];
 
   $('kDriftHighCount').textContent = overTen;
-  $('kDriftAvg').textContent = avg.toFixed(1) + '%';
+  // Gauge shows fleet compliance (the inverse of drift) so high = green,
+  // matching the other dashboard gauges. Render with one decimal place,
+  // not the helper's default rounded integer.
+  const compliance = driftApps.length ? 100 - avg : null;
+  setGaugeKpi('kDriftCompRing', 'kDriftAvg', compliance, {
+    thresholds: { good: 90, watch: 75 },
+    display: compliance == null ? '—' : compliance.toFixed(1) + '%'
+  });
   $('kDriftDevices').textContent = totalDrifted;
   $('kDriftTopApp').textContent = top ? top.softwareName : '—';
   $('kDriftTopAppSub').textContent = top
@@ -6149,13 +6269,20 @@ function renderMeteringKPIs() {
   $('kMeteringApps').textContent = meteringAggregated.length || '—';
 
   let idleTotal = 0;
+  let installTotal = 0;
   let reclaimCount = 0;
   for (const a of meteringAggregated) {
     idleTotal += a.idle90d + a.neverLaunched;
+    installTotal += a.installs;
     if (isMeteringReclaimCandidate(a)) reclaimCount++;
   }
   $('kMeteringIdle').textContent = idleTotal || '—';
   $('kMeteringReclaim').textContent = reclaimCount || '—';
+
+  // Utilization rate = installs in active use / total installs. Null when
+  // nothing has reported yet (avoids "100%" lie on an empty fleet).
+  const utilRate = installTotal === 0 ? null : ((installTotal - idleTotal) / installTotal) * 100;
+  setGaugeKpi('kMeteringUtilRing', 'kMeteringUtilRate', utilRate, { thresholds: { good: 75, watch: 50 } });
 
   $('kMeteringIdleTile').classList.toggle('active', meteringTileFilter === 'idle');
   $('kMeteringReclaimTile').classList.toggle('active', meteringTileFilter === 'reclaim');
@@ -6888,6 +7015,13 @@ function renderApprovalsTiles() {
   $('apTileApproved').textContent = approved;
   $('apTileRejected').textContent = rejected;
   $('apTileExpired').textContent = expired;
+  // Resolution rate: pending is open-ended (still in flight), so we still
+  // count it in the denominator — a high pending share rightly drags the
+  // rate down. Null when nothing has come through in the last 7 days.
+  const seen = approved + rejected + pending + expired;
+  const decided = approved + rejected;
+  const rate = seen === 0 ? null : (decided / seen) * 100;
+  setGaugeKpi('aprResRing', 'aprResRate', rate, { thresholds: { good: 90, watch: 75 } });
 }
 
 function applyApprovalsFilters(rows) {
@@ -7137,6 +7271,34 @@ async function loadBitlocker(force = false) {
     console.error('BitLocker load failed', e);
     $('bitlockerLoading').style.display = 'none';
     $('bitlockerError').innerHTML = `<div class="error-banner">Failed to load BitLocker data: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+// Drive a circular-progress gauge tile (svg ring + percentage label).
+// rate: 0..100, or null for "no data" → em-dash + grey ring.
+// opts.thresholds: { good, watch } — value ≥ good is green, ≥ watch is yellow, below is red.
+// opts.display: optional pre-formatted string (e.g. "99%") to override the rounded percent.
+function setGaugeKpi(ringId, valueId, rate, opts = {}) {
+  const CIRC = 125.66; // 2 * π * 20 — matches r="20" in the gauge SVG
+  const ring = $(ringId);
+  const value = $(valueId);
+  const thresholds = opts.thresholds || { good: 99, watch: 90 };
+  if (rate == null || Number.isNaN(rate)) {
+    if (value) { value.textContent = '—'; value.style.color = 'var(--muted)'; }
+    if (ring) { ring.style.strokeDashoffset = CIRC; ring.style.stroke = 'var(--line)'; }
+    return;
+  }
+  const clamped = Math.max(0, Math.min(100, rate));
+  const color = clamped < thresholds.watch ? '#c0392b'
+              : clamped < thresholds.good  ? '#d4a017'
+              :                              '#1f7a3a';
+  if (value) {
+    value.textContent = opts.display ?? (Math.round(clamped) + '%');
+    value.style.color = color;
+  }
+  if (ring) {
+    ring.style.strokeDashoffset = CIRC * (1 - clamped / 100);
+    ring.style.stroke = color;
   }
 }
 
@@ -7414,6 +7576,12 @@ function renderDiskspaceTiles() {
     $('dsTileLowest').style.color = 'var(--muted)';
     $('dsTileLowestSub').textContent = 'on —';
   }
+
+  // Disk health rate = devices with ≥20 GB free / total. Watch (<20 GB)
+  // is a strict superset of warn (<5 GB) and crit (<1 GB), so subtract it
+  // alone, not the sum. Null when storage hasn't loaded yet.
+  const rate = total === 0 ? null : ((total - watch) / total) * 100;
+  setGaugeKpi('dsHealthRing', 'dsHealthRate', rate, { thresholds: { good: 95, watch: 80 } });
 }
 
 function applyDiskspaceFilters(rows) {
@@ -7667,17 +7835,21 @@ async function loadAutopilot(force = false) {
 
 function renderAutopilotTiles() {
   const hideHybrid = $('autopilotHideHybrid').checked;
-  let total = 0, orphan = 0, noProfile = 0, duplicate = 0;
+  let total = 0, orphan = 0, noProfile = 0, duplicate = 0, healthy = 0;
   for (const r of autopilotRows) {
     total++;
     if (r.orphan) orphan++;
     if (r.noProfile) noProfile++;
-    if (r.duplicate && !(hideHybrid && r.isHybridDuplicate)) duplicate++;
+    const dup = r.duplicate && !(hideHybrid && r.isHybridDuplicate);
+    if (dup) duplicate++;
+    if (!r.orphan && !r.noProfile && !dup) healthy++;
   }
   $('apTileTotal').textContent = total;
   $('apTileOrphan').textContent = orphan;
   $('apTileNoProfile').textContent = noProfile;
   $('apTileDuplicate').textContent = duplicate;
+  const rate = total === 0 ? null : (healthy / total) * 100;
+  setGaugeKpi('apHealthRing', 'apHealthRate', rate, { thresholds: { good: 95, watch: 80 } });
 }
 
 function applyAutopilotFilters(rows) {
@@ -7910,6 +8082,11 @@ function renderCerthealthTiles() {
   $('chTileExpiring').textContent = expiring;
   $('chTileExpired').textContent = expired;
   $('chTileStale').textContent = stale;
+  // certhealthStateOf returns one tier per device, so the three counts
+  // are mutually exclusive — subtracting their sum gives "no flag".
+  const healthy = total - expiring - expired - stale;
+  const rate = total === 0 ? null : (healthy / total) * 100;
+  setGaugeKpi('chHealthRing', 'chHealthRate', rate, { thresholds: { good: 95, watch: 85 } });
 }
 
 function applyCerthealthFilters(rows) {
