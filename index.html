@@ -867,9 +867,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
 
         <div class="tiles" style="grid-template-columns: repeat(3, 1fr);">
-          <div class="tile">
+          <div class="tile tile-warn">
             <div class="tile-label">Failed</div>
-            <div class="tile-value accent" id="kFailed">0</div>
+            <div class="tile-value" id="kFailed">0</div>
             <div class="tile-sub">devices with install failures</div>
           </div>
           <div class="tile">
@@ -923,17 +923,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="tile-value" id="ovTotalDevices">0</div>
               <div class="tile-sub" id="ovTotalDevicesSub">across all platforms</div>
             </div>
-            <div class="tile clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
+            <div class="tile tile-watch clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
               <div class="tile-label">Needing attention</div>
-              <div class="tile-value accent" id="ovAttention">0</div>
+              <div class="tile-value" id="ovAttention">0</div>
               <div class="tile-sub" id="ovAttentionSub">stale 90+ days or Win 10</div>
             </div>
-            <div class="tile clickable" data-overview-jump="failed" title="Open Failed Install sub-tab">
+            <div class="tile tile-warn clickable" data-overview-jump="failed" title="Open Failed Install sub-tab">
               <div class="tile-label">Apps with failures</div>
               <div class="tile-value" id="ovFailedApps">0</div>
               <div class="tile-sub" id="ovFailedAppsSub">FailedDeviceCount &gt; 0</div>
             </div>
-            <div class="tile clickable" data-overview-jump="drift" title="Open Drift & Compliance sub-tab">
+            <div class="tile tile-watch clickable" data-overview-jump="drift" title="Open Drift & Compliance sub-tab">
               <div class="tile-label">Drifted software (P2/E5)</div>
               <div class="tile-value" id="ovDrift">0</div>
               <div class="tile-sub" id="ovDriftSub">components with &gt;20% drift</div>
@@ -1045,12 +1045,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubApprovals" style="display:none;">
         <div class="tab-hint">Multi-Admin Approval queue for this tenant — every pending and recent approval request across apps, scripts, configurations, and device actions. Approve or reject inline; no admin-center context switch.</div>
         <div class="tiles">
-          <div class="tile" data-approvals-tile="needsApproval" style="cursor:pointer;">
+          <div class="tile tile-watch" data-approvals-tile="needsApproval" style="cursor:pointer;">
             <div class="tile-label">Pending</div>
-            <div class="tile-value accent" id="apTilePending">0</div>
+            <div class="tile-value" id="apTilePending">0</div>
             <div class="tile-sub">needs approval</div>
           </div>
-          <div class="tile" data-approvals-tile="approved" style="cursor:pointer;">
+          <div class="tile tile-good" data-approvals-tile="approved" style="cursor:pointer;">
             <div class="tile-label">Approved</div>
             <div class="tile-value" id="apTileApproved">0</div>
             <div class="tile-sub">last 7 days</div>
@@ -1060,7 +1060,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="apTileRejected">0</div>
             <div class="tile-sub">last 7 days</div>
           </div>
-          <div class="tile" data-approvals-tile="expired" style="cursor:pointer;">
+          <div class="tile tile-warn" data-approvals-tile="expired" style="cursor:pointer;">
             <div class="tile-label">Expired</div>
             <div class="tile-value" id="apTileExpired">0</div>
             <div class="tile-sub">last 7 days</div>
@@ -1157,22 +1157,22 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
             <div class="hw-tiles">
-              <div class="tile clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
+              <div class="tile tile-warn clickable" id="hwWin10Tile" title="Click to filter to Windows 10 devices">
                 <div class="tile-label">Windows 10</div>
                 <div class="tile-value" id="hwWin10">0</div>
                 <div class="tile-sub">Past EOS · Oct 2025</div>
               </div>
-              <div class="tile clickable" id="hwWin11Tile" title="Click to filter to Windows 11 devices">
+              <div class="tile tile-good clickable" id="hwWin11Tile" title="Click to filter to Windows 11 devices">
                 <div class="tile-label">Windows 11</div>
                 <div class="tile-value" id="hwWin11">0</div>
                 <div class="tile-sub">&nbsp;</div>
               </div>
-              <div class="tile clickable" id="hwStaleTile" title="Click to filter to devices not synced in 90+ days">
+              <div class="tile tile-watch clickable" id="hwStaleTile" title="Click to filter to devices not synced in 90+ days">
                 <div class="tile-label">Stale 90+ days</div>
                 <div class="tile-value" id="hwStale">0</div>
                 <div class="tile-sub">no check-in for 90 days+</div>
               </div>
-              <div class="tile clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
+              <div class="tile tile-warn clickable" id="hwRam4Tile" title="Click to filter to 4GB RAM devices">
                 <div class="tile-label">4GB RAM</div>
                 <div class="tile-value" id="hwRam4">0</div>
                 <div class="tile-sub">≤ 4GB installed</div>
@@ -1192,7 +1192,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-value" id="hwRam32">0</div>
                 <div class="tile-sub">≥ 32GB installed</div>
               </div>
-              <div class="tile clickable" id="hwStor64Tile" title="Click to filter to ≤64GB storage devices">
+              <div class="tile tile-warn clickable" id="hwStor64Tile" title="Click to filter to ≤64GB storage devices">
                 <div class="tile-label">64GB Storage</div>
                 <div class="tile-value" id="hwStor64">0</div>
                 <div class="tile-sub">≤ 64GB total</div>
@@ -1212,17 +1212,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <div class="tile-value" id="hwStor512">0</div>
                 <div class="tile-sub">≥ 512GB total</div>
               </div>
-              <div class="tile clickable" id="hwDupSerialTile" title="Click to filter to duplicate-serial-number devices (the same physical machine enrolled multiple times)">
+              <div class="tile tile-warn clickable" id="hwDupSerialTile" title="Click to filter to duplicate-serial-number devices (the same physical machine enrolled multiple times)">
                 <div class="tile-label">Duplicate serial</div>
-                <div class="tile-value accent" id="hwDupSerial">0</div>
+                <div class="tile-value" id="hwDupSerial">0</div>
                 <div class="tile-sub">same serial on 2+ records</div>
               </div>
-              <div class="tile clickable" id="hwMissingEntraTile" title="Click to filter to devices in Intune that don't have a matching Entra device record">
+              <div class="tile tile-watch clickable" id="hwMissingEntraTile" title="Click to filter to devices in Intune that don't have a matching Entra device record">
                 <div class="tile-label">Missing from Entra</div>
                 <div class="tile-value" id="hwMissingEntra">0</div>
                 <div class="tile-sub">no Entra match</div>
               </div>
-              <div class="tile clickable" id="hwNoUserTile" title="Click to filter to devices with no primary user assigned (possible orphan or shared device)">
+              <div class="tile tile-watch clickable" id="hwNoUserTile" title="Click to filter to devices with no primary user assigned (possible orphan or shared device)">
                 <div class="tile-label">No primary user</div>
                 <div class="tile-value" id="hwNoUser">0</div>
                 <div class="tile-sub">empty UPN</div>
@@ -1307,17 +1307,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="apTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-ap-tile="orphan" style="cursor:pointer;" title="Filter: orphaned (no Intune device)">
+          <div class="tile tile-bad" data-ap-tile="orphan" style="cursor:pointer;" title="Filter: orphaned (no Intune device)">
             <div class="tile-label">Orphan</div>
-            <div class="tile-value accent" id="apTileOrphan">0</div>
+            <div class="tile-value" id="apTileOrphan">0</div>
             <div class="tile-sub">no managed device</div>
           </div>
-          <div class="tile" data-ap-tile="noProfile" style="cursor:pointer;" title="Filter: no deployment profile assigned">
+          <div class="tile tile-warn" data-ap-tile="noProfile" style="cursor:pointer;" title="Filter: no deployment profile assigned">
             <div class="tile-label">No profile</div>
             <div class="tile-value" id="apTileNoProfile">0</div>
             <div class="tile-sub">profile unassigned</div>
           </div>
-          <div class="tile" data-ap-tile="duplicate" style="cursor:pointer;" title="Filter: duplicate Entra device objects">
+          <div class="tile tile-watch" data-ap-tile="duplicate" style="cursor:pointer;" title="Filter: duplicate Entra device objects">
             <div class="tile-label">Duplicate Entra</div>
             <div class="tile-value" id="apTileDuplicate">0</div>
             <div class="tile-sub">≥ 2 Entra records</div>
@@ -1455,17 +1455,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="tile-value" id="chTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile" data-ch-tile="expiring" style="cursor:pointer;" title="Filter: expiring ≤ 30 days">
+          <div class="tile tile-warn" data-ch-tile="expiring" style="cursor:pointer;" title="Filter: expiring ≤ 30 days">
             <div class="tile-label">Expiring</div>
-            <div class="tile-value accent" id="chTileExpiring">0</div>
+            <div class="tile-value" id="chTileExpiring">0</div>
             <div class="tile-sub">≤ 30 days remaining</div>
           </div>
-          <div class="tile" data-ch-tile="expired" style="cursor:pointer;" title="Filter: already expired">
+          <div class="tile tile-bad" data-ch-tile="expired" style="cursor:pointer;" title="Filter: already expired">
             <div class="tile-label">Expired</div>
             <div class="tile-value" id="chTileExpired">0</div>
             <div class="tile-sub">already past expiry</div>
           </div>
-          <div class="tile" data-ch-tile="stale" style="cursor:pointer;" title="Filter: stale sync ≥ 14 days">
+          <div class="tile tile-watch" data-ch-tile="stale" style="cursor:pointer;" title="Filter: stale sync ≥ 14 days">
             <div class="tile-label">Stale sync</div>
             <div class="tile-value" id="chTileStale">0</div>
             <div class="tile-sub">no check-in ≥ 14 days</div>
@@ -1553,17 +1553,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
         <!-- Assignment hygiene tiles -->
         <div class="tiles" style="margin-bottom:16px;">
-          <div class="tile" data-hygiene-tile="unassigned" style="cursor:pointer;">
+          <div class="tile tile-watch" data-hygiene-tile="unassigned" style="cursor:pointer;">
             <div class="tile-label">Unassigned items</div>
             <div class="tile-value" id="kHygUnassigned">0</div>
             <div class="tile-sub">policies / apps / scripts with no assignment</div>
           </div>
-          <div class="tile" data-hygiene-tile="emptyGroup" style="cursor:pointer;">
+          <div class="tile tile-warn" data-hygiene-tile="emptyGroup" style="cursor:pointer;">
             <div class="tile-label">Empty-group assignments</div>
-            <div class="tile-value accent" id="kHygEmptyGroup">0</div>
+            <div class="tile-value" id="kHygEmptyGroup">0</div>
             <div class="tile-sub">silent no-ops — group has zero members</div>
           </div>
-          <div class="tile" data-hygiene-tile="orphanedFilters" style="cursor:pointer;">
+          <div class="tile tile-watch" data-hygiene-tile="orphanedFilters" style="cursor:pointer;">
             <div class="tile-label">Orphaned filters</div>
             <div class="tile-value" id="kHygOrphanedFilters">0</div>
             <div class="tile-sub">assignment filters not referenced</div>
@@ -1767,9 +1767,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
         <!-- KPI tiles -->
         <div class="tiles" style="grid-template-columns: repeat(4, 1fr);">
-          <div class="tile">
+          <div class="tile tile-warn">
             <div class="tile-label">Software with Drift &gt; 10%</div>
-            <div class="tile-value accent" id="kDriftHighCount">0</div>
+            <div class="tile-value" id="kDriftHighCount">0</div>
             <div class="tile-sub">≥ 1 device on a non-dominant version</div>
           </div>
           <div class="tile">
