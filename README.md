@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Seventeen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), and Soft-deleted (Entra recycle bin).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Eighteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), and Stale users (P1).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all sixteen sub-tabs share the same session.
+Sign in once with MSAL — all eighteen sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -139,6 +139,23 @@ Sign in once with MSAL — all sixteen sub-tabs share the same session.
 - **Hybrid-joined devices are hard-deleted on removal** and never appear here — Microsoft only soft-deletes Entra-joined and Entra-registered devices in the current preview.
 - Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
 
+**Stale users (P1)** — license-reclaim / identity-hygiene view for customer reviews. Surfaces Entra **member** accounts that are inactive or never signed in, so an MSP can say *"you have N accounts idle 90+ days holding ~M unused licenses."* Read-only by default; account changes deep-link to Entra, with optional in-app Revoke / Disable actions gated just-in-time.
+
+> ⚠️ **Licensing required.** This sub-tab reads the `signInActivity` property from `/v1.0/users`, which is **only populated for tenants licensed for Entra ID P1 or P2**. Without P1/P2 the dashboard renders a "P1/P2 required" empty state and the rest of the tab can't compute idle days. The "(P1)" suffix in the tab label is the reminder.
+
+- **In scope**: `userType == 'Member'` and `accountEnabled == true`. Guests are excluded (`revokeSignInSessions` doesn't work on guests anyway), and already-disabled accounts are excluded (re-disabling is a no-op).
+- **Last activity** is the most recent of `lastSignInDateTime`, `lastNonInteractiveSignInDateTime`, and `lastSuccessfulSignInDateTime` — so accounts active non-interactively (mail clients, sync agents) aren't false-flagged. All three null = never signed in.
+- **KPI tiles** (clickable to filter): Members in scope · **Idle 90+ days** (amber, threshold tracks the dropdown) · **Never signed in** (yellow) · **Licensed & stale** (red — in-scope users with ≥1 `assignedLicenses` that are also idle ≥ threshold or never-signed-in; this is the reclaim headline).
+- **Threshold dropdown** (30 / 60 / 90 / 180 days, default 90) re-filters client-side — no re-fetch. Plus an **Include never-signed-in** toggle (default on).
+- Sortable table: Display name (deep-links to the user's blade in the Entra admin center in a new tab) · UPN · Last activity · Days idle · Sign-in badge (*Never* / *Active record*) · Licensed (count) · Status. Default sort is **never-first, then days-idle descending** so the highest-confidence reclaim candidates float to the top.
+- **⬇ Export CSV** of the current filtered view (`DisplayName, UPN, LastActivity, DaysIdle, NeverSignedIn, LicenseCount, AccountEnabled`).
+- **Optional in-app actions** (per-row, gated behind a confirm modal that states the effect):
+  - **↻ Revoke sessions** — `POST /v1.0/users/{id}/revokeSignInSessions`. Invalidates refresh tokens; forces re-auth. Live access tokens remain valid for up to ~1 hour unless the resource enforces CAE. Requests `User.RevokeSessions.All` **just-in-time** on first use.
+  - **⊘ Disable account** — `PATCH /v1.0/users/{id}` with `{accountEnabled:false}`. Blocks new sign-ins; live access tokens still persist ~1h without CAE. Requires typing `DISABLE` in the confirm box, mirroring the app-delete name-confirm guard. Requests `User.EnableDisableAccount.All` **just-in-time** on first use.
+  - Row updates inline on success/fail; list-only viewers are never prompted for the write scopes.
+- **Read scopes**: `User.Read.All` + `AuditLog.Read.All` (the latter gates `signInActivity` on the Graph side). Added in the same release as this sub-tab; existing users will see a one-time re-consent prompt.
+- Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
+
 **Disk space** — Win32 app requirement-rule pre-flight. The Intune Win32 `Disk space required (MB)` requirement rule silently marks devices as **Requirements not met** or **Not Applicable** when free space is below the rule — no obvious error in the Intune console, just a missing install. This tab lists Windows devices below a chosen free-space threshold so you can find the silent victims before they call helpdesk. Background context for *why* this matters in 2025–2026: Microsoft incident **IT1168328** (the Intune Store / WinGet log bloat bug) silently filled `%windir%\Temp\WinGet\defaultState`, and Windows 11 24H2 upgrades have pushed disk pressure up across the fleet.
 
 - **KPI tiles**: Windows devices in scope · **< 1 GB free** (red, emergency / Windows breaking) · **< 5 GB free** (amber, at-risk / common helpdesk pain) · **< 20 GB free** (yellow, watch / proactive monitoring band) · **Lowest free** (worst offender in the fleet, with device name). The three coloured tiles are click-to-filter; click again to clear.
@@ -224,19 +241,23 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `Device.Read.All` — read Entra device objects, used by the Hardware tab's hygiene tiles to flag Intune devices with no matching Entra record
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
 - `User.Read` — read your basic profile (to show your name in the UI)
+- `User.Read.All` — read directory users (Stale users sub-tab); pairs with `AuditLog.Read.All` below
+- `AuditLog.Read.All` — gates the `signInActivity` property on `/v1.0/users` (Stale users sub-tab); without it, Graph silently omits the property
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
 - `DeviceManagementScripts.ReadWrite.All` — **write scope** for the Software Metering sub-tab's ⚡ Auto-deploy button (creates the Proactive Remediation in the tenant + assigns it to a chosen group or All Devices); not used for anything else
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
-**Just-in-time scope (not requested at sign-in):**
+**Just-in-time scopes (not requested at sign-in):**
 
 - `Directory.AccessAsUser.All` — **write scope** for the Soft-deleted sub-tab's ↻ Restore button. Requested via a popup the first time you click Restore in a session, so list-only viewers of the Entra recycle bin are never prompted. Requires admin consent and an Entra role of Cloud Device Administrator, Intune Administrator, or Global Administrator on the signed-in account; the LIST call uses the existing `Device.Read.All` scope.
+- `User.RevokeSessions.All` — **write scope** for the Stale users sub-tab's ↻ Revoke sessions button. Requested via a popup the first time you click Revoke in a session. List-only viewers of the stale-users list are never prompted.
+- `User.EnableDisableAccount.All` — **write scope** for the Stale users sub-tab's ⊘ Disable account button. Requested via a popup the first time you click Disable in a session. Confirm modal requires typing `DISABLE` before the button enables.
 
-Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — plus one JIT write scope (`Directory.AccessAsUser.All`). Everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, and ↻ Restore (Soft-deleted sub-tab) will work.
+Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — plus three JIT write scopes (`Directory.AccessAsUser.All`, `User.RevokeSessions.All`, `User.EnableDisableAccount.All`). Everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, ↻ Restore (Soft-deleted sub-tab), and ↻ Revoke / ⊘ Disable (Stale users sub-tab) will work.
 
-**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `DeviceManagementScripts.ReadWrite.All` for the Software Metering auto-deploy button).
+**First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `User.Read.All` and `AuditLog.Read.All` for the Stale users sub-tab).
 
 **Token storage.** Access tokens are held in browser session storage by MSAL and refreshed silently. Click **Sign out** to clear them.
 
@@ -276,6 +297,9 @@ Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`,
 - `GET /beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments` — Windows Driver Update profiles (Assignments sub-tab; requires Autopatch licensing in some tenants — silently skipped if 403)
 - `GET /beta/directory/deletedItems/microsoft.graph.device?$select=...&$top=100` — soft-deleted Entra device objects with their `deletedDateTime`, `trustType`, `accountEnabled`, etc. (Soft-deleted sub-tab); paginated via `@odata.nextLink`
 - `POST /beta/directory/deletedItems/{id}/restore` — restore a soft-deleted Entra device object (Soft-deleted sub-tab → ↻ Restore); uses a token minted just-in-time for `Directory.AccessAsUser.All` rather than the static `SCOPES` array
+- `GET /v1.0/users?$select=id,displayName,userPrincipalName,accountEnabled,userType,signInActivity,assignedLicenses&$top=999` — directory users for the Stale users sub-tab; fully paginated via `@odata.nextLink`. `signInActivity` requires Entra ID P1/P2 and the `AuditLog.Read.All` scope
+- `POST /v1.0/users/{id}/revokeSignInSessions` — invalidate refresh tokens for a stale user (Stale users sub-tab → ↻ Revoke sessions); uses a token minted just-in-time for `User.RevokeSessions.All`
+- `PATCH /v1.0/users/{id}` with `{accountEnabled:false}` — disable a stale account (Stale users sub-tab → ⊘ Disable account); uses a token minted just-in-time for `User.EnableDisableAccount.All`
 
 These are the same endpoints the Intune admin center uses for its "Apps install status" and "Device install status" views.
 

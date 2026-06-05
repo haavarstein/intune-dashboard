@@ -803,6 +803,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
+        <button class="subtab" data-subtab="staleusers">Stale users (P1)</button>
       </div>
 
       <div id="intuneError"></div>
@@ -1932,6 +1933,76 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
       </div><!-- /intuneSubSoftdeleted -->
 
+      <div id="intuneSubStaleusers" style="display:none;">
+        <div class="tab-hint">
+          Entra <strong>member</strong> accounts that are inactive or never signed in — the license-reclaim / identity-hygiene view for customer reviews. Last activity = the most recent of <code>lastSignInDateTime</code>, <code>lastNonInteractiveSignInDateTime</code>, and <code>lastSuccessfulSignInDateTime</code>, so non-interactive activity doesn't false-flag a user. Read-only by default; Revoke / Disable request scopes <strong>just-in-time</strong> on first click — list-only viewers are never prompted for write scopes. <code>signInActivity</code> requires Entra ID <strong>P1/P2</strong>.
+        </div>
+        <div class="tiles" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="tile" data-su-tile="" style="cursor:pointer;" title="Show all members in scope">
+            <div class="tile-label">Members in scope</div>
+            <div class="tile-value" id="suTileTotal">0</div>
+            <div class="tile-sub">enabled member accounts</div>
+          </div>
+          <div class="tile tile-warn" data-su-tile="idle" style="cursor:pointer;" title="Filter: idle ≥ threshold (changes with the dropdown)">
+            <div class="tile-label">Idle <span id="suTileIdleLabel">90+</span> days</div>
+            <div class="tile-value" id="suTileIdle">0</div>
+            <div class="tile-sub">no recent sign-in</div>
+          </div>
+          <div class="tile tile-watch" data-su-tile="never" style="cursor:pointer;" title="Filter: no recorded sign-in activity">
+            <div class="tile-label">Never signed in</div>
+            <div class="tile-value" id="suTileNever">0</div>
+            <div class="tile-sub">no recorded activity</div>
+          </div>
+          <div class="tile tile-bad" data-su-tile="licensedStale" style="cursor:pointer;" title="Filter: licensed AND stale (idle ≥ threshold or never signed in) — the reclaim headline">
+            <div class="tile-label">Licensed &amp; stale</div>
+            <div class="tile-value" id="suTileLicensedStale">0</div>
+            <div class="tile-sub">≥ 1 license + stale</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Members</h2>
+            <div class="controls">
+              <input type="text" class="search" id="staleusersFilter" placeholder="Search name, UPN…">
+              <div class="filter-group">
+                <span class="filter-group-label">Idle threshold</span>
+                <select class="filter-select" id="staleusersThreshold">
+                  <option value="30">30 days</option>
+                  <option value="60">60 days</option>
+                  <option value="90" selected>90 days</option>
+                  <option value="180">180 days</option>
+                </select>
+              </div>
+              <label class="toggle" title="Include accounts with no recorded sign-in activity"><input type="checkbox" id="staleusersIncludeNever" checked> Include never-signed-in</label>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnStaleusersClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnStaleusersExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnStaleusersRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="staleusersLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading members…</div>
+          <div id="staleusersError"></div>
+          <div id="staleusersNotice"></div>
+          <div id="staleusersContent" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th data-su-sort="displayName">Display name <span class="arrow">▼</span></th>
+                  <th data-su-sort="userPrincipalName">UPN <span class="arrow">▼</span></th>
+                  <th data-su-sort="lastActivityMs">Last activity <span class="arrow">▼</span></th>
+                  <th data-su-sort="daysIdle">Days idle <span class="arrow">▼</span></th>
+                  <th data-su-sort="signinBadge">Sign-in <span class="arrow">▼</span></th>
+                  <th data-su-sort="licenseCount">Licensed <span class="arrow">▼</span></th>
+                  <th data-su-sort="status">Status <span class="arrow">▼</span></th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="staleusersRows"></tbody>
+            </table>
+            <div class="footer-count"><span id="staleusersCount">0</span> members shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubStaleusers -->
+
       <div id="intuneSubDiskspace" style="display:none;">
         <div class="tab-hint">
           Windows devices below your selected free-disk-space threshold. The Win32 app <code>Disk space required (MB)</code> requirement rule silently marks a device as <strong>Requirements not met</strong> or <strong>Not Applicable</strong> when free space is below the rule — no obvious error in the Intune console, just a missing install. When an install does attempt and fails on disk, the IME logs commonly show <code>0x80070070</code> (not enough space on disk) or <code>0x87D30067</code> (extraction failed, often disk-related). Background context: Microsoft incident <strong>IT1168328</strong> (the Intune Store / WinGet log bloat bug) silently filled <code>%windir%\Temp\WinGet\defaultState</code> on many tenants through 2025, and Windows 11 24H2 upgrades have pushed disk pressure up across the fleet.
@@ -2287,6 +2358,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <button class="close-btn" onclick="closeDeleteModal()">×</button>
     </div>
     <div class="modal-body" id="delBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="staleActionModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="suActionTitle">Confirm action</h3>
+        <div class="panel-sub" id="suActionSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" onclick="closeStaleActionModal()">×</button>
+    </div>
+    <div class="modal-body" id="suActionBody"></div>
   </div>
 </div>
 
@@ -2820,7 +2904,7 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementScripts.ReadWrite.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementScripts.ReadWrite.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'User.Read.All', 'AuditLog.Read.All', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -3120,6 +3204,9 @@ function resetTenantState() {
   diskspaceLoaded = false; diskspaceRows = [];
   // Cert health
   certhealthLoaded = false; certhealthRows = [];
+  // Stale users
+  staleusersLoaded = false; staleusersLoading = false; staleusersRows = [];
+  staleusersTileFilter = null; staleusersP1Gated = false;
   // Remediation / Vulnerabilities
   remediationLoaded = false; remediationRows = [];
   vulnLoaded = false; vulnRows = [];
@@ -4794,6 +4881,7 @@ function switchSubtab(name) {
   $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubSoftdeleted').style.display = name === 'softdeleted' ? '' : 'none';
+  $('intuneSubStaleusers').style.display = name === 'staleusers' ? '' : 'none';
   $('intuneSubDiskspace').style.display = name === 'diskspace' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
@@ -4815,6 +4903,7 @@ function switchSubtab(name) {
   if (name === 'approvals' && !approvalsLoaded) loadApprovals();
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
   if (name === 'softdeleted' && !softdeletedLoaded) loadSoftdeleted();
+  if (name === 'staleusers' && !staleusersLoaded) loadStaleUsers();
   if (name === 'diskspace' && !diskspaceLoaded) loadDiskspace();
 }
 
@@ -8990,6 +9079,402 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
     $('btnAnalyzeLogs').disabled = false;
   }
 }
+
+// ============================================================
+// Stale users (P1) sub-tab — Entra MEMBER accounts that are
+// inactive or never signed in. License-reclaim / identity hygiene
+// view. List uses User.Read.All + AuditLog.Read.All (in SCOPES).
+// signInActivity is gated behind Entra ID P1/P2 — if the property
+// is absent on every in-scope user we render a P1/P2-required
+// empty state, mirroring the Defender (P2/E5) tabs.
+// Revoke / Disable actions request User.RevokeSessions.All and
+// User.EnableDisableAccount.All just-in-time on first click —
+// list-only viewers are never prompted for write scopes.
+// Bulk action intentionally deferred — per-row only matches the
+// existing JIT pattern (Restore in Soft-deleted, Delete in Installed).
+// ============================================================
+let staleusersLoaded = false;
+let staleusersLoading = false;
+let staleusersRows = [];
+let staleusersSortKey = 'default';  // 'default' = never-first, then daysIdle desc
+let staleusersSortDir = 'desc';
+let staleusersTileFilter = null;  // null | 'idle' | 'never' | 'licensedStale'
+let staleusersP1Gated = false;
+
+function entraUserUrl(id) {
+  return `https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/${encodeURIComponent(id)}`;
+}
+
+async function loadStaleUsers(force = false) {
+  if (staleusersLoading) return;
+  if (staleusersLoaded && !force) return;
+  staleusersLoading = true;
+  staleusersLoaded = true;
+  staleusersP1Gated = false;
+  $('staleusersLoading').style.display = '';
+  $('staleusersContent').style.display = 'none';
+  $('staleusersError').innerHTML = '';
+  $('staleusersNotice').innerHTML = '';
+  try {
+    const select = encodeURIComponent('id,displayName,userPrincipalName,accountEnabled,userType,signInActivity,assignedLicenses');
+    const all = await graphGetAll(`v1.0/users?$select=${select}&$top=999`);
+    const now = Date.now();
+    const scoped = all.filter(u => u.userType === 'Member' && u.accountEnabled === true);
+    // P1/P2 gate: without Entra ID P1/P2, Graph omits the signInActivity
+    // property entirely on every user. If we have in-scope members and not
+    // a single one has the property, treat it as P1-gated.
+    const anyHasSignInProp = scoped.some(u => u.signInActivity !== undefined);
+    if (scoped.length && !anyHasSignInProp) staleusersP1Gated = true;
+
+    staleusersRows = scoped.map(u => {
+      const sa = u.signInActivity || {};
+      const candidates = [sa.lastSignInDateTime, sa.lastNonInteractiveSignInDateTime, sa.lastSuccessfulSignInDateTime]
+        .filter(Boolean).map(s => Date.parse(s)).filter(t => !Number.isNaN(t));
+      const lastMs = candidates.length ? Math.max(...candidates) : null;
+      const neverSignedIn = lastMs === null;
+      const daysIdle = lastMs == null ? null : Math.floor((now - lastMs) / 86400000);
+      return {
+        id: u.id,
+        displayName: u.displayName || '',
+        userPrincipalName: u.userPrincipalName || '',
+        licenseCount: (u.assignedLicenses || []).length,
+        lastActivityAt: lastMs == null ? '' : new Date(lastMs).toISOString(),
+        lastActivityMs: lastMs,
+        neverSignedIn,
+        daysIdle,
+        accountEnabled: true,
+        actionStatus: null
+      };
+    });
+
+    $('staleusersLoading').style.display = 'none';
+    if (staleusersP1Gated) {
+      $('staleusersError').innerHTML = `<div class="error-banner">⚠ <strong>Entra ID P1/P2 required.</strong> The <code>signInActivity</code> property was absent on every in-scope user, which means this tenant isn't licensed for Entra ID P1 or P2. Without that property the dashboard can't compute idle days. The "(P1)" suffix in the tab label is the reminder.</div>`;
+      return;
+    }
+    $('staleusersContent').style.display = '';
+    renderStaleUsers();
+  } catch (e) {
+    staleusersLoaded = false;
+    $('staleusersLoading').style.display = 'none';
+    if (e.status === 403) {
+      $('staleusersError').innerHTML = `<div class="error-banner">⚠ <strong>403 from Graph.</strong> ${esc(e.message || String(e))}<br>Likely causes: the tenant isn't licensed for Entra ID P1/P2 (required for <code>signInActivity</code>), or admin consent for <code>User.Read.All</code> / <code>AuditLog.Read.All</code> hasn't been granted yet — sign out and back in to re-consent.</div>`;
+    } else {
+      console.error('Stale users load failed', e);
+      $('staleusersError').innerHTML = `<div class="error-banner">Failed to load members: ${esc(e.message || String(e))}</div>`;
+    }
+  } finally {
+    staleusersLoading = false;
+  }
+}
+
+function staleStatusOf(r) {
+  if (!r.accountEnabled) return 'disabled';
+  if (r.neverSignedIn) return 'never';
+  const threshold = +$('staleusersThreshold').value || 90;
+  if (r.daysIdle != null && r.daysIdle >= threshold) return 'idle';
+  return 'active';
+}
+
+function staleStatusBadge(r) {
+  const state = staleStatusOf(r);
+  const map = {
+    active:   { label: 'Active',   bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
+    idle:     { label: 'Stale',    bg: '#fff0db', border: '#f0c890', color: '#7a4500' },
+    never:    { label: 'Never',    bg: '#fff8d6', border: '#f0d090', color: '#6a5314' },
+    disabled: { label: 'Disabled', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' }
+  };
+  const m = map[state];
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+}
+
+function staleSigninBadge(r) {
+  if (r.neverSignedIn) {
+    return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#fff8d6; border:1px solid #f0d090; color:#6a5314;">Never</span>`;
+  }
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#eaf6ee; border:1px solid #a7d7b5; color:#1f5d33;">Active record</span>`;
+}
+
+function applyStaleFilters(rows) {
+  const q = ($('staleusersFilter').value || '').toLowerCase().trim();
+  const includeNever = $('staleusersIncludeNever').checked;
+  const threshold = +$('staleusersThreshold').value || 90;
+  const tile = staleusersTileFilter;
+  return rows.filter(r => {
+    if (!includeNever && r.neverSignedIn) return false;
+    if (tile === 'idle' && !(r.daysIdle != null && r.daysIdle >= threshold)) return false;
+    if (tile === 'never' && !r.neverSignedIn) return false;
+    if (tile === 'licensedStale') {
+      const stale = r.neverSignedIn || (r.daysIdle != null && r.daysIdle >= threshold);
+      if (!(r.licenseCount > 0 && stale)) return false;
+    }
+    if (q) {
+      const hay = (r.displayName + ' ' + r.userPrincipalName).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderStaleUsersTiles() {
+  const threshold = +$('staleusersThreshold').value || 90;
+  $('suTileIdleLabel').textContent = threshold + '+';
+  let total = 0, idle = 0, never = 0, licensedStale = 0;
+  for (const r of staleusersRows) {
+    total++;
+    if (r.neverSignedIn) never++;
+    if (r.daysIdle != null && r.daysIdle >= threshold) idle++;
+    const stale = r.neverSignedIn || (r.daysIdle != null && r.daysIdle >= threshold);
+    if (r.licenseCount > 0 && stale) licensedStale++;
+  }
+  $('suTileTotal').textContent = total;
+  $('suTileIdle').textContent = idle;
+  $('suTileNever').textContent = never;
+  $('suTileLicensedStale').textContent = licensedStale;
+  syncStaleusersTileUi();
+}
+
+function syncStaleusersTileUi() {
+  const map = { suTileTotal: '', suTileIdle: 'idle', suTileNever: 'never', suTileLicensedStale: 'licensedStale' };
+  Object.keys(map).forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const tile = el.closest('.tile');
+    if (!tile) return;
+    tile.classList.toggle('active', map[id] !== '' && staleusersTileFilter === map[id]);
+  });
+  const searchActive = !!($('staleusersFilter').value || '').trim();
+  $('btnStaleusersClearKpi').style.display = (staleusersTileFilter || searchActive) ? '' : 'none';
+}
+
+function renderStaleUsers() {
+  renderStaleUsersTiles();
+  let rows = applyStaleFilters(staleusersRows);
+  const dir = staleusersSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    if (staleusersSortKey === 'default') {
+      // Never first, then days-idle desc, with null-activity treated as worst
+      if (a.neverSignedIn !== b.neverSignedIn) return a.neverSignedIn ? -1 : 1;
+      const ad = a.daysIdle == null ? -1 : a.daysIdle;
+      const bd = b.daysIdle == null ? -1 : b.daysIdle;
+      if (bd !== ad) return bd - ad;
+      return (a.displayName || '').toLowerCase().localeCompare((b.displayName || '').toLowerCase());
+    }
+    let av, bv;
+    if (staleusersSortKey === 'status') { av = staleStatusOf(a); bv = staleStatusOf(b); }
+    else if (staleusersSortKey === 'signinBadge') { av = a.neverSignedIn ? 0 : 1; bv = b.neverSignedIn ? 0 : 1; }
+    else { av = a[staleusersSortKey]; bv = b[staleusersSortKey]; }
+    if (av == null) av = dir > 0 ? Infinity : -Infinity;
+    if (bv == null) bv = dir > 0 ? Infinity : -Infinity;
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.displayName || '').toLowerCase().localeCompare((b.displayName || '').toLowerCase());
+  });
+
+  const body = $('staleusersRows');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No members match the current filters.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => {
+      const nameCell = `<a href="${entraUserUrl(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.displayName) || '—'}</a>`;
+      const lastCell = r.lastActivityMs == null ? '—' : new Date(r.lastActivityMs).toLocaleDateString();
+      const idleCell = r.neverSignedIn ? '—' : (r.daysIdle != null ? r.daysIdle : '—');
+      const licensedCell = r.licenseCount > 0
+        ? `<span style="font-weight:600; color:var(--ink);">${r.licenseCount}</span>`
+        : `<span style="color:var(--muted);">0</span>`;
+      let actionsHtml;
+      if (r.actionStatus) {
+        actionsHtml = r.actionStatus.kind === 'ok'
+          ? `<span style="color:#1f5d33; font-weight:600; font-size:11px;">✓ ${esc(r.actionStatus.msg)}</span>`
+          : `<span style="color:#8a2020; font-weight:600; font-size:11px;">✗ ${esc(r.actionStatus.msg)}</span>`;
+      } else if (!r.accountEnabled) {
+        actionsHtml = `<span style="color:var(--muted); font-size:11px;">—</span>`;
+      } else {
+        actionsHtml = `<button class="btn btn-ghost" data-su-revoke="${esc(r.id)}" data-su-name="${esc(r.displayName)}" data-su-upn="${esc(r.userPrincipalName)}" title="Invalidate refresh tokens — forces re-auth">↻ Revoke</button>
+           <button class="btn btn-ghost" data-su-disable="${esc(r.id)}" data-su-name="${esc(r.displayName)}" data-su-upn="${esc(r.userPrincipalName)}" title="Block sign-in (sets accountEnabled=false)" style="margin-left:4px;">⊘ Disable</button>`;
+      }
+      return `<tr>
+        <td>${nameCell}</td>
+        <td>${esc(r.userPrincipalName) || '—'}</td>
+        <td class="date">${lastCell}</td>
+        <td>${idleCell}</td>
+        <td>${staleSigninBadge(r)}</td>
+        <td>${licensedCell}</td>
+        <td>${staleStatusBadge(r)}</td>
+        <td style="white-space:nowrap;">${actionsHtml}</td>
+      </tr>`;
+    }).join('');
+    body.querySelectorAll('[data-su-revoke]').forEach(btn => {
+      btn.addEventListener('click', () => openStaleActionModal('revoke', btn.dataset.suRevoke, btn.dataset.suName, btn.dataset.suUpn));
+    });
+    body.querySelectorAll('[data-su-disable]').forEach(btn => {
+      btn.addEventListener('click', () => openStaleActionModal('disable', btn.dataset.suDisable, btn.dataset.suName, btn.dataset.suUpn));
+    });
+  }
+  $('staleusersCount').textContent = rows.length;
+}
+
+function exportStaleUsersCsv() {
+  const rows = applyStaleFilters(staleusersRows);
+  const header = ['DisplayName','UPN','LastActivity','DaysIdle','NeverSignedIn','LicenseCount','AccountEnabled'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.displayName,
+    r.userPrincipalName,
+    r.lastActivityAt,
+    r.daysIdle == null ? '' : r.daysIdle,
+    r.neverSignedIn ? 'true' : 'false',
+    r.licenseCount,
+    r.accountEnabled ? 'true' : 'false'
+  ].map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stale-users-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Per-scope JIT consent. Pattern mirrors ensureDirectoryWriteConsent for Restore.
+async function ensureUserWriteConsent(writeScope) {
+  if (!msalApp) throw new Error('not signed in');
+  const account = msalApp.getActiveAccount();
+  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
+    if (granted(r)) return r.accessToken;
+  } catch (_) { /* fall through to popup */ }
+  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
+  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
+  return r.accessToken;
+}
+
+async function revokeUserSessions(id) {
+  const token = await ensureUserWriteConsent('User.RevokeSessions.All');
+  const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(id)}/revokeSignInSessions`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + body);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+async function disableUser(id) {
+  const token = await ensureUserWriteConsent('User.EnableDisableAccount.All');
+  const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountEnabled: false })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + body);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+function openStaleActionModal(kind, id, name, upn) {
+  $('suActionTitle').textContent = kind === 'revoke' ? 'Revoke sign-in sessions' : 'Disable account';
+  $('suActionSubtitle').textContent = upn || name || '';
+  const effectHtml = kind === 'revoke'
+    ? `<p style="margin-top:0;">This invalidates <strong>${esc(name) || 'the user'}</strong>'s refresh tokens and forces them to re-authenticate. Live access tokens remain valid for up to ~1 hour unless the resource enforces Continuous Access Evaluation (CAE).</p>
+       <p>Scope requested just-in-time: <code>User.RevokeSessions.All</code>.</p>`
+    : `<p style="margin-top:0;">This sets <code>accountEnabled=false</code> on <strong>${esc(name) || 'the user'}</strong>, blocking new sign-ins. Live access tokens remain valid for up to ~1 hour unless the resource enforces Continuous Access Evaluation (CAE). Existing data, licenses, and group memberships are preserved.</p>
+       <p>Scope requested just-in-time: <code>User.EnableDisableAccount.All</code>.</p>
+       <p style="margin-bottom:6px;">To confirm, type <code>DISABLE</code>:</p>`;
+  const needsTyped = kind === 'disable';
+  const buttonClass = kind === 'revoke' ? 'btn' : 'btn btn-danger';
+  const buttonLabel = kind === 'revoke' ? 'Revoke sessions' : 'Disable account';
+  $('suActionBody').innerHTML = `
+    ${effectHtml}
+    ${needsTyped ? `<input type="text" id="suActionConfirm" class="search" placeholder="Type DISABLE to confirm" autocomplete="off" style="width:100%; margin-bottom:16px;">` : ''}
+    <div id="suActionError"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeStaleActionModal()">Cancel</button>
+      <button class="${buttonClass}" id="suActionConfirmBtn" ${needsTyped ? 'disabled' : ''}>${buttonLabel}</button>
+    </div>
+  `;
+  if (needsTyped) {
+    const input = $('suActionConfirm');
+    const btn = $('suActionConfirmBtn');
+    input.addEventListener('input', () => { btn.disabled = input.value !== 'DISABLE'; });
+    attachSearchClearButtons($('suActionBody'));
+    setTimeout(() => input.focus(), 0);
+  }
+  $('suActionConfirmBtn').addEventListener('click', () => runStaleAction(kind, id, name));
+  $('staleActionModal').classList.add('show');
+}
+
+function closeStaleActionModal() {
+  $('staleActionModal').classList.remove('show');
+}
+
+async function runStaleAction(kind, id, name) {
+  const btn = $('suActionConfirmBtn');
+  const errBox = $('suActionError');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Consent…';
+  try {
+    if (kind === 'revoke') await revokeUserSessions(id);
+    else await disableUser(id);
+    const row = staleusersRows.find(r => r.id === id);
+    if (row) {
+      row.actionStatus = { kind: 'ok', msg: kind === 'revoke' ? 'Sessions revoked' : 'Disabled' };
+      if (kind === 'disable') row.accountEnabled = false;
+    }
+    closeStaleActionModal();
+    renderStaleUsers();
+    $('staleusersNotice').innerHTML = `<div class="notice-banner">✓ ${kind === 'revoke' ? 'Revoked sessions for' : 'Disabled'} <strong>${esc(name)}</strong>.</div>`;
+    setTimeout(() => { const n = $('staleusersNotice'); if (n) n.innerHTML = ''; }, 8000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    errBox.innerHTML = `<div class="error-banner" style="margin-bottom:12px;">${esc(e.message || String(e))}</div>`;
+    const row = staleusersRows.find(r => r.id === id);
+    if (row) row.actionStatus = { kind: 'err', msg: 'Failed' };
+  }
+}
+
+// Wire controls
+$('staleusersFilter').addEventListener('input', renderStaleUsers);
+$('staleusersThreshold').addEventListener('change', renderStaleUsers);
+$('staleusersIncludeNever').addEventListener('change', renderStaleUsers);
+$('btnStaleusersRefresh').addEventListener('click', () => loadStaleUsers(true));
+$('btnStaleusersExport').addEventListener('click', exportStaleUsersCsv);
+$('btnStaleusersClearKpi').addEventListener('click', () => {
+  staleusersTileFilter = null;
+  $('staleusersFilter').value = '';
+  $('staleusersFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderStaleUsers();
+});
+document.querySelectorAll('#intuneSubStaleusers [data-su-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const target = tile.dataset.suTile;
+    // Toggle off when re-clicking the active tile; '' (Members in scope) always clears.
+    if (target === '') {
+      staleusersTileFilter = null;
+    } else {
+      staleusersTileFilter = staleusersTileFilter === target ? null : target;
+    }
+    renderStaleUsers();
+  });
+});
+document.querySelectorAll('#intuneSubStaleusers th[data-su-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.suSort;
+    if (staleusersSortKey === key) staleusersSortDir = staleusersSortDir === 'asc' ? 'desc' : 'asc';
+    else { staleusersSortKey = key; staleusersSortDir = 'asc'; }
+    renderStaleUsers();
+  });
+});
+$('staleActionModal').addEventListener('click', e => { if (e.target === $('staleActionModal')) closeStaleActionModal(); });
 </script>
 <div class="session-pill" id="sessionPill" title="Click to reset">
   <span class="dot"></span>
