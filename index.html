@@ -1576,7 +1576,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubCerthealth -->
 
       <div id="intuneSubVulnerabilities" style="display:none;">
-        <div class="tab-hint">Defender software inventory with CVE counts and exposed-device counts. Requires Defender for Endpoint P2 or M365 E5.</div>
+        <div class="tab-hint">Defender software inventory with CVE counts and exposed-device counts. Requires Defender for Endpoint P2 or M365 E5, and the Security Administrator role.</div>
         <div class="tiles" style="grid-template-columns: repeat(6, 1fr);">
           <div class="tile" id="vulnTileSoftware" style="cursor:pointer;" title="Open Defender inventory in new tab">
             <div class="tile-label">Software</div>
@@ -1827,7 +1827,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubAssignments -->
 
       <div id="intuneSubDrift" style="display:none;">
-        <div class="tab-hint">Fleet-wide software version drift via Defender. Catches cross-product-family drift (.NET 8 vs 9, Snagit major versions) Intune's reports can't see.</div>
+        <div class="tab-hint">Fleet-wide software version drift via Defender. Catches cross-product-family drift (.NET 8 vs 9, Snagit major versions) Intune's reports can't see. Requires Defender for Endpoint P2 or M365 E5, and the Security Administrator role.</div>
         <h2 style="margin: 0 0 16px 0; font-size: 22px;">Software Version Drift &amp; Compliance</h2>
 
         <!-- KPI tiles -->
