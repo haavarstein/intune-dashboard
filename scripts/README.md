@@ -140,3 +140,29 @@ Or, via PsExec (if Sysinternals installed): `PsExec64.exe -s -i powershell.exe -
 ## Versioning
 
 Schema header is `v1`. If the row format changes, bump to `v2` and the dashboard rejects older payloads with a "device running outdated metering script" badge. Deploy a new script with the new version, retire the old one.
+
+---
+
+# IME Required App Check-in — remediation scripts
+
+`ime-required-app-checkin-detect.ps1` (detection) and `ime-required-app-checkin-remediate.ps1` (remediation) are vendored verbatim from Rudy Ooms / Call4Cloud's [Required-App-Checkin](https://github.com/call4cloud-code/Required-App-Checkin-public) repo. The dashboard deploys them as a single Proactive Remediation from the **Remediation** sub-tab.
+
+## What it does
+
+The remediation calls the Intune Management Extension's internal `IStatusService.CheckInAsync(Guid)` on the local StatusService named pipe (`net.pipe://localhost/IntuneManagementExtension/StatusService/`). This starts the **required + available apps check-in path** that normally only runs when a user clicks *Settings → Sync* in Company Portal — cutting the well-known ~60-minute wait for required Win32 apps after Autopilot or a fresh assignment. It does **not** restart the IME service and does **not** use `intunemanagementextension://syncapp` (both are weaker). The detection script returns non-compliant (exit 1) on purpose so the remediation always runs; both scripts hide their console window.
+
+## Required Intune configuration (the dashboard's Auto-deploy sets these for you)
+
+| Setting | Value |
+| --- | --- |
+| Run this script using the logged-on credentials | **Yes** |
+| Run script in 64-bit PowerShell | **Yes** |
+| Enforce script signature check | **No** (unless you sign the scripts yourself) |
+
+> **Logged-on user is mandatory.** Running as SYSTEM fails with *"IME cannot resolve the user ID for the caller"* — the StatusService pipe is per-user. A user must be signed in to the device for a check-in to take effect; otherwise Intune queues it.
+
+## On-demand use
+
+Once deployed, the dashboard stores the remediation's script ID per customer and exposes a **⚡ Check-in** action on devices in the Hardware, Failed Install, and Cert health tabs. That fires `POST /deviceManagement/managedDevices/{id}/initiateOnDemandProactiveRemediation` with the script's `scriptPolicyId` — the same on-demand path as *Run remediation* in the Intune portal — which needs the **DeviceManagementManagedDevices.PrivilegedOperations.All** scope (requested just-in-time) and an Intune Administrator role.
+
+This tool is unofficial and not supported by Microsoft.

@@ -904,6 +904,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <th data-sort="InstallState">State <span class="arrow">▼</span></th>
                 <th data-sort="ErrorCode">Error <span class="arrow">▼</span></th>
                 <th data-sort="LastModifiedDateTime">Last modified <span class="arrow">▼</span></th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="failedRows"></tbody>
@@ -1322,7 +1323,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-sort="freeGB">Free (GB) <span class="arrow">▼</span></th>
                   <th data-sort="osVersion">Windows <span class="arrow">▼</span></th>
                   <th data-sort="lastSync">Last Check-in <span class="arrow">▼</span></th>
-                  <th>Audit</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="hwRows"></tbody>
@@ -1566,6 +1567,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-csort="managementCertificateExpirationDate">Cert expires <span class="arrow">▼</span></th>
                   <th data-csort="daysSinceSync">Days since sync <span class="arrow">▼</span></th>
                   <th data-csort="state">Status <span class="arrow">▼</span></th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="certhealthRowsBody"></tbody>
@@ -2095,6 +2097,20 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div id="intuneSubRemediation" style="display:none;">
         <div class="tab-hint">All proactive remediation scripts (<code>deviceHealthScripts</code>) with their schedules. Click a script to open its Intune admin-center blade.</div>
+
+        <div id="remediationImeCard" style="padding:14px 16px; background:#fcf9f4; border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:280px;">
+              <div style="font-weight:600; font-size:14px; margin-bottom:4px;">⚡ IME Required App Check-in <span class="meta" style="font-weight:400; font-size:12px;">(Rudy Ooms / Call4Cloud)</span></div>
+              <div style="font-size:12px; color:var(--muted); line-height:1.6;">One-click deploy of the remediation that triggers the IME <code>IStatusService.CheckInAsync</code> path — cuts the ~60-minute wait for required Win32 apps after Autopilot or new assignments. Runs as the <strong>logged-on user</strong> in 64-bit PowerShell. Once deployed, use the <strong>⚡ Check-in</strong> action on devices in the Hardware, Failed Install, and Cert health tabs to force an on-demand sync.</div>
+              <div id="remediationImeStatus" style="font-size:12px; margin-top:8px;"></div>
+            </div>
+            <div style="display:flex; gap:8px; flex-shrink:0;">
+              <button class="btn" id="btnImeDeploy">⚡ Deploy / redeploy…</button>
+            </div>
+          </div>
+        </div>
+
         <div class="table-card">
           <div class="table-toolbar">
             <h2>Remediations</h2>
@@ -2271,7 +2287,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and an optional metering script ID are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
 
@@ -2282,6 +2298,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </div>
         <input type="text" id="customerApproversInput" placeholder="Approvers — comma-separated emails (optional, for MAA delete notifications)" class="search" style="width:100%; margin-top:8px;">
         <input type="text" id="customerMeteringIdInput" placeholder="Software metering script ID — GUID from Intune (optional)" class="search" style="width:100%; margin-top:8px; font-family:ui-monospace, monospace;">
+        <input type="text" id="customerImeIdInput" placeholder="IME Required App Check-in script ID — GUID from Intune (optional)" class="search" style="width:100%; margin-top:8px; font-family:ui-monospace, monospace;">
         <div id="customerAddStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
 
@@ -2467,6 +2484,89 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button class="btn btn-ghost" id="mdBtnCancel">Cancel</button>
         <button class="btn" id="mdBtnDeploy">Deploy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="imeDeployModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div>
+        <h3>Deploy IME Required App Check-in Remediation</h3>
+        <div class="panel-sub" id="imeSubtitle" style="margin-top: 4px;"></div>
+      </div>
+      <button class="close-btn" id="btnImeDeployClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="imeError" style="display:none; margin-bottom:14px;"></div>
+
+      <div style="padding:10px 12px; background:#fff4e0; border:1px solid #f0c674; border-radius:6px; font-size:12px; margin-bottom:14px; line-height:1.6;">
+        <strong>Runs as the logged-on user.</strong> This remediation calls the Intune Management Extension's internal <code>IStatusService.CheckInAsync</code> on the per-user named pipe, so it <strong>only works while a user is signed in</strong> — running as SYSTEM fails ("IME cannot resolve the user ID for the caller"). This deploy configures <code>Run as: logged-on credentials = Yes</code>, <code>64-bit PowerShell = Yes</code>, and <code>signature check = No</code> for you. Based on Rudy Ooms / Call4Cloud's <a href="https://github.com/call4cloud-code/Required-App-Checkin-public" target="_blank" rel="noopener noreferrer">Required-App-Checkin</a>.
+      </div>
+
+      <div id="imeConflict" style="display:none; padding:12px 14px; background:#fff4e0; border:1px solid #f0c674; border-radius:6px; margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">A script with this name already exists in this tenant.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;" id="imeConflictDetail"></div>
+        <button class="btn" id="imeBtnReuse" style="margin-right:8px;">Reuse existing</button>
+        <button class="btn" id="imeBtnReplace" style="margin-right:8px; background:#c0392b; color:#fff; border-color:#c0392b;">Delete existing and create new</button>
+        <button class="btn btn-ghost" id="imeBtnRename">Rename and create new</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Name *</label>
+        <input type="text" class="search" id="imeName" value="THE Intune Dashboard - IME Required App Check-in">
+
+        <label style="font-size:12px; color:var(--muted);">Publisher *</label>
+        <input type="text" class="search" id="imePublisher" value="THE Intune Dashboard">
+
+        <label style="font-size:12px; color:var(--muted); align-self:start; padding-top:6px;">Description</label>
+        <textarea id="imeDescription" class="search" rows="4" style="font-family:inherit; resize:vertical;"></textarea>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Assignment</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="imeTarget" value="none" checked> On-demand only — no schedule (drive it with the per-device "⚡ Check-in" buttons)
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="imeTarget" value="group"> Specific group (recommended for new-enrolment pilots)
+          </label>
+          <div id="imeGroupRow" style="padding-left:24px;">
+            <input type="text" class="search" id="imeGroupSearch" placeholder="Type to search groups…" style="width:100%;">
+            <div id="imeGroupResults" style="display:none; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:6px; background:white;"></div>
+            <div id="imeGroupSelected" style="display:none; margin-top:6px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="imeTarget" value="all"> All Devices (fleet-wide)
+          </label>
+        </div>
+      </div>
+
+      <div id="imeScheduleRow" style="display:none; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Schedule</label>
+        <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+          <select class="filter-select" id="imeScheduleType">
+            <option value="hourly" selected>Hourly</option>
+            <option value="daily">Daily</option>
+          </select>
+          <span id="imeDailyTimeWrap" style="display:none;">at <input type="text" id="imeScheduleTime" value="03:00" maxlength="5" class="search" style="width:70px; text-align:center;"> UTC</span>
+        </div>
+      </div>
+
+      <details style="margin-bottom:14px;">
+        <summary style="cursor:pointer; font-size:12px; color:var(--muted);">Script content preview (<span id="imeScriptSize">loading…</span>)</summary>
+        <pre id="imeScriptPreview" style="max-height:240px; overflow:auto; background:#1e1e1e; color:#eee; padding:10px; border-radius:6px; font-size:11px; margin-top:8px; white-space:pre;"></pre>
+      </details>
+
+      <div style="padding:10px 12px; background:#f5f5f0; border-left:3px solid var(--accent); font-size:12px; margin-bottom:14px;">
+        This creates a Proactive Remediation (<code>deviceHealthScript</code>) in the active tenant carrying both the detection and remediation scripts from the Call4Cloud repo. On first use this requires re-consent for the <code>DeviceManagementScripts.ReadWrite.All</code> scope. The script ID is saved against the active customer so per-device "⚡ Check-in" works across your tenants.
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-ghost" id="imeBtnCancel">Cancel</button>
+        <button class="btn" id="imeBtnDeploy">Deploy</button>
       </div>
     </div>
   </div>
@@ -3055,6 +3155,10 @@ function renderCustomersList() {
     const meteringLine = meteringId
       ? `<span data-customer-metering="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2); font-family:ui-monospace, monospace;" title="Click to edit">🔧 Metering: ${esc(meteringId.slice(0, 8))}…${esc(meteringId.slice(-4))}</span>`
       : `<span data-customer-metering="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">🔧 No metering script (click to add)</span>`;
+    const imeId = c.imeCheckinScriptId || '';
+    const imeLine = imeId
+      ? `<span data-customer-ime="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2); font-family:ui-monospace, monospace;" title="Click to edit">⚡ IME check-in: ${esc(imeId.slice(0, 8))}…${esc(imeId.slice(-4))}</span>`
+      : `<span data-customer-ime="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">⚡ No IME check-in script (click to add)</span>`;
     return `
     <div style="padding:10px 14px; ${i < customers.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}">
       <div style="display:flex; align-items:center; gap:12px;">
@@ -3064,6 +3168,7 @@ function renderCustomersList() {
       </div>
       <div style="font-size:11px; margin-top:4px; padding-left:48px;">${approverLine}</div>
       <div style="font-size:11px; margin-top:4px; padding-left:48px;">${meteringLine}</div>
+      <div style="font-size:11px; margin-top:4px; padding-left:48px;">${imeLine}</div>
     </div>
   `;
   }).join('');
@@ -3138,27 +3243,66 @@ function saveMeteringId(code) {
   renderCustomersList();
 }
 
+function editImeId(code) {
+  const customers = loadCustomers();
+  const customer = customers.find(c => c.code === code);
+  if (!customer) return;
+  const current = customer.imeCheckinScriptId || '';
+  const span = document.querySelector(`[data-customer-ime="${code}"]`);
+  if (!span) return;
+  span.outerHTML = `
+    <span data-editing-ime="${esc(code)}" style="display:inline-flex; gap:6px; align-items:center; width:100%;">
+      <input type="text" id="editIme_${esc(code)}" class="search" style="flex:1; font-size:12px; padding:4px 8px; font-family:ui-monospace, monospace;" value="${esc(current)}" placeholder="GUID from Intune script (leave empty to disable)">
+      <button class="btn" data-save-ime="${esc(code)}" style="padding:4px 10px; font-size:11px;">Save</button>
+      <button class="btn btn-ghost" data-cancel-ime="${esc(code)}" style="padding:4px 10px; font-size:11px;">Cancel</button>
+    </span>
+  `;
+  setTimeout(() => $('editIme_' + code)?.focus(), 0);
+  attachSearchClearButtons($('customersList'));
+}
+
+function saveImeId(code) {
+  const input = $('editIme_' + code);
+  if (!input) return;
+  const raw = (input.value || '').trim().toLowerCase();
+  if (raw && !GUID_RX.test(raw)) {
+    alert(`"${raw}" doesn't look like a GUID. Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    return;
+  }
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === code);
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], imeCheckinScriptId: raw || undefined };
+  saveCustomers(customers);
+  renderCustomersList();
+  if (typeof renderRemediationImeStatus === 'function') renderRemediationImeStatus();
+}
+
 function addCustomer() {
   const code = ($('customerCodeInput').value || '').trim().toUpperCase();
   const email = ($('customerEmailInput').value || '').trim().toLowerCase();
   const approvers = parseApprovers($('customerApproversInput').value);
   const meteringScriptId = ($('customerMeteringIdInput').value || '').trim().toLowerCase();
+  const imeCheckinScriptId = ($('customerImeIdInput').value || '').trim().toLowerCase();
   const status = $('customerAddStatus');
   if (!code || code.length > 4) { status.textContent = 'Code is required (max 4 chars).'; return; }
   if (!EMAIL_RX.test(email)) { status.textContent = 'Email looks invalid.'; return; }
   const invalidApprover = approvers.find(a => !EMAIL_RX.test(a));
   if (invalidApprover) { status.textContent = `Approver "${invalidApprover}" looks invalid.`; return; }
   if (meteringScriptId && !GUID_RX.test(meteringScriptId)) { status.textContent = `Metering script ID must be a GUID (or empty).`; return; }
+  if (imeCheckinScriptId && !GUID_RX.test(imeCheckinScriptId)) { status.textContent = `IME check-in script ID must be a GUID (or empty).`; return; }
   const customers = loadCustomers();
   if (customers.some(c => c.code === code)) { status.textContent = `Code "${code}" is already used.`; return; }
   const newCustomer = { code, email, approvers };
   if (meteringScriptId) newCustomer.meteringScriptId = meteringScriptId;
+  if (imeCheckinScriptId) newCustomer.imeCheckinScriptId = imeCheckinScriptId;
   customers.push(newCustomer);
   saveCustomers(customers);
   $('customerCodeInput').value = '';
   $('customerEmailInput').value = '';
   $('customerApproversInput').value = '';
   $('customerMeteringIdInput').value = '';
+  $('customerImeIdInput').value = '';
   status.textContent = `Added ${code}.`;
   setTimeout(() => { status.textContent = ''; }, 2000);
   renderCustomersList();
@@ -3251,6 +3395,7 @@ $('btnAddCustomer').addEventListener('click', addCustomer);
 $('customerEmailInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customerApproversInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customerMeteringIdInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
+$('customerImeIdInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomer(); });
 $('customersList').addEventListener('click', e => {
   const ds = e.target.dataset || {};
   if (ds.customerDelete) { deleteCustomer(ds.customerDelete); return; }
@@ -3260,6 +3405,9 @@ $('customersList').addEventListener('click', e => {
   if (ds.customerMetering) { editMeteringId(ds.customerMetering); return; }
   if (ds.saveMetering) { saveMeteringId(ds.saveMetering); return; }
   if (ds.cancelMetering) { renderCustomersList(); return; }
+  if (ds.customerIme) { editImeId(ds.customerIme); return; }
+  if (ds.saveIme) { saveImeId(ds.saveIme); return; }
+  if (ds.cancelIme) { renderCustomersList(); return; }
 });
 
 $('customerSwitcherToggle').addEventListener('click', e => {
@@ -3873,7 +4021,7 @@ $('btnRefresh').addEventListener('click', () => selectedApp && loadFailed());
 // --- Failed installs: exact endpoint + body shape from Intune portal network trace ---
 async function loadFailed() {
   clearIntuneError();
-  $('failedRows').innerHTML = '<tr><td colspan="8" class="loading">Loading report…</td></tr>';
+  $('failedRows').innerHTML = '<tr><td colspan="9" class="loading">Loading report…</td></tr>';
   try {
     const body = {
       top: 50,
@@ -3932,7 +4080,7 @@ function renderFailed() {
 
   const tbody = $('failedRows');
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty">No devices found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No devices found.</td></tr>';
   } else {
     tbody.innerHTML = filtered.map((r, i) => {
       const hasErr = r.ErrorCode && String(r.ErrorCode) !== '0';
@@ -3949,6 +4097,7 @@ function renderFailed() {
         <td>${esc(r.InstallState) || '—'}</td>
         ${errCell}
         <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
+        <td style="white-space:nowrap;">${r.DeviceId ? `<span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(r.DeviceId)}" data-ime-name="${esc(r.DeviceName || '')}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span>` : '—'}</td>
       </tr>`;
     }).join('');
     // Stash filtered rows so click handler can find the right record
@@ -5263,7 +5412,7 @@ function renderHardware() {
           ${freeCell}
           <td>${esc(d.osVersion)}</td>
           <td class="date">${esc(fmtIntuneDate(d.lastSync))}</td>
-          <td><span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-audit-device="${esc(d.id)}" data-audit-name="${esc(d.deviceName)}" title="Show recent admin actions on this device">📋 History</span></td>
+          <td style="white-space:nowrap;"><span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-audit-device="${esc(d.id)}" data-audit-name="${esc(d.deviceName)}" title="Show recent admin actions on this device">📋 History</span> <span style="color:var(--line);">·</span> <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(d.id)}" data-ime-name="${esc(d.deviceName)}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span></td>
         </tr>`;
     }).join('');
 
@@ -6023,6 +6172,7 @@ async function loadRemediation(force = false) {
 }
 
 function renderRemediation() {
+  renderRemediationImeStatus();
   const q = ($('remediationFilter').value || '').toLowerCase().trim();
   let rows = remediationRows.filter(r =>
     !q || r.displayName.toLowerCase().includes(q)
@@ -6994,6 +7144,427 @@ $('mdGroupSearch').addEventListener('input', e => {
 document.querySelectorAll('input[name="mdTarget"]').forEach(r => r.addEventListener('change', syncMdGroupRow));
 $('meteringDeployModal').addEventListener('click', e => {
   if (e.target.id === 'meteringDeployModal' && !mdDeploying) closeMeteringDeployModal();
+});
+
+// ============================================================
+// IME Required App Check-in remediation (Rudy Ooms / Call4Cloud)
+// ------------------------------------------------------------
+// One-click deploy of the detection + remediation scripts as a
+// single deviceHealthScript configured to run as the logged-on
+// user in 64-bit PowerShell. The script ID is stored per customer
+// (imeCheckinScriptId), and per-device "Force check-in" fires
+// initiateOnDemandProactiveRemediation against that script.
+// https://github.com/call4cloud-code/Required-App-Checkin-public
+// ============================================================
+const IME_DETECT_PATH = 'scripts/ime-required-app-checkin-detect.ps1';
+const IME_REMEDIATE_PATH = 'scripts/ime-required-app-checkin-remediate.ps1';
+const IME_DEFAULT_DESCRIPTION = `Triggers the Intune Management Extension required+available app check-in via IStatusService.CheckInAsync — cuts the ~60-minute delay for required Win32 apps after Autopilot or new assignments. Must run as the logged-on user (fails as SYSTEM). Based on Rudy Ooms / Call4Cloud's Required-App-Checkin. Deployed by THE Intune Dashboard.`;
+
+let imeDetectText = null, imeRemediateText = null;
+let imeDetectB64 = null, imeRemediateB64 = null;
+let imeSelectedGroup = null;
+let imeSearchTimer = null;
+let imeDeploying = false;
+let imeExistingScriptId = null;
+
+function getActiveImeScriptId() {
+  const c = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  return (c && c.imeCheckinScriptId) || '';
+}
+
+function saveImeScriptIdToActiveCustomer(scriptId) {
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === getActiveCustomerCode());
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], imeCheckinScriptId: scriptId };
+  saveCustomers(customers);
+  if (typeof renderCustomersList === 'function') renderCustomersList();
+  renderRemediationImeStatus();
+}
+
+function clearImeScriptIdForActiveCustomer() {
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === getActiveCustomerCode());
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], imeCheckinScriptId: undefined };
+  saveCustomers(customers);
+  renderRemediationImeStatus();
+}
+
+function renderRemediationImeStatus() {
+  const el = $('remediationImeStatus');
+  if (!el) return;
+  const id = getActiveImeScriptId();
+  el.innerHTML = id
+    ? `Status for this customer: <strong style="color:#1f7a3a;">deployed</strong> · <code>${esc(id)}</code>`
+    : `Status for this customer: <strong style="color:#8a6d00;">not deployed</strong> — deploy it to enable per-device "⚡ Check-in".`;
+}
+
+// Lightweight toast for the per-device fire-and-forget actions (no modal context).
+function imeToast(msg, kind) {
+  let host = $('imeToastHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'imeToastHost';
+    host.style.cssText = 'position:fixed; right:18px; bottom:18px; z-index:9999; display:flex; flex-direction:column; gap:8px; max-width:440px;';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  const bg = kind === 'bad' ? '#c0392b' : (kind === 'ok' ? '#1f7a3a' : '#333');
+  t.style.cssText = `background:${bg}; color:#fff; padding:10px 14px; border-radius:8px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.2); line-height:1.5;`;
+  t.textContent = msg;
+  host.appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 6500);
+}
+
+function imeSyncGroupRow() {
+  const tgt = document.querySelector('input[name="imeTarget"]:checked').value;
+  $('imeGroupRow').style.opacity = tgt === 'group' ? '1' : '0.35';
+  $('imeGroupRow').style.pointerEvents = tgt === 'group' ? '' : 'none';
+  $('imeScheduleRow').style.display = (tgt === 'group' || tgt === 'all') ? 'grid' : 'none';
+}
+
+function imeSyncScheduleType() {
+  $('imeDailyTimeWrap').style.display = $('imeScheduleType').value === 'daily' ? '' : 'none';
+}
+
+function showImeError(msg) {
+  $('imeError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+  $('imeError').style.display = '';
+}
+
+async function openImeDeployModal() {
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  if (!customer) {
+    alert('No customer matched the signed-in account. Sign in via the Multi-Customer dropdown or add a customer in Settings.');
+    return;
+  }
+  $('imeSubtitle').textContent = `Tenant: ${customer.code} (${customer.email})`;
+  $('imeName').value = 'THE Intune Dashboard - IME Required App Check-in';
+  $('imePublisher').value = 'THE Intune Dashboard';
+  $('imeDescription').value = IME_DEFAULT_DESCRIPTION;
+  $('imeScheduleType').value = 'hourly';
+  $('imeScheduleTime').value = '03:00';
+  $('imeGroupSearch').value = '';
+  $('imeGroupResults').style.display = 'none';
+  $('imeGroupSelected').style.display = 'none';
+  $('imeError').style.display = 'none';
+  $('imeError').innerHTML = '';
+  $('imeConflict').style.display = 'none';
+  $('imeScriptPreview').textContent = 'Loading…';
+  $('imeScriptSize').textContent = 'loading…';
+  imeSelectedGroup = null;
+  imeExistingScriptId = null;
+  document.querySelector('input[name="imeTarget"][value="none"]').checked = true;
+  imeSyncGroupRow();
+  imeSyncScheduleType();
+  $('imeDeployModal').classList.add('show');
+
+  try {
+    if (!imeDetectText || !imeRemediateText) {
+      const toB64 = (txt) => {
+        const enc = new TextEncoder().encode(txt);
+        let binary = '';
+        for (let i = 0; i < enc.length; i++) binary += String.fromCharCode(enc[i]);
+        return btoa(binary);
+      };
+      const [dRes, rRes] = await Promise.all([fetch(IME_DETECT_PATH), fetch(IME_REMEDIATE_PATH)]);
+      if (!dRes.ok) throw new Error(`fetch ${IME_DETECT_PATH} returned ${dRes.status}`);
+      if (!rRes.ok) throw new Error(`fetch ${IME_REMEDIATE_PATH} returned ${rRes.status}`);
+      imeDetectText = await dRes.text();
+      imeRemediateText = await rRes.text();
+      imeDetectB64 = toB64(imeDetectText);
+      imeRemediateB64 = toB64(imeRemediateText);
+    }
+    const dBytes = new TextEncoder().encode(imeDetectText).length;
+    const rBytes = new TextEncoder().encode(imeRemediateText).length;
+    $('imeScriptSize').textContent = `detection ${(dBytes / 1024).toFixed(1)} KB · remediation ${(rBytes / 1024).toFixed(1)} KB`;
+    $('imeScriptPreview').textContent =
+      `# ===== DETECTION (${IME_DETECT_PATH}) =====\n${imeDetectText}\n\n# ===== REMEDIATION (${IME_REMEDIATE_PATH}) =====\n${imeRemediateText}`;
+  } catch (e) {
+    $('imeScriptPreview').textContent = '';
+    $('imeScriptSize').textContent = 'failed';
+    showImeError(`Could not fetch the script content from the "scripts/" folder. Local file:// origins typically block sibling fetches — serve the dashboard via an HTTP server (or use the production GitHub Pages URL) and reopen this modal.`);
+  }
+}
+
+function closeImeDeployModal() {
+  if (imeDeploying) return;
+  $('imeDeployModal').classList.remove('show');
+}
+
+async function searchGroupsForImeDeploy(query) {
+  const box = $('imeGroupResults');
+  if (!query || query.length < 2) { box.style.display = 'none'; return; }
+  try {
+    const term = `"displayName:${query.replace(/"/g, '')}"`;
+    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`;
+    const data = await graphGet(path, { headers: { ConsistencyLevel: 'eventual' } });
+    const groups = data.value || [];
+    if (!groups.length) {
+      box.innerHTML = `<div class="meta" style="padding:10px;">No groups match "${esc(query)}"</div>`;
+    } else {
+      box.innerHTML = groups.map(g => `
+        <div data-ime-group-id="${esc(g.id)}" data-ime-group-name="${esc(g.displayName)}" style="padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--line);">
+          <div style="font-size:13px;">${esc(g.displayName)}</div>
+          <div style="font-size:11px; color:var(--muted);">${esc(g.description || g.id)}</div>
+        </div>
+      `).join('');
+      box.querySelectorAll('[data-ime-group-id]').forEach(row => {
+        row.addEventListener('click', () => selectImeDeployGroup({ id: row.dataset.imeGroupId, displayName: row.dataset.imeGroupName }));
+        row.addEventListener('mouseenter', () => row.style.background = 'var(--accent-soft)');
+        row.addEventListener('mouseleave', () => row.style.background = '');
+      });
+    }
+    box.style.display = '';
+  } catch (e) {
+    box.innerHTML = `<div style="padding:10px; color:#c0392b; font-size:12px;">Search failed: ${esc(e.message || String(e))}</div>`;
+    box.style.display = '';
+  }
+}
+
+function selectImeDeployGroup(g) {
+  imeSelectedGroup = g;
+  $('imeGroupSearch').value = '';
+  $('imeGroupResults').style.display = 'none';
+  $('imeGroupSelected').style.display = '';
+  $('imeGroupSelected').innerHTML = `Selected: <strong>${esc(g.displayName)}</strong> <span style="color:var(--muted); font-family:ui-monospace,monospace; font-size:11px;">${esc(g.id)}</span>`;
+}
+
+async function confirmImeDeploy() {
+  if (imeDeploying) return;
+  $('imeError').style.display = 'none';
+  $('imeConflict').style.display = 'none';
+
+  const name = ($('imeName').value || '').trim();
+  const publisher = ($('imePublisher').value || '').trim();
+  const description = ($('imeDescription').value || '').trim();
+  const targetType = document.querySelector('input[name="imeTarget"]:checked').value;
+  const schedType = $('imeScheduleType').value;
+  const timeStr = ($('imeScheduleTime').value || '').trim();
+
+  if (!name) return showImeError('Name is required.');
+  if (!publisher) return showImeError('Publisher is required.');
+  if (!imeDetectB64 || !imeRemediateB64) return showImeError('Script content not loaded yet — reopen the modal once it loads.');
+  if (targetType === 'group' && !imeSelectedGroup) return showImeError('Pick a group or switch to "On-demand only" / "All Devices".');
+  if ((targetType === 'group' || targetType === 'all') && schedType === 'daily' && !/^[0-2]?\d:[0-5]\d$/.test(timeStr)) return showImeError('Schedule time must be HH:MM (24-hour).');
+
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  if (!customer) return showImeError('No customer matched.');
+
+  imeDeploying = true;
+  const btn = $('imeBtnDeploy');
+  btn.disabled = true;
+  btn.textContent = 'Consent…';
+
+  try {
+    await ensureMeteringWriteConsent(); // same DeviceManagementScripts.ReadWrite.All scope
+    btn.textContent = 'Checking…';
+    const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
+    const existing = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
+    const existingValue = (existing && existing.value) || [];
+    if (existingValue.length) {
+      imeExistingScriptId = existingValue[0].id;
+      $('imeConflictDetail').textContent = `Existing script ID: ${imeExistingScriptId}. "Reuse existing" just saves that ID against this customer — no new script or assignment is created. "Delete existing and create new" deletes the script (and its assignment) in Intune then re-runs this deploy from scratch. "Rename and create new" lets you change the name and try again.`;
+      $('imeConflict').style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Deploy';
+      imeDeploying = false;
+      return;
+    }
+
+    btn.textContent = 'Creating…';
+    const createBody = {
+      displayName: name,
+      description: description,
+      publisher: publisher,
+      detectionScriptContent: imeDetectB64,
+      remediationScriptContent: imeRemediateB64,
+      runAsAccount: 'user',        // logged-on user — required for IStatusService
+      runAs32Bit: false,           // 64-bit PowerShell (per Call4Cloud README)
+      enforceSignatureCheck: false,
+      roleScopeTagIds: ['0'],
+    };
+
+    let maaJust = null;
+    const postWithMaa = async (path, body, label) => {
+      try {
+        return { kind: 'ok', data: await graphPost(path, body) };
+      } catch (e) {
+        if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
+          if (!maaJust) {
+            maaJust = prompt(`Multi-Admin Approval is required in this tenant. Enter a justification for "${label}" (recorded in the audit log; ≤ 1024 chars):`);
+            if (!maaJust) throw new Error('Justification cancelled.');
+          }
+          try {
+            const data = await graphPost(path, body, { headers: { 'x-msft-approval-justification': btoa(maaJust) } });
+            return { kind: 'ok', data };
+          } catch (e2) {
+            if (e2.status === 412 || e2.status === 409) return { kind: 'pending', error: e2 };
+            throw e2;
+          }
+        }
+        throw e;
+      }
+    };
+
+    const createResult = await postWithMaa('beta/deviceManagement/deviceHealthScripts', createBody, 'create IME check-in script');
+    if (createResult.kind === 'pending') {
+      $('imeError').innerHTML = `<div class="notice-banner"><strong>Submitted for Multi-Admin Approval.</strong> An admin must approve in <em>Tenant administration → Multi Admin Approval → Access requests</em>. Once approved, re-run this deploy — the conflict prompt will detect the now-created script and "Reuse existing" links the GUID.</div>`;
+      $('imeError').style.display = '';
+      return;
+    }
+    const scriptId = createResult.data.id;
+
+    if (targetType === 'none') {
+      saveImeScriptIdToActiveCustomer(scriptId);
+      closeImeDeployModal();
+      imeToast(`✓ Deployed IME check-in remediation (no schedule). Use "⚡ Check-in" on devices to run it on demand.`, 'ok');
+      remediationLoaded = false;
+      loadRemediation(true);
+      return;
+    }
+
+    btn.textContent = 'Assigning…';
+    const runSchedule = schedType === 'hourly'
+      ? { '@odata.type': '#microsoft.graph.deviceHealthScriptHourlySchedule', interval: 1 }
+      : (() => { const [hh, mm] = timeStr.split(':'); return { '@odata.type': '#microsoft.graph.deviceHealthScriptDailySchedule', interval: 1, time: `${hh.padStart(2, '0')}:${mm}:00.0000000`, useUtc: true }; })();
+    const target = targetType === 'all'
+      ? { '@odata.type': '#microsoft.graph.allDevicesAssignmentTarget' }
+      : { '@odata.type': '#microsoft.graph.groupAssignmentTarget', groupId: imeSelectedGroup.id };
+    const assignBody = {
+      deviceHealthScriptAssignments: [{
+        target,
+        runRemediationScript: true,   // actually run the remediation, not detection-only
+        runSchedule,
+      }],
+    };
+    const assignResult = await postWithMaa(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody, 'assign IME check-in script');
+    saveImeScriptIdToActiveCustomer(scriptId);
+    closeImeDeployModal();
+    if (assignResult.kind === 'pending') {
+      imeToast(`✓ Created IME check-in remediation; assignment submitted for Multi-Admin Approval.`, 'ok');
+    } else {
+      imeToast(`✓ Deployed IME check-in remediation to ${targetType === 'all' ? 'All Devices' : imeSelectedGroup.displayName}.`, 'ok');
+    }
+    remediationLoaded = false;
+    loadRemediation(true);
+  } catch (e) {
+    console.error('IME deploy failed', e);
+    showImeError(e.message || String(e));
+  } finally {
+    imeDeploying = false;
+    btn.disabled = false;
+    btn.textContent = 'Deploy';
+  }
+}
+
+function reuseExistingImeScript() {
+  if (!imeExistingScriptId) return;
+  saveImeScriptIdToActiveCustomer(imeExistingScriptId);
+  closeImeDeployModal();
+  imeToast(`✓ Linked existing IME check-in script (${imeExistingScriptId.slice(0, 8)}…) to this customer.`, 'ok');
+  remediationLoaded = false;
+  loadRemediation(true);
+}
+
+async function replaceExistingImeScript() {
+  if (!imeExistingScriptId || imeDeploying) return;
+  const doomedId = imeExistingScriptId;
+  const btn = $('imeBtnReplace'), reuseBtn = $('imeBtnReuse'), renameBtn = $('imeBtnRename');
+  btn.disabled = true; reuseBtn.disabled = true; renameBtn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Deleting…';
+  try {
+    await graphDelete(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`);
+    imeExistingScriptId = null;
+    $('imeConflict').style.display = 'none';
+    if (getActiveImeScriptId() === doomedId) clearImeScriptIdForActiveCustomer();
+    await confirmImeDeploy();
+  } catch (e) {
+    showImeError(`Could not delete existing script ${doomedId}: ${e.message || String(e)}`);
+    btn.disabled = false; reuseBtn.disabled = false; renameBtn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+// Mint a token for the privileged managed-device action scope. graphPost can't
+// be reused — it acquires a token for the static SCOPES array, which omits this
+// scope so list-only viewers aren't prompted at sign-in.
+async function ensurePrivilegedOpsToken() {
+  if (!msalApp) throw new Error('not signed in');
+  const scope = 'DeviceManagementManagedDevices.PrivilegedOperations.All';
+  const account = msalApp.getActiveAccount();
+  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === scope.toLowerCase());
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: [scope], account });
+    if (granted(r)) return r.accessToken;
+  } catch (_) { /* fall through to popup */ }
+  const r = await msalApp.acquireTokenPopup({ scopes: [scope], account });
+  if (!granted(r)) throw new Error(`Consent for ${scope} was not granted.`);
+  return r.accessToken;
+}
+
+// Force an on-demand IME required-app check-in on one device. Used by the
+// "⚡ Check-in" actions in the Hardware, Failed Install, and Cert health tabs.
+async function forceImeCheckin(deviceId, deviceName, triggerEl) {
+  if (!deviceId) { imeToast('This row has no Intune device ID, so on-demand check-in is unavailable.', 'bad'); return; }
+  const label = deviceName || deviceId;
+  const scriptId = getActiveImeScriptId();
+  if (!scriptId) {
+    if (confirm(`No IME Required App Check-in remediation is deployed for this customer yet.\n\nDeploy it now? (Opens the Remediation tab → deploy wizard.)`)) {
+      switchSubtab('remediation');
+      setTimeout(openImeDeployModal, 60);
+    }
+    return;
+  }
+  if (!confirm(`Force a required-app check-in on "${label}"?\n\nThis runs the IME check-in remediation on-demand via initiateOnDemandProactiveRemediation. It only takes effect if a user is signed in to the device and the device is online; otherwise Intune queues it for the next contact.`)) return;
+
+  const original = triggerEl ? triggerEl.textContent : null;
+  if (triggerEl) { triggerEl.textContent = '⏳ …'; triggerEl.style.pointerEvents = 'none'; }
+  try {
+    const token = await ensurePrivilegedOpsToken();
+    const res = await fetch(
+      `https://graph.microsoft.com/beta/deviceManagement/managedDevices/${encodeURIComponent(deviceId)}/initiateOnDemandProactiveRemediation`,
+      { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ scriptPolicyId: scriptId }) }
+    );
+    if (!res.ok && res.status !== 204) { const t = await res.text(); const err = new Error('Graph ' + res.status + ': ' + t); err.status = res.status; throw err; }
+    imeToast(`✓ Check-in requested for ${label}. Intune runs it on the next device contact.`, 'ok');
+    if (triggerEl) { triggerEl.textContent = '✓ Sent'; setTimeout(() => { triggerEl.textContent = original; triggerEl.style.pointerEvents = ''; }, 4000); }
+  } catch (e) {
+    console.error('Force IME check-in failed', e);
+    let hint = '';
+    if (e.status === 403) hint = ' You need Intune Administrator (or a role with managed-device privileged operations).';
+    else if (e.status === 404) hint = ' The stored remediation ID may not exist in this tenant — redeploy from the Remediation tab.';
+    imeToast(`Check-in failed for ${label}: ${e.message || e}${hint}`, 'bad');
+    if (triggerEl) { triggerEl.textContent = original; triggerEl.style.pointerEvents = ''; }
+  }
+}
+
+// Delegated handler for every "⚡ Check-in" affordance across the device tabs.
+document.addEventListener('click', e => {
+  const el = e.target.closest && e.target.closest('[data-ime-checkin]');
+  if (!el) return;
+  e.preventDefault();
+  forceImeCheckin(el.dataset.imeCheckin, el.dataset.imeName || '', el);
+});
+
+$('btnImeDeploy').addEventListener('click', openImeDeployModal);
+$('btnImeDeployClose').addEventListener('click', closeImeDeployModal);
+$('imeBtnCancel').addEventListener('click', closeImeDeployModal);
+$('imeBtnDeploy').addEventListener('click', confirmImeDeploy);
+$('imeBtnReuse').addEventListener('click', reuseExistingImeScript);
+$('imeBtnReplace').addEventListener('click', replaceExistingImeScript);
+$('imeBtnRename').addEventListener('click', () => { $('imeConflict').style.display = 'none'; $('imeName').focus(); $('imeName').select(); });
+$('imeScheduleType').addEventListener('change', imeSyncScheduleType);
+$('imeGroupSearch').addEventListener('input', e => {
+  clearTimeout(imeSearchTimer);
+  const q = e.target.value.trim();
+  imeSearchTimer = setTimeout(() => searchGroupsForImeDeploy(q), 300);
+});
+document.querySelectorAll('input[name="imeTarget"]').forEach(r => r.addEventListener('change', imeSyncGroupRow));
+$('imeDeployModal').addEventListener('click', e => {
+  if (e.target.id === 'imeDeployModal' && !imeDeploying) closeImeDeployModal();
 });
 
 // ============================================================
@@ -8231,7 +8802,7 @@ function renderCerthealthTable() {
 
   const body = $('certhealthRowsBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => {
       const state = certhealthStateOf(r);
@@ -8247,6 +8818,7 @@ function renderCerthealthTable() {
           <td class="date">${r.managementCertificateExpirationDate ? new Date(r.managementCertificateExpirationDate).toLocaleString() : '—'}</td>
           <td>${r.daysSinceSync == null ? '—' : r.daysSinceSync}</td>
           <td>${certhealthStateBadge(state)}</td>
+          <td style="white-space:nowrap;">${r.id ? `<span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(r.id)}" data-ime-name="${esc(r.deviceName || '')}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span>` : '—'}</td>
         </tr>
       `;
     }).join('');

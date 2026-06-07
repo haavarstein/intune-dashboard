@@ -187,6 +187,8 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 - Click any **Script name** to open the script's *Overview* blade (Intune admin center → *Devices → Scripts and remediations*) in a new tab. The link preserves the script's first-party vs tenant-uploaded distinction via the `isGlobalScript` flag from Graph.
 - Type to filter across script name and publisher.
 - Lazy-loaded: the call runs the first time you open the tab, then caches for the session. Use **↻ Refresh** to force a re-fetch.
+- **⚡ IME Required App Check-in (one-click deploy).** A card at the top of the tab deploys Rudy Ooms / Call4Cloud's [Required-App-Checkin](https://github.com/call4cloud-code/Required-App-Checkin-public) remediation — it calls the Intune Management Extension's internal `IStatusService.CheckInAsync` to kick the **required + available apps** check-in path, cutting the well-known ~60-minute delay for required Win32 apps after Autopilot or a fresh assignment. The deploy wizard mirrors Software Metering's: it fetches both the detection and remediation scripts from `scripts/`, base64-encodes them, and creates one `deviceHealthScript` configured **Run as logged-on user = Yes**, **64-bit PowerShell = Yes**, **signature check = No** (the script *must* run as the signed-in user — as SYSTEM it fails with *"IME cannot resolve the user ID for the caller"*). Choose **On-demand only** (no schedule — drive it with the per-device buttons below), **Specific group**, or **All Devices** (hourly or daily schedule). The created script ID is saved per customer (Settings → Customers → *IME check-in script*), and the remediation appears in the list above like any other. Idempotent: a name collision offers reuse / delete-and-recreate / rename, and Multi-Admin Approval is handled.
+- **⚡ Check-in (per-device, on-demand).** Once the remediation is deployed for a customer, a **⚡ Check-in** action appears on each device row in the **Hardware**, **Failed Install**, and **Cert health** tabs (these problems overlap — a stuck cert or a failed required install is exactly when you want to force a sync). It fires `initiateOnDemandProactiveRemediation` against the stored script — the same *Run remediation* on-demand path as the Intune portal. Requires the `DeviceManagementManagedDevices.PrivilegedOperations.All` scope (requested just-in-time on first use) and an Intune Administrator role. If no remediation is deployed yet, the action offers to open the deploy wizard first. The device must have a signed-in user and be online for the check-in to take effect immediately; otherwise Intune queues it. (Bulk = assign the remediation to a group / All Devices at deploy time; per-device = on-demand — matching the dashboard's existing per-row action convention.)
 
 **Software Metering** — agentless per-user application usage on Intune-managed Windows devices. Closes the "is this license actually being used?" question without deploying a metering agent — the data is collected by a Proactive Remediation detection script that reads Windows' built-in BAM (Background Activity Moderator) registry on a daily schedule and emits a gzip-compressed snapshot via the detection script's stdout channel. The dashboard fans out across `/deviceHealthScripts/{id}/deviceRunStates`, decodes per-device, aggregates fleet-wide.
 
@@ -245,7 +247,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `AuditLog.Read.All` — gates the `signInActivity` property on `/v1.0/users` (Stale users sub-tab); without it, Graph silently omits the property
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
-- `DeviceManagementScripts.ReadWrite.All` — **write scope** for the Software Metering sub-tab's ⚡ Auto-deploy button (creates the Proactive Remediation in the tenant + assigns it to a chosen group or All Devices); not used for anything else
+- `DeviceManagementScripts.ReadWrite.All` — **write scope** for the Software Metering ⚡ Auto-deploy and the Remediation tab's ⚡ IME Required App Check-in deploy (each creates a Proactive Remediation in the tenant + assigns it)
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
@@ -254,6 +256,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `Directory.AccessAsUser.All` — **write scope** for the Soft-deleted sub-tab's ↻ Restore button. Requested via a popup the first time you click Restore in a session, so list-only viewers of the Entra recycle bin are never prompted. Requires admin consent and an Entra role of Cloud Device Administrator, Intune Administrator, or Global Administrator on the signed-in account; the LIST call uses the existing `Device.Read.All` scope.
 - `User.RevokeSessions.All` — **write scope** for the Stale users sub-tab's ↻ Revoke sessions button. Requested via a popup the first time you click Revoke in a session. List-only viewers of the stale-users list are never prompted.
 - `User.EnableDisableAccount.All` — **write scope** for the Stale users sub-tab's ⊘ Disable account button. Requested via a popup the first time you click Disable in a session. Confirm modal requires typing `DISABLE` before the button enables.
+- `DeviceManagementManagedDevices.PrivilegedOperations.All` — **write scope** for the per-device **⚡ Check-in** action (Hardware / Failed Install / Cert health tabs), which fires `initiateOnDemandProactiveRemediation` to force an IME required-app sync. Requested via a popup the first time you trigger a check-in in a session; requires an Intune Administrator role.
 
 Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — plus three JIT write scopes (`Directory.AccessAsUser.All`, `User.RevokeSessions.All`, `User.EnableDisableAccount.All`). Everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, ↻ Restore (Soft-deleted sub-tab), and ↻ Revoke / ⊘ Disable (Stale users sub-tab) will work.
 
@@ -287,6 +290,8 @@ Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`,
 - `GET /beta/deviceManagement/deviceHealthScripts/{id}/deviceRunStates?$expand=managedDevice` — per-device output from the software metering detection script (Software Metering sub-tab); decoded client-side from base64+gzip and aggregated for license-reclaim signal
 - `GET /beta/deviceManagement/deviceHealthScripts?$filter=displayName eq '…'` — pre-create idempotency check for the Software Metering ⚡ Auto-deploy button (offers to reuse an existing script with the same name rather than duplicating)
 - `POST /beta/deviceManagement/deviceHealthScripts` and `…/{id}/assign` — create + assign the metering Proactive Remediation from the dashboard's ⚡ Auto-deploy button (Software Metering empty state); the script content is fetched same-origin from `scripts/software-metering-detect.ps1`, base64-encoded, and posted with `runAsAccount=system`, `runAs32Bit=false`, `enforceSignatureCheck=false`, plus a daily-schedule assignment to the chosen group or All Devices
+- `POST /beta/deviceManagement/deviceHealthScripts` and `…/{id}/assign` — create + assign the **IME Required App Check-in** Proactive Remediation (Remediation tab ⚡ deploy); both scripts are fetched same-origin from `scripts/ime-required-app-checkin-{detect,remediate}.ps1`, base64-encoded into `detectionScriptContent` + `remediationScriptContent`, and posted with `runAsAccount=user`, `runAs32Bit=false`, `enforceSignatureCheck=false`. Assignment is optional (on-demand-only) or an hourly/daily schedule with `runRemediationScript=true` to a group or All Devices
+- `POST /beta/deviceManagement/managedDevices/{id}/initiateOnDemandProactiveRemediation` — per-device **⚡ Check-in** action (Hardware / Failed Install / Cert health); posts `{ scriptPolicyId }` of the deployed IME remediation to force an on-demand required-app sync (needs the JIT `DeviceManagementManagedDevices.PrivilegedOperations.All` scope)
 - `GET /v1.0/groups?$search="displayName:…"` — Entra group type-ahead search (Assignments sub-tab; sent with `ConsistencyLevel: eventual` header)
 - `GET /beta/deviceManagement/deviceConfigurations?$expand=assignments` — configuration profiles (legacy) with their assignments (Assignments sub-tab)
 - `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments` — compliance policies with their assignments (Assignments sub-tab)
@@ -313,6 +318,7 @@ The dashboard supports a lightweight tenant switcher for consultants and MSPs ju
 - **Email** — the account UPN you sign in with for that tenant (e.g. `consultant@customer.onmicrosoft.com`).
 - **Approvers** — optional comma-separated list of approver emails for that customer's MAA queue. When you submit an app delete on an MAA-enabled tenant, the dashboard immediately emails this list from your mailbox (subject: *[Intune MAA] App delete needs approval: …*) with the app name, approval code, and justification — closing the gap that Intune itself sends no notifications. Empty list = no email sent. Edit the list later by clicking the `📧 …` line inside the customer's row.
 - **Software metering script ID** — optional GUID of the Proactive Remediation script uploaded for software metering (see `scripts/README.md`). Required to enable the Software Metering sub-tab for that customer; if empty, that sub-tab shows a setup empty-state. Edit later by clicking the `🔧 …` line inside the customer's row.
+- **IME check-in script ID** — optional GUID of the IME Required App Check-in remediation (see `scripts/README.md`). Auto-filled when you deploy from the Remediation tab; populate it to enable the per-device **⚡ Check-in** action on the Hardware / Failed Install / Cert health tabs. Edit later by clicking the `⚡ …` line inside the customer's row.
 
 The customer list lives in `localStorage` under `intuneDashboard:customers`. **No tokens or refresh material is persisted** — MSAL continues to use `sessionStorage` exactly as before, so the only thing stored across sessions is the mapping itself.
 
@@ -374,6 +380,14 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
 Single-file HTML. No build step. [PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. All via CDN. Inter font.
 
+## Acknowledgements
+
+Some one-click remediations are **vendored from other people's public repos** —
+the original authors keep all credit. Full ledger and licenses:
+[`scripts/THIRD_PARTY_NOTICES.md`](scripts/THIRD_PARTY_NOTICES.md).
+
+- **IME Required App Check-in** (Remediation tab) is [Rudy Ooms](https://call4cloud.nl)' ([@Mister_MDM](https://twitter.com/Mister_MDM)) [Required-App-Checkin](https://github.com/call4cloud-code/Required-App-Checkin-public), MIT-licensed, vendored verbatim.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Vendored third-party scripts retain their own licenses; see [`scripts/THIRD_PARTY_NOTICES.md`](scripts/THIRD_PARTY_NOTICES.md).
