@@ -3398,6 +3398,28 @@ async function graphPost(path, body, opts = {}) {
   try { return JSON.parse(text); } catch { return null; }
 }
 
+async function graphPatch(path, body, opts = {}) {
+  const token = await getToken();
+  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+  if (opts.headers) Object.assign(headers, opts.headers);
+  const res = await fetch('https://graph.microsoft.com/' + path, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const bodyText = await res.text();
+    const err = new Error('Graph ' + res.status + ': ' + bodyText);
+    err.status = res.status;
+    err.body = bodyText;
+    throw err;
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 async function graphDelete(path, opts = {}) {
   const token = await getToken();
   const headers = { Authorization: 'Bearer ' + token };
@@ -7107,9 +7129,32 @@ function clearImeScriptIdForActiveCustomer() {
   const customers = loadCustomers();
   const idx = customers.findIndex(c => c.code === getActiveCustomerCode());
   if (idx === -1) return;
-  customers[idx] = { ...customers[idx], imeCheckinScriptId: undefined };
+  customers[idx] = { ...customers[idx], imeCheckinScriptId: undefined, imeCheckinScriptVersion: undefined };
   saveCustomers(customers);
   renderRemediationImeStatus();
+}
+
+function getActiveImeScriptVersion() {
+  const c = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  return (c && c.imeCheckinScriptVersion) || '';
+}
+
+function saveImeScriptVersionToActiveCustomer(version) {
+  const customers = loadCustomers();
+  const idx = customers.findIndex(c => c.code === getActiveCustomerCode());
+  if (idx === -1) return;
+  customers[idx] = { ...customers[idx], imeCheckinScriptVersion: version };
+  saveCustomers(customers);
+}
+
+// Stable fingerprint of the local script content (detection + remediation).
+// Any edit to the .ps1 files changes this, which triggers an in-place PATCH of
+// the deployed remediation on the next check-in — no manual version bumping.
+function imeContentVersion() {
+  const s = (imeDetectB64 || '') + '|' + (imeRemediateB64 || '');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16);
 }
 
 function renderRemediationImeStatus() {
@@ -7155,51 +7200,86 @@ async function loadImeScriptsB64() {
   imeRemediateB64 = toB64(await rRes.text());
 }
 
-// Return the deviceHealthScript ID to run on-demand, creating it once if needed.
-// Reuses an existing script with the same name (idempotent), and always creates
-// it UNASSIGNED — this is a tool, not a scheduled rollout. Handles consent + MAA.
+// The deviceHealthScript body (create + update share it). Always UNASSIGNED —
+// this is an on-demand tool, not a scheduled rollout.
+function imeScriptBody() {
+  return {
+    displayName: IME_SCRIPT_NAME,
+    description: IME_SCRIPT_DESCRIPTION,
+    publisher: IME_SCRIPT_PUBLISHER,
+    detectionScriptContent: imeDetectB64,
+    remediationScriptContent: imeRemediateB64,
+    runAsAccount: 'user',        // logged-on user — required for IStatusService
+    runAs32Bit: false,           // 64-bit PowerShell (per Call4Cloud README)
+    enforceSignatureCheck: false,
+    roleScopeTagIds: ['0'],
+  };
+}
+
+// Run a deviceHealthScript write, transparently handling Multi-Admin Approval:
+// the first call 400s asking for a justification header; we prompt once, retry,
+// and surface a clear message if the tenant queues it for an approver.
+async function imeWrite(doCall) {
+  try { return await doCall({}); }
+  catch (e) {
+    if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
+      const just = prompt('Multi-Admin Approval is required in this tenant for this change. Enter a justification (recorded in the audit log; ≤ 1024 chars):');
+      if (!just) throw new Error('Justification cancelled.');
+      try { return await doCall({ 'x-msft-approval-justification': btoa(just) }); }
+      catch (e2) {
+        if (e2.status === 412 || e2.status === 409) throw new Error('The change was submitted for Multi-Admin Approval — an admin must approve it under Tenant administration → Multi Admin Approval → Access requests, then run the check-in again.');
+        throw e2;
+      }
+    }
+    throw e;
+  }
+}
+
+// Return the deviceHealthScript ID to run on-demand. Creates it once if needed
+// (reusing a same-named script idempotently), and — if the local scripts have
+// changed since it was deployed — PATCHes the content in place so edits to the
+// .ps1 files self-deploy without a manual delete/recreate. Handles consent + MAA.
 async function ensureImeRemediation() {
-  const existingId = getActiveImeScriptId();
-  if (existingId) return existingId;
   if (imeEnsuring) return imeEnsuring;
 
   imeEnsuring = (async () => {
     await ensureMeteringWriteConsent(); // DeviceManagementScripts.ReadWrite.All
     await loadImeScriptsB64();
+    const localVersion = imeContentVersion();
 
-    // Idempotent: reuse a same-named script if one already exists in the tenant.
+    // Up-to-date already → no network, just run.
+    const storedId = getActiveImeScriptId();
+    if (storedId && getActiveImeScriptVersion() === localVersion) return storedId;
+
+    // Known script but content drifted (or version unknown) → PATCH it in place.
+    if (storedId) {
+      try {
+        await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}`, imeScriptBody(), { headers: h }));
+        saveImeScriptVersionToActiveCustomer(localVersion);
+        imeToast('↻ Updated the IME remediation script in this tenant to the latest version.', 'ok');
+        remediationLoaded = false;
+        if (typeof loadRemediation === 'function') loadRemediation(true);
+        return storedId;
+      } catch (e) {
+        if (e.status !== 404) throw e;
+        clearImeScriptIdForActiveCustomer(); // stored ID gone in Intune → recreate below
+      }
+    }
+
+    // No stored ID → reuse a same-named script if present (and bring it current), else create.
     const filter = `displayName eq '${IME_SCRIPT_NAME.replace(/'/g, "''")}'`;
     const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
     const hit = (found && found.value || [])[0];
-    if (hit) { saveImeScriptIdToActiveCustomer(hit.id); return hit.id; }
-
-    const createBody = {
-      displayName: IME_SCRIPT_NAME,
-      description: IME_SCRIPT_DESCRIPTION,
-      publisher: IME_SCRIPT_PUBLISHER,
-      detectionScriptContent: imeDetectB64,
-      remediationScriptContent: imeRemediateB64,
-      runAsAccount: 'user',        // logged-on user — required for IStatusService
-      runAs32Bit: false,           // 64-bit PowerShell (per Call4Cloud README)
-      enforceSignatureCheck: false,
-      roleScopeTagIds: ['0'],
-    };
-    let data;
-    try {
-      data = await graphPost('beta/deviceManagement/deviceHealthScripts', createBody);
-    } catch (e) {
-      if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
-        const just = prompt('Multi-Admin Approval is required in this tenant to create the one-time remediation. Enter a justification (recorded in the audit log; ≤ 1024 chars):');
-        if (!just) throw new Error('Justification cancelled.');
-        try {
-          data = await graphPost('beta/deviceManagement/deviceHealthScripts', createBody, { headers: { 'x-msft-approval-justification': btoa(just) } });
-        } catch (e2) {
-          if (e2.status === 412 || e2.status === 409) throw new Error('The remediation was submitted for Multi-Admin Approval — an admin must approve it under Tenant administration → Multi Admin Approval → Access requests, then run the check-in again.');
-          throw e2;
-        }
-      } else { throw e; }
+    if (hit) {
+      try { await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(hit.id)}`, imeScriptBody(), { headers: h })); } catch (_) { /* best-effort refresh */ }
+      saveImeScriptIdToActiveCustomer(hit.id);
+      saveImeScriptVersionToActiveCustomer(localVersion);
+      return hit.id;
     }
+
+    const data = await imeWrite(h => graphPost('beta/deviceManagement/deviceHealthScripts', imeScriptBody(), { headers: h }));
     saveImeScriptIdToActiveCustomer(data.id);
+    saveImeScriptVersionToActiveCustomer(localVersion);
     remediationLoaded = false;
     if (typeof loadRemediation === 'function') loadRemediation(true);
     return data.id;
