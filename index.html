@@ -2108,6 +2108,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
           <div id="imePickerSelected" style="display:none; margin-top:8px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
           <div id="remediationImeStatus" style="font-size:12px; margin-top:8px;"></div>
+          <div id="remediationImeActivity" style="font-size:12px; margin-top:6px; color:var(--muted);"></div>
         </div>
 
         <div class="table-card">
@@ -6102,6 +6103,7 @@ async function loadRemediation(force = false) {
     $('remediationLoading').style.display = 'none';
     $('remediationContent').style.display = '';
     renderRemediation();
+    loadImeRunActivity(true); // refresh on-demand run activity on tab (re)load
   } catch (e) {
     console.error('Remediation load failed', e);
     $('remediationLoading').style.display = 'none';
@@ -7164,6 +7166,37 @@ function renderRemediationImeStatus() {
   el.innerHTML = id
     ? `Remediation ready for this customer (on-demand only, unassigned) · <code>${esc(id)}</code>`
     : `No remediation in this tenant yet — it's created automatically (unassigned, no schedule) the first time you run a check-in.`;
+  loadImeRunActivity();
+}
+
+// On-demand remediation runs don't roll up into Intune's Endpoint analytics
+// report (it only aggregates *assigned* deployments), so we read the per-device
+// results directly to show real usage — otherwise an on-demand-only remediation
+// looks unused (Unassigned / 0). Read-only; uses DeviceManagementScripts.Read.All.
+let imeActivityScriptId = null;
+async function loadImeRunActivity(force) {
+  const el = $('remediationImeActivity');
+  if (!el) return;
+  const id = getActiveImeScriptId();
+  if (!id) { el.textContent = ''; imeActivityScriptId = null; return; }
+  if (!force && imeActivityScriptId === id) return; // already loaded for this script
+  imeActivityScriptId = id;
+  el.textContent = 'Checking on-demand run activity…';
+  try {
+    const data = await graphGet(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(id)}/deviceRunStates?$expand=managedDevice($select=deviceName)&$top=200`);
+    const states = data.value || [];
+    if (!states.length) { el.textContent = 'No on-demand runs recorded yet for this remediation.'; return; }
+    const total = states.length;
+    const lastRun = states.reduce((m, s) => (s.lastStateUpdateDateTime && s.lastStateUpdateDateTime > m) ? s.lastStateUpdateDateTime : m, '');
+    const errs = states.filter(s => ['remediationFailed', 'scriptError', 'fail'].includes(s.remediationState) || s.remediationScriptError).length;
+    el.innerHTML = `⚙ Run on <strong>${total}</strong> device${total === 1 ? '' : 's'} on-demand`
+      + (lastRun ? ` · last ${new Date(lastRun).toLocaleString()}` : '')
+      + (errs ? ` · <span style="color:#8a2020;">${errs} with remediation errors</span>` : '');
+  } catch (e) {
+    el.textContent = '';
+    imeActivityScriptId = null; // allow retry next render
+    console.warn('IME run activity load failed', e);
+  }
 }
 
 // Lightweight toast for the fire-and-forget actions.
@@ -7363,6 +7396,8 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
     if (!res.ok && res.status !== 204) { const t = await res.text(); const err = new Error('Graph ' + res.status + ': ' + t); err.status = res.status; throw err; }
     imeToast(`✓ Check-in requested for ${label}. Intune runs it on the next device contact.`, 'ok');
     if (triggerEl) { triggerEl.textContent = '✓ Sent'; setTimeout(restore, 4000); }
+    loadImeRunActivity(true); // results lag a few minutes, but refresh so the count catches up
+
   } catch (e) {
     console.error('Force IME check-in failed', e);
     let hint = '';
