@@ -101,7 +101,7 @@ Sign in once with MSAL — all eighteen sub-tabs share the same session.
 
 **Vulnerabilities (P2/E5)** — software inventory from Microsoft Defender Vulnerability Management, surfaced via the Microsoft Graph Advanced Hunting API.
 
-> ⚠️ **Licensing required.** This sub-tab queries Microsoft Defender Vulnerability Management data and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (or the standalone Defender Vulnerability Management add-on). Without one of these licenses the tab will load empty or error out — the rest of the dashboard works regardless. The "(P2/E5)" suffix in the tab label is a reminder of this requirement.
+> ⚠️ **Licensing & role required.** This sub-tab queries Microsoft Defender Vulnerability Management data and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (or the standalone Defender Vulnerability Management add-on), plus the **Security Administrator** role to run the Advanced Hunting query. Without one of these licenses the tab will load empty or error out — the rest of the dashboard works regardless. The "(P2/E5)" suffix in the tab label is a reminder of this requirement.
 
 - **KPI tile**: total count of unique software components in the tenant. Click the tile to open the Defender portal's *Vulnerability management → Inventories → Software* page in a new tab.
 - Sortable table with **Software**, **OS Platform**, **Vendor**, **Weaknesses** (distinct CVE count for that software), and **Exposed Devices** (distinct devices with **at least one open CVE for this software** — sourced from `DeviceTvmSoftwareVulnerabilities`, not the inventory table, so Defender's own components no longer show the entire fleet as exposed). Default sort is Weaknesses descending so the riskiest software floats to the top.
@@ -111,7 +111,7 @@ Sign in once with MSAL — all eighteen sub-tabs share the same session.
 
 **Drift & Compliance (P2/E5)** — fleet-wide software version drift, surfaced from Microsoft Defender Vulnerability Management via the Advanced Hunting API. Highlights software where devices are running mixed versions of the same product (e.g. .NET Desktop Runtime 8 alongside 9, Snagit across major versions).
 
-> ⚠️ **Licensing required.** This sub-tab queries `DeviceTvmSoftwareInventory` and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5** (same constraint as Vulnerabilities). Devices must be Defender-onboarded to appear in the data.
+> ⚠️ **Licensing & role required.** This sub-tab queries `DeviceTvmSoftwareInventory` and **requires Microsoft Defender for Endpoint Plan 2 or Microsoft 365 E5**, plus the **Security Administrator** role to run the Advanced Hunting query (same constraint as Vulnerabilities). Devices must be Defender-onboarded to appear in the data.
 
 - **KPI tiles**: count of software with > 10% drift, fleet drift average, total devices affected, and the single top-drifted software component.
 - Sortable table with **Software**, **Vendor**, **Dominant Version**, **Drift %**, **Drifted Devices**, and **Versions Detected**. Drift % > 20% is highlighted. Default sort is Drift % descending.
