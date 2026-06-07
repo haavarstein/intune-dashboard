@@ -7236,27 +7236,59 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
     return;
   }
   const label = deviceName || deviceId;
-  if (!confirm(`Run an IME required-app check-in on "${label}"?\n\nRuns the remediation on-demand against this one device (initiateOnDemandProactiveRemediation). It takes effect only if a user is signed in and the device is online; otherwise Intune queues it for the next contact.\n\nFirst run in this tenant also creates the remediation (unassigned, no schedule).`)) return;
 
   const original = triggerEl ? triggerEl.textContent : null;
   const setBusy = (txt) => { if (triggerEl) { triggerEl.textContent = txt; triggerEl.style.pointerEvents = 'none'; } };
   const restore = () => { if (triggerEl) { triggerEl.textContent = original; triggerEl.style.pointerEvents = ''; } };
+
+  // Acquire the privileged-ops token FIRST, before any confirm() or network
+  // work — MSAL's consent popup must open within the click's transient user
+  // activation, which a blocking confirm dialog or the round-trips in
+  // ensureImeRemediation() would otherwise burn (→ popup_window_error). After
+  // first consent this resolves silently, so the confirm still comes first on
+  // every subsequent run.
   setBusy('⏳ …');
+  let token;
+  try {
+    token = await ensurePrivilegedOpsToken();
+  } catch (e) {
+    console.error('IME check-in consent failed', e);
+    restore();
+    const popupBlocked = /popup/i.test(e.message || '') || e.errorCode === 'popup_window_error';
+    imeToast(popupBlocked
+      ? `Sign-in popup was blocked by the browser. Allow popups for this site, then click ⚡ Check-in again.`
+      : `Consent failed: ${e.message || e}`, 'bad');
+    return;
+  }
+
+  if (!confirm(`Run an IME required-app check-in on "${label}"?\n\nRuns the remediation on-demand against this one device (initiateOnDemandProactiveRemediation). It takes effect only if a user is signed in and the device is online; otherwise Intune queues it for the next contact.\n\nFirst run in this tenant also creates the remediation (unassigned, no schedule).`)) {
+    restore();
+    return;
+  }
+
   try {
     const scriptId = await ensureImeRemediation();
-    const token = await ensurePrivilegedOpsToken();
-    const res = await fetch(
+    const runOnce = () => fetch(
       `https://graph.microsoft.com/beta/deviceManagement/managedDevices/${encodeURIComponent(deviceId)}/initiateOnDemandProactiveRemediation`,
       { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ scriptPolicyId: scriptId }) }
     );
+    let res = await runOnce();
+    // A just-created remediation can take a few seconds to propagate to the
+    // device-side service, which 404s until it lands. Retry once after a pause.
+    if (res.status === 404) {
+      setBusy('⏳ retrying…');
+      await new Promise(r => setTimeout(r, 5000));
+      res = await runOnce();
+    }
     if (!res.ok && res.status !== 204) { const t = await res.text(); const err = new Error('Graph ' + res.status + ': ' + t); err.status = res.status; throw err; }
     imeToast(`✓ Check-in requested for ${label}. Intune runs it on the next device contact.`, 'ok');
     if (triggerEl) { triggerEl.textContent = '✓ Sent'; setTimeout(restore, 4000); }
   } catch (e) {
     console.error('Force IME check-in failed', e);
     let hint = '';
-    if (e.status === 403) hint = ' You need Intune Administrator (or a role with managed-device privileged operations).';
-    else if (e.status === 404) hint = ' The remediation ID is stale — clear it in Settings and run again to recreate.';
+    if (/popup/i.test(e.message || '')) hint = ' Allow popups for this site and try again.';
+    else if (e.status === 403) hint = ' You need Intune Administrator (or a role with managed-device privileged operations).';
+    else if (e.status === 404) hint = ' Device may be offline/unknown to Intune, or the remediation is still propagating — wait a minute and try again. If it persists, clear the IME script ID in Settings to recreate it.';
     imeToast(`Check-in failed for ${label}: ${e.message || e}${hint}`, 'bad');
     restore();
   }
