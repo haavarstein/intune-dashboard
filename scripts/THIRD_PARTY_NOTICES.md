@@ -38,6 +38,17 @@ When we add a script sourced from someone else's repo, **all five** of these app
 Scripts authored by THE Intune Dashboard itself (e.g. `software-metering-detect.ps1`)
 are covered by the repository's own [LICENSE](../LICENSE) and are not listed here.
 
+### Local modifications
+
+We prefer verbatim vendoring, but where we change a file we record it here (MIT
+permits modification; the attribution header in the file is also annotated).
+
+- **`ime-required-app-checkin-remediate.ps1`** — log location changed from the
+  per-user `%LOCALAPPDATA%\IMERequiredAppCheckinRemediation\Logs` to the standard
+  IME logs folder `%ProgramData%\Microsoft\IntuneManagementExtension\Logs`, and the
+  log write was wrapped in try/catch so a folder-ACL failure for a non-admin
+  logged-on user can never abort the remediation. No other logic changed.
+
 ## License texts
 
 ### IME Required App Check-in — Rudy Ooms

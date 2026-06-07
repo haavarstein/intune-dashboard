@@ -5,8 +5,10 @@
 #  Author : Rudy Ooms  (@Mister_MDM · https://call4cloud.nl)
 #  License: MIT — Copyright (c) 2026 Rudy Ooms
 #           Full notice: scripts/THIRD_PARTY_NOTICES.md
-#  Vendored verbatim by THE Intune Dashboard. Update from upstream;
-#  do not hand-edit the logic below.
+#  Vendored by THE Intune Dashboard with LOCAL MODIFICATIONS (see
+#  scripts/THIRD_PARTY_NOTICES.md): log location moved to the IME Logs
+#  folder under %ProgramData% and made failure-tolerant. All other logic
+#  is upstream's — keep changes minimal and re-pin the commit on update.
 # =====================================================================
 
 <#
@@ -69,7 +71,7 @@ if (-not $ShowWindow) {
 }
 
 
-$script:LogRoot = Join-Path $env:LOCALAPPDATA 'IMERequiredAppCheckinRemediation\Logs'
+$script:LogRoot = Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs'
 $script:LogFile = Join-Path $script:LogRoot ('IMERequiredAppCheckin_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 $script:ImeAssemblyResolveRegistered = $false
 $script:ImeAssemblyResolveFolder = $null
@@ -81,13 +83,18 @@ function Write-Log {
         [string]$Level = 'INFO'
     )
 
-    if (-not (Test-Path $script:LogRoot)) {
-        New-Item -Path $script:LogRoot -ItemType Directory -Force | Out-Null
-    }
-
     $line = '{0} {1,-5} {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $Level, $Message
     Write-Output $line
-    Add-Content -Path $script:LogFile -Value $line -Encoding UTF8
+    # Logging must never abort the remediation. Writing into the IME Logs folder
+    # under %ProgramData% can fail for a non-admin logged-on user (folder ACL),
+    # so swallow any failure — stdout above is still captured by Intune.
+    try {
+        if (-not (Test-Path $script:LogRoot)) {
+            New-Item -Path $script:LogRoot -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        Add-Content -Path $script:LogFile -Value $line -Encoding UTF8 -ErrorAction Stop
+    }
+    catch { }
 }
 
 function Test-IsWindowsPowerShell {

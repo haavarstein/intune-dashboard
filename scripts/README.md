@@ -171,4 +171,14 @@ There's no API to push an arbitrary script to a single device ad-hoc, so on-dema
 
 You pick the device either from the search box on the **Remediation** sub-tab or with the **⚡ Check-in** button on any row in the **Hardware**, **Failed Install**, or **Cert health** tabs. The created remediation carries no assignment and no schedule — it exists solely as the vehicle for these per-device runs.
 
+## Verifying a run on the device
+
+The remediation logs to the standard IME logs folder (a [local modification](THIRD_PARTY_NOTICES.md) from upstream's per-user path):
+
+```powershell
+Get-Content 'C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IMERequiredAppCheckin_*.log' -Tail 30
+```
+
+A new `IMERequiredAppCheckin_<timestamp>.log` per run records whether the `IStatusService.CheckInAsync` call succeeded. Note: the remediation will always report **"With issues"** in Intune — the detection script exits 1 by design so the remediation runs every time, so the post-remediation re-detection never reports compliant. That's expected; the log (or a required app installing faster) is the real success signal.
+
 This tool is unofficial and not supported by Microsoft.
