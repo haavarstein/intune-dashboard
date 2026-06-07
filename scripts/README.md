@@ -145,24 +145,30 @@ Schema header is `v1`. If the row format changes, bump to `v2` and the dashboard
 
 # IME Required App Check-in — remediation scripts
 
-`ime-required-app-checkin-detect.ps1` (detection) and `ime-required-app-checkin-remediate.ps1` (remediation) are vendored verbatim from Rudy Ooms / Call4Cloud's [Required-App-Checkin](https://github.com/call4cloud-code/Required-App-Checkin-public) repo. The dashboard deploys them as a single Proactive Remediation from the **Remediation** sub-tab.
+`ime-required-app-checkin-detect.ps1` (detection) and `ime-required-app-checkin-remediate.ps1` (remediation) are vendored verbatim from Rudy Ooms / Call4Cloud's [Required-App-Checkin](https://github.com/call4cloud-code/Required-App-Checkin-public) repo. The dashboard uses them as an **on-demand, device-targeted** tool — not a scheduled or group-assigned Proactive Remediation rollout.
 
 ## What it does
 
 The remediation calls the Intune Management Extension's internal `IStatusService.CheckInAsync(Guid)` on the local StatusService named pipe (`net.pipe://localhost/IntuneManagementExtension/StatusService/`). This starts the **required + available apps check-in path** that normally only runs when a user clicks *Settings → Sync* in Company Portal — cutting the well-known ~60-minute wait for required Win32 apps after Autopilot or a fresh assignment. It does **not** restart the IME service and does **not** use `intunemanagementextension://syncapp` (both are weaker). The detection script returns non-compliant (exit 1) on purpose so the remediation always runs; both scripts hide their console window.
 
-## Required Intune configuration (the dashboard's Auto-deploy sets these for you)
+## Required Intune configuration (the dashboard sets these for you on auto-create)
 
 | Setting | Value |
 | --- | --- |
 | Run this script using the logged-on credentials | **Yes** |
 | Run script in 64-bit PowerShell | **Yes** |
 | Enforce script signature check | **No** (unless you sign the scripts yourself) |
+| Assignment | **None** — created unassigned; run on-demand per device |
 
 > **Logged-on user is mandatory.** Running as SYSTEM fails with *"IME cannot resolve the user ID for the caller"* — the StatusService pipe is per-user. A user must be signed in to the device for a check-in to take effect; otherwise Intune queues it.
 
-## On-demand use
+## How the dashboard uses it (on-demand only)
 
-Once deployed, the dashboard stores the remediation's script ID per customer and exposes a **⚡ Check-in** action on devices in the Hardware, Failed Install, and Cert health tabs. That fires `POST /deviceManagement/managedDevices/{id}/initiateOnDemandProactiveRemediation` with the script's `scriptPolicyId` — the same on-demand path as *Run remediation* in the Intune portal — which needs the **DeviceManagementManagedDevices.PrivilegedOperations.All** scope (requested just-in-time) and an Intune Administrator role.
+There's no API to push an arbitrary script to a single device ad-hoc, so on-demand always references an *existing* remediation by ID. The dashboard therefore:
+
+1. **Auto-creates the remediation once, unassigned**, the first time you run a check-in in a tenant — it reads both `.ps1` files from this folder, base64-encodes them into one `deviceHealthScript` (`detectionScriptContent` + `remediationScriptContent`) with the settings above, and stores the resulting script ID against the active customer. Idempotent: if a same-named script already exists it's reused. Needs **DeviceManagementScripts.ReadWrite.All** (requested just-in-time).
+2. **Runs it on the device of your choice** via `POST /deviceManagement/managedDevices/{id}/initiateOnDemandProactiveRemediation` with the script's `scriptPolicyId` — the same on-demand path as *Run remediation* in the Intune portal. Needs **DeviceManagementManagedDevices.PrivilegedOperations.All** (requested just-in-time) and an Intune Administrator role.
+
+You pick the device either from the search box on the **Remediation** sub-tab or with the **⚡ Check-in** button on any row in the **Hardware**, **Failed Install**, or **Cert health** tabs. The created remediation carries no assignment and no schedule — it exists solely as the vehicle for these per-device runs.
 
 This tool is unofficial and not supported by Microsoft.
