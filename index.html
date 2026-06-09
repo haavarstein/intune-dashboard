@@ -7374,7 +7374,7 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
     return;
   }
 
-  if (!confirm(`Run an IME required-app check-in on "${label}"?\n\nRuns the remediation on-demand against this one device (initiateOnDemandProactiveRemediation). It takes effect only if a user is signed in and the device is online; otherwise Intune queues it for the next contact.\n\nFirst run in this tenant also creates the remediation (unassigned, no schedule).`)) {
+  if (!confirm(`Run an IME required-app check-in on "${label}"?\n\nRuns the remediation on-demand against this one device (initiateOnDemandProactiveRemediation). The device must be ONLINE and reachable by Intune via Windows Push (WNS) at this moment — on-demand runs are NOT queued for offline devices. A user must also be signed in for the IME check-in to take effect.\n\nFirst run in this tenant also creates the remediation (unassigned, no schedule).`)) {
     restore();
     return;
   }
@@ -7394,7 +7394,7 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
       res = await runOnce();
     }
     if (!res.ok && res.status !== 204) { const t = await res.text(); const err = new Error('Graph ' + res.status + ': ' + t); err.status = res.status; throw err; }
-    imeToast(`✓ Check-in requested for ${label}. Intune runs it on the next device contact.`, 'ok');
+    imeToast(`✓ Check-in sent to ${label}. If the device is online it runs within ~10s; results report back shortly.`, 'ok');
     if (triggerEl) { triggerEl.textContent = '✓ Sent'; setTimeout(restore, 4000); }
     loadImeRunActivity(true); // results lag a few minutes, but refresh so the count catches up
 
@@ -7403,7 +7403,7 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
     let hint = '';
     if (/popup/i.test(e.message || '')) hint = ' Allow popups for this site and try again.';
     else if (e.status === 403) hint = ' You need Intune Administrator (or a role with managed-device privileged operations).';
-    else if (e.status === 404) hint = ' Device may be offline/unknown to Intune, or the remediation is still propagating — wait a minute and try again. If it persists, clear the IME script ID in Settings to recreate it.';
+    else if (e.status === 404) hint = ' On-demand runs are NOT queued — the device must be online and reachable via Windows Push (WNS) at this moment. Force a sync on the device (Settings → Accounts → Access work or school → Sync), confirm it has checked in recently, then retry. Only one Run-remediation can be in flight per device at a time.';
     imeToast(`Check-in failed for ${label}: ${e.message || e}${hint}`, 'bad');
     restore();
   }

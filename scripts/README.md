@@ -160,7 +160,9 @@ The remediation calls the Intune Management Extension's internal `IStatusService
 | Enforce script signature check | **No** (unless you sign the scripts yourself) |
 | Assignment | **None** — created unassigned; run on-demand per device |
 
-> **Logged-on user is mandatory.** Running as SYSTEM fails with *"IME cannot resolve the user ID for the caller"* — the StatusService pipe is per-user. A user must be signed in to the device for a check-in to take effect; otherwise Intune queues it.
+> **Logged-on user is mandatory.** Running as SYSTEM fails with *"IME cannot resolve the user ID for the caller"* — the StatusService pipe is per-user. A user must be signed in to the device for a check-in to take effect.
+>
+> **On-demand is not queued.** Per Microsoft, the **Run remediation** on-demand action requires the device to be online and reachable via Intune + **Windows Push (WNS)** at the moment it's sent — it is *not* held for offline devices. An unreachable device returns **404 ResourceNotFound**; force a device sync and retry. Only one on-demand run can be in flight per device at a time.
 
 ## How the dashboard uses it (on-demand only)
 
