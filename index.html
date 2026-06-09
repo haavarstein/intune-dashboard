@@ -6584,11 +6584,11 @@ function exportMeteringCSV() {
     URL.revokeObjectURL(url);
   };
   if (meteringSelectedApp) {
-    const header = ['App', 'Device', 'UserInitial', 'Version', 'DaysSinceUse', 'LastReported'];
+    const header = ['App', 'Device', 'Version', 'DaysSinceUse', 'LastReported'];
     const lines = [header.join(',')];
     for (const r of meteringSelectedApp.deviceRows) {
       lines.push([
-        meteringSelectedApp.app, r.deviceName, r.userInitial, r.version,
+        meteringSelectedApp.app, r.deviceName, r.version,
         r.daysSinceUse < 0 ? 'never' : r.daysSinceUse,
         r.lastReported || '',
       ].map(escCsv).join(','));
