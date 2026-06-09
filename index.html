@@ -7280,26 +7280,40 @@ async function ensureImeRemediation() {
     await loadImeScriptsB64();
     const localVersion = imeContentVersion();
 
-    // Up-to-date already → no network, just run.
+    // A stored ID + matching fingerprint is NOT proof the script still exists —
+    // the admin may have deleted it in Intune. Always VERIFY it's live before
+    // handing the ID to the on-demand run, or initiateOnDemand 404s on a dead
+    // scriptPolicyId (the exact symptom we chased). Verify → up-to-date returns,
+    // drifted PATCHes, missing recreates.
     const storedId = getActiveImeScriptId();
-    if (storedId && getActiveImeScriptVersion() === localVersion) return storedId;
-
-    // Known script but content drifted (or version unknown) → PATCH it in place.
     if (storedId) {
+      let live = true;
       try {
-        await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}`, imeScriptBody(), { headers: h }));
-        saveImeScriptVersionToActiveCustomer(localVersion);
-        imeToast('↻ Updated the IME remediation script in this tenant to the latest version.', 'ok');
-        remediationLoaded = false;
-        if (typeof loadRemediation === 'function') loadRemediation(true);
-        return storedId;
+        await graphGet(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}?$select=id`);
       } catch (e) {
-        if (e.status !== 404) throw e;
-        clearImeScriptIdForActiveCustomer(); // stored ID gone in Intune → recreate below
+        if (e.status === 404) live = false; else throw e;
       }
+      if (live) {
+        if (getActiveImeScriptVersion() === localVersion) return storedId; // exists + current
+        // exists but content drifted → PATCH it in place.
+        try {
+          await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}`, imeScriptBody(), { headers: h }));
+          saveImeScriptVersionToActiveCustomer(localVersion);
+          imeToast('↻ Updated the IME remediation script in this tenant to the latest version.', 'ok');
+          remediationLoaded = false;
+          if (typeof loadRemediation === 'function') loadRemediation(true);
+          return storedId;
+        } catch (e) {
+          if (e.status !== 404) throw e;
+          // raced deletion between GET and PATCH → fall through to recreate
+        }
+      } else {
+        imeToast('The IME remediation was missing in Intune (deleted?) — recreating it…', 'info');
+      }
+      clearImeScriptIdForActiveCustomer(); // gone in Intune → recreate below
     }
 
-    // No stored ID → reuse a same-named script if present (and bring it current), else create.
+    // No (valid) stored ID → reuse a same-named script if present (and bring it current), else create.
     const filter = `displayName eq '${IME_SCRIPT_NAME.replace(/'/g, "''")}'`;
     const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
     const hit = (found && found.value || [])[0];
@@ -7403,7 +7417,7 @@ async function forceImeCheckin(deviceId, deviceName, triggerEl) {
     let hint = '';
     if (/popup/i.test(e.message || '')) hint = ' Allow popups for this site and try again.';
     else if (e.status === 403) hint = ' You need Intune Administrator (or a role with managed-device privileged operations).';
-    else if (e.status === 404) hint = ' On-demand runs are NOT queued — the device must be online and reachable via Windows Push (WNS) at this moment. Force a sync on the device (Settings → Accounts → Access work or school → Sync), confirm it has checked in recently, then retry. Only one Run-remediation can be in flight per device at a time.';
+    else if (e.status === 404) hint = ' If the remediation was just (re)created, wait ~30s and click again — it takes a moment to propagate. Otherwise: on-demand runs are NOT queued, so the device must be online and reachable via Windows Push (WNS) right now — force a sync on it (Settings → Accounts → Access work or school → Sync) and retry. Only one Run-remediation can be in flight per device at a time.';
     imeToast(`Check-in failed for ${label}: ${e.message || e}${hint}`, 'bad');
     restore();
   }
