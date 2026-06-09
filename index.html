@@ -2232,7 +2232,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <thead>
                   <tr>
                     <th data-sort-metering-drill="deviceName">Device <span class="arrow">▼</span></th>
-                    <th data-sort-metering-drill="userInitial">User <span class="arrow">▼</span></th>
                     <th data-sort-metering-drill="version">Version <span class="arrow">▼</span></th>
                     <th data-sort-metering-drill="daysSinceUse">Days since use <span class="arrow">▼</span></th>
                     <th data-sort-metering-drill="lastReported">Last reported <span class="arrow">▼</span></th>
@@ -6558,7 +6557,7 @@ function renderMeteringDrillRows() {
   const tbody = $('meteringDrillRows');
   $('meteringDrillCount').textContent = meteringSelectedApp.deviceRows.length;
   if (!meteringSelectedApp.deviceRows.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty">No devices.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">No devices.</td></tr>`;
     return;
   }
   tbody.innerHTML = meteringSelectedApp.deviceRows.map(r => {
@@ -6569,7 +6568,6 @@ function renderMeteringDrillRows() {
       : esc(r.deviceName);
     return `<tr>
       <td>${nameCell}</td>
-      <td>${esc(r.userInitial)}</td>
       <td class="version">${esc(r.version) || '—'}</td>
       <td>${days}</td>
       <td>${lastRep}</td>
