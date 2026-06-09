@@ -182,6 +182,12 @@ Because the remediation runs as the **logged-on user**, it logs to that user's p
 Get-Content "$env:LOCALAPPDATA\IMERequiredAppCheckinRemediation\Logs\IMERequiredAppCheckin_*.log" -Tail 30
 ```
 
+Or paste this into File Explorer's address bar:
+
+```
+%LOCALAPPDATA%\IMERequiredAppCheckinRemediation\Logs
+```
+
 A new `IMERequiredAppCheckin_<timestamp>.log` per run records whether the `IStatusService.CheckInAsync` call succeeded. Note: the remediation will always report **"With issues"** in Intune — the detection script exits 1 by design so the remediation runs every time, so the post-remediation re-detection never reports compliant. That's expected; the log (or a required app installing faster) is the real success signal.
 
 This tool is unofficial and not supported by Microsoft.
