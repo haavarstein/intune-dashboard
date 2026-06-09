@@ -43,11 +43,13 @@ are covered by the repository's own [LICENSE](../LICENSE) and are not listed her
 We prefer verbatim vendoring, but where we change a file we record it here (MIT
 permits modification; the attribution header in the file is also annotated).
 
-- **`ime-required-app-checkin-remediate.ps1`** — log location changed from the
-  per-user `%LOCALAPPDATA%\IMERequiredAppCheckinRemediation\Logs` to the standard
-  IME logs folder `%ProgramData%\Microsoft\IntuneManagementExtension\Logs`, and the
-  log write was wrapped in try/catch so a folder-ACL failure for a non-admin
-  logged-on user can never abort the remediation. No other logic changed.
+- **`ime-required-app-checkin-remediate.ps1`** — the log write is wrapped in
+  try/catch so a write failure can never abort the remediation. Log location is
+  unchanged from upstream (`%LOCALAPPDATA%\IMERequiredAppCheckinRemediation\Logs`).
+  We briefly moved it to `%ProgramData%\Microsoft\IntuneManagementExtension\Logs`
+  and reverted: that folder is SYSTEM-owned and silently denies writes from the
+  logged-on (non-elevated) user the remediation runs as, so logs vanished.
+  No other logic changed.
 
 ## License texts
 

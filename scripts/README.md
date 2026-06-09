@@ -176,10 +176,10 @@ You pick the device either from the search box on the **Remediation** sub-tab or
 
 ## Verifying a run on the device
 
-The remediation logs to the standard IME logs folder (a [local modification](THIRD_PARTY_NOTICES.md) from upstream's per-user path):
+Because the remediation runs as the **logged-on user**, it logs to that user's profile (the only location reliably writable from a non-elevated user token — `%ProgramData%\...\IntuneManagementExtension\Logs` is SYSTEM-owned and silently denies the user). Check it **on the device, signed in as that user**:
 
 ```powershell
-Get-Content 'C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IMERequiredAppCheckin_*.log' -Tail 30
+Get-Content "$env:LOCALAPPDATA\IMERequiredAppCheckinRemediation\Logs\IMERequiredAppCheckin_*.log" -Tail 30
 ```
 
 A new `IMERequiredAppCheckin_<timestamp>.log` per run records whether the `IStatusService.CheckInAsync` call succeeded. Note: the remediation will always report **"With issues"** in Intune — the detection script exits 1 by design so the remediation runs every time, so the post-remediation re-detection never reports compliant. That's expected; the log (or a required app installing faster) is the real success signal.

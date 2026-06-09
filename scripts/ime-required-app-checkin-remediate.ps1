@@ -5,10 +5,12 @@
 #  Author : Rudy Ooms  (@Mister_MDM · https://call4cloud.nl)
 #  License: MIT — Copyright (c) 2026 Rudy Ooms
 #           Full notice: scripts/THIRD_PARTY_NOTICES.md
-#  Vendored by THE Intune Dashboard with LOCAL MODIFICATIONS (see
-#  scripts/THIRD_PARTY_NOTICES.md): log location moved to the IME Logs
-#  folder under %ProgramData% and made failure-tolerant. All other logic
-#  is upstream's — keep changes minimal and re-pin the commit on update.
+#  Vendored by THE Intune Dashboard. Local change: the log write is wrapped
+#  failure-tolerant so it can never abort the remediation. Log location is
+#  upstream's per-user %LOCALAPPDATA% — the only path reliably writable by the
+#  logged-on (non-elevated) user this runs as; %ProgramData% is SYSTEM-owned
+#  and silently denies the user, so logs would vanish. All other logic is
+#  upstream's. See scripts/THIRD_PARTY_NOTICES.md.
 # =====================================================================
 
 <#
@@ -71,7 +73,7 @@ if (-not $ShowWindow) {
 }
 
 
-$script:LogRoot = Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs'
+$script:LogRoot = Join-Path $env:LOCALAPPDATA 'IMERequiredAppCheckinRemediation\Logs'
 $script:LogFile = Join-Path $script:LogRoot ('IMERequiredAppCheckin_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 $script:ImeAssemblyResolveRegistered = $false
 $script:ImeAssemblyResolveFolder = $null
