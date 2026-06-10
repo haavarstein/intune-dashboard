@@ -9192,11 +9192,12 @@ function intuneBladeUrl(category, item) {
     case 'apps':
       return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${id}`;
     case 'configs':
-      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/${id}/policyName/${name}/policyJourneyState~/0/policyType~/0`;
+      // The blade rejects the link without an isAssigned parameter (issue #7).
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/PolicySummaryReportBlade/policyId/${id}/policyName/${name}/policyJourneyState~/0/policyType~/0/isAssigned~/${item.isAssigned === false ? 'false' : 'true'}`;
     case 'compliance':
       return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/CompliancePolicySummaryBlade/policyId/${id}/policyName/${name}`;
     case 'settingsCatalog':
-      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/SettingsCatalogPolicy.ReactView/configurationPolicyId/${id}/isAssigned~/true`;
+      return `https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/SettingsCatalogPolicy.ReactView/configurationPolicyId/${id}/isAssigned~/${item.isAssigned === false ? 'false' : 'true'}`;
     case 'healthScripts':
       return `https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/UXAnalyticsScriptMenu/~/overview/id/${id}/scriptName/${name}/isFirstParty~/${item.isGlobalScript ? 'true' : 'false'}`;
     case 'psScripts':
@@ -9349,7 +9350,7 @@ function renderHygieneDetail(kind) {
     tableHtml = !rows.length
       ? `<div class="meta" style="padding:18px;">No unassigned items — everything is targeting something.</div>`
       : `<table><thead><tr><th>Name</th><th>Type</th><th>Last modified</th></tr></thead><tbody>${rows.map(r => {
-          const link = linkedName(r.category, { id: r.id, displayName: r.name });
+          const link = linkedName(r.category, { id: r.id, displayName: r.name, isAssigned: false });
           return `<tr><td>${link}</td><td>${esc(r.categoryLabel)}</td><td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td></tr>`;
         }).join('')}</tbody></table>`;
   } else if (kind === 'emptyGroup') {
