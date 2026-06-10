@@ -2304,8 +2304,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used to analyze Intune error codes with AI. Stored in your browser's localStorage — never sent to any server other than api.anthropic.com.</div>
-        <input type="password" class="search" id="claudeApiKey" placeholder="sk-ant-api03-…" style="width:100%; font-family:ui-monospace, monospace;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used to analyze Intune error codes with AI. Accepts an Anthropic key (<code>sk-ant-…</code>, calls api.anthropic.com) or an OpenRouter key (<code>sk-or-…</code>, calls openrouter.ai with the same Claude models) — the provider is detected from the key prefix. Stored in your browser's localStorage — never sent anywhere else.</div>
+        <input type="password" class="search" id="claudeApiKey" placeholder="sk-ant-api03-… or sk-or-v1-…" style="width:100%; font-family:ui-monospace, monospace;">
       </div>
 
       <div>
@@ -4866,6 +4866,58 @@ function renderAnalysis(text, opts) {
     <div style="padding:0; line-height:1.6;">${html}</div>`;
 }
 
+// Provider-agnostic model call. Anthropic keys (sk-ant-…) hit the Anthropic
+// Messages API directly; OpenRouter keys (sk-or-…) hit OpenRouter's
+// OpenAI-compatible endpoint instead — same Claude models, billed through the
+// OpenRouter account. Provider is detected from the key prefix, so there's no
+// separate setting. Returns { text, inputTokens, outputTokens }.
+const OPENROUTER_MODELS = {
+  'claude-haiku-4-5-20251001': 'anthropic/claude-haiku-4.5',
+  'claude-sonnet-4-6': 'anthropic/claude-sonnet-4.6',
+  'claude-opus-4-7': 'anthropic/claude-opus-4.7'
+};
+async function callModel({ apiKey, model, maxTokens, prompt }) {
+  const isOpenRouter = apiKey.startsWith('sk-or-');
+  const res = await fetch(
+    isOpenRouter ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.anthropic.com/v1/messages',
+    {
+      method: 'POST',
+      headers: isOpenRouter
+        ? {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + apiKey,
+            'HTTP-Referer': 'https://haavarstein.github.io/intune-dashboard/',
+            'X-Title': 'THE Intune Dashboard'
+          }
+        : {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+      body: JSON.stringify({
+        model: isOpenRouter ? (OPENROUTER_MODELS[model] || model) : model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    }
+  );
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const usage = data.usage || {};
+  return isOpenRouter
+    ? {
+        text: data.choices?.[0]?.message?.content || '',
+        inputTokens: usage.prompt_tokens,
+        outputTokens: usage.completion_tokens
+      }
+    : {
+        text: (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n'),
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens
+      };
+}
+
 async function analyzeError(row, forceFresh = false) {
   const { apiKey, model } = getSettings();
   const activeModel = model || 'claude-haiku-4-5-20251001';
@@ -4912,25 +4964,8 @@ Respond in this format:
 Be specific to Intune. No preamble.`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: activeModel,
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
-    const usage = data.usage || {};
-    trackUsage(activeModel, usage.input_tokens, usage.output_tokens);
+    const { text, inputTokens, outputTokens } = await callModel({ apiKey, model: activeModel, maxTokens: 1024, prompt });
+    trackUsage(activeModel, inputTokens, outputTokens);
     setCachedAnalysis(errCode, activeModel, text);
     renderAnalysis(text, { cached: false });
     $('reanalyzeBtn').onclick = () => analyzeError(row, true);
@@ -9575,32 +9610,15 @@ Analyze the logs and produce a focused diagnosis. Format:
 Be technical and specific. Assume the reader knows Intune internals. No preamble, no generic advice.`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: activeModel,
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
-    const usage = data.usage || {};
-    trackUsage(activeModel, usage.input_tokens, usage.output_tokens);
+    const { text, inputTokens, outputTokens } = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt });
+    trackUsage(activeModel, inputTokens, outputTokens);
     const html = esc(text)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br>');
     $('logAnalysisResult').innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--line);">
         <div style="font-weight:600; font-size:13px;">Analysis · ${esc(activeModel)}</div>
-        <div style="font-size:11px; color:var(--muted);">${usage.input_tokens || '?'} in · ${usage.output_tokens || '?'} out · ${estimateCost(activeModel, usage.input_tokens, usage.output_tokens)}</div>
+        <div style="font-size:11px; color:var(--muted);">${inputTokens || '?'} in · ${outputTokens || '?'} out · ${estimateCost(activeModel, inputTokens, outputTokens)}</div>
       </div>
       <div style="line-height:1.6; font-size:13px;">${html}</div>`;
     $('logStatus').textContent = '';

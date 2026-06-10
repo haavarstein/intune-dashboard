@@ -343,6 +343,8 @@ After the switch the dashboard clears every sub-tab's cached state (`hwDevices`,
 
 If you add a Claude API key under the **Settings** tab, error-code cells in the device table become clickable. Clicking sends the app + device + error context to the Claude API and shows a structured diagnosis (what the error means, likely cause, remediation steps) in a modal.
 
+**Anthropic or OpenRouter.** The key field accepts either an Anthropic key (`sk-ant-…`) or an [OpenRouter](https://openrouter.ai/) key (`sk-or-…`) — the provider is auto-detected from the prefix, no separate setting. With an OpenRouter key the same Claude models are used (`anthropic/claude-haiku-4.5` etc.) and billed through your OpenRouter account, which is handy if you already fund multiple AI tools from one balance there.
+
 Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the same error code renders instantly from cache with a **Cached** badge — no API call, no tokens spent. Click **↻ Re-analyze** in the modal header to force a fresh response (useful if you change models or want to retry).
 
 **Models available:**
@@ -355,7 +357,7 @@ Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the s
 
 **A note on model choice.** Haiku 4.5 is the default for everything — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 4.6** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise. Reserve **Opus 4.7** for cases where Sonnet gives up; its new tokenizer uses up to 35% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
 
-**Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com`. The request uses the `anthropic-dangerous-direct-browser-access` header, which means **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
+**Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com` (Anthropic keys) or `openrouter.ai` (OpenRouter keys). Either way **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 
 ## Exporting the registry (for the Local tab)
 
