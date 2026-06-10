@@ -767,7 +767,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
       <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Scopes: DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementApps.ReadWrite.All · DeviceManagementServiceConfig.Read.All · BitlockerKey.ReadBasic.All · Device.Read.All · Mail.Send · User.Read</div>
+      <div style="font-size: 11px; margin-top: 16px;">Sign-in requests read-only scopes (DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementServiceConfig.Read.All · BitlockerKey.ReadBasic.All · Device.Read.All · User.Read · …). Write scopes are requested only when you first use a write action.</div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
@@ -2287,7 +2287,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope).</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope, consent requested on first use).</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
 
@@ -2922,7 +2922,11 @@ const MSAL_CONFIG = {
   },
   cache: { cacheLocation: 'sessionStorage' }
 };
-const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementApps.ReadWrite.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementScripts.ReadWrite.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'User.Read.All', 'AuditLog.Read.All', 'ThreatHunting.Read.All', 'Mail.Send', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
+// Read-only scopes only — write scopes (DeviceManagementApps.ReadWrite.All,
+// DeviceManagementScripts.ReadWrite.All, Mail.Send, …) are requested
+// just-in-time via ensureScopeToken() the first time a write action runs,
+// so read-only sessions never carry write permissions.
+const SCOPES = ['DeviceManagementManagedDevices.Read.All', 'DeviceManagementApps.Read.All', 'DeviceManagementScripts.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All', 'Group.Read.All', 'User.Read', 'User.Read.All', 'AuditLog.Read.All', 'ThreatHunting.Read.All', 'BitlockerKey.ReadBasic.All', 'Device.Read.All'];
 
 let msalApp = null;
 let intuneInit = false;
@@ -3361,6 +3365,24 @@ async function getToken() {
   }
 }
 
+// Just-in-time consent for a scope outside the static (read-only) SCOPES array.
+// Mints a token carrying exactly that scope; the first use triggers a consent
+// popup, after which it resolves silently. We verify the granted scopes on the
+// response because acquireTokenSilent can mint from a refresh token that was
+// never consented to the requested scope and return a token without it.
+async function ensureScopeToken(scope) {
+  if (!msalApp) throw new Error('not signed in');
+  const account = msalApp.getActiveAccount();
+  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === scope.toLowerCase());
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: [scope], account });
+    if (granted(r)) return r.accessToken;
+  } catch (_) { /* fall through to popup */ }
+  const r = await msalApp.acquireTokenPopup({ scopes: [scope], account });
+  if (!granted(r)) throw new Error(`Consent for ${scope} was not granted.`);
+  return r.accessToken;
+}
+
 // Fetch with retry on Graph throttling (429) and transient 503/504, honoring Retry-After.
 async function graphFetch(url, init) {
   for (let attempt = 0; ; attempt++) {
@@ -3374,7 +3396,7 @@ async function graphFetch(url, init) {
 }
 
 async function graphGet(path, opts = {}) {
-  const token = await getToken();
+  const token = opts.token || await getToken();
   const headers = { Authorization: 'Bearer ' + token };
   if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, { headers });
@@ -3389,7 +3411,7 @@ async function graphGet(path, opts = {}) {
 }
 
 async function graphPost(path, body, opts = {}) {
-  const token = await getToken();
+  const token = opts.token || await getToken();
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
   if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
@@ -3413,7 +3435,7 @@ async function graphPost(path, body, opts = {}) {
 }
 
 async function graphPatch(path, body, opts = {}) {
-  const token = await getToken();
+  const token = opts.token || await getToken();
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
   if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
@@ -3435,7 +3457,7 @@ async function graphPatch(path, body, opts = {}) {
 }
 
 async function graphDelete(path, opts = {}) {
-  const token = await getToken();
+  const token = opts.token || await getToken();
   const headers = { Authorization: 'Bearer ' + token };
   if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
@@ -3453,7 +3475,7 @@ async function graphDelete(path, opts = {}) {
 // Microsoft Graph /me/sendMail returns 202 with empty body — use direct fetch
 // since graphPost calls .json() and would throw on the empty response.
 async function sendApprovalNotification({ app, approvalCode, justification, approvers, customer, requester }) {
-  const token = await getToken();
+  const token = await ensureScopeToken('Mail.Send');
   const customerLine = customer
     ? esc(customer.code)
     : '(no customer matched the signed-in account)';
@@ -3552,6 +3574,7 @@ async function loadRequiredApps() {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     renderRequiredList();
   } catch (e) {
+    requiredLoaded = false; // retry on next visit
     console.error(e);
     showRequiredError('Failed to load required apps: ' + (e.message || e));
     $('requiredList').innerHTML = '';
@@ -3626,6 +3649,7 @@ async function loadUninstallApps() {
     populateUninstallPlatformOptions();
     renderUninstallList();
   } catch (e) {
+    uninstallLoaded = false; // retry on next visit
     console.error(e);
     showUninstallError('Failed to load uninstall apps: ' + (e.message || e));
     $('uninstallList').innerHTML = '';
@@ -3991,6 +4015,7 @@ async function loadFailed() {
     renderFailedKPIs();
     renderFailed();
   } catch (e) {
+    failedAppsLoaded = false; // retry on next visit
     showIntuneError(e.message);
     $('failedRows').innerHTML = '';
     $('failedCount').textContent = '0';
@@ -4132,6 +4157,7 @@ async function loadInstalledApps() {
     populateInstalledAppPlatformOptions();
     applyInstalledAppFilter();
   } catch (e) {
+    installedAppsLoaded = false; // retry on next visit
     showIntuneError(e.message);
     $('installedAppList').innerHTML = '';
   }
@@ -4674,7 +4700,8 @@ async function confirmDelete(app, justification) {
   try {
     const justB64 = btoa(String.fromCharCode(...new TextEncoder().encode(justification)));
     await graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(app.id), {
-      headers: { 'x-msft-approval-justification': justB64 }
+      headers: { 'x-msft-approval-justification': justB64 },
+      token: await ensureScopeToken('DeviceManagementApps.ReadWrite.All')
     });
     // Tenant without multi-admin approval — the delete completed.
     const deletedName = app.displayName;
@@ -5210,6 +5237,7 @@ async function loadHardware() {
     $('hwLoading').style.display = 'none';
     $('hwContent').style.display = '';
   } catch (e) {
+    hwLoaded = false; // retry on next visit
     $('hwLoading').style.display = 'none';
     $('hwError').innerHTML = `<div class="error-banner">Failed to load devices: ${esc(e.message || e)}</div>`;
   }
@@ -6767,13 +6795,17 @@ async function searchGroupsForMeteringDeploy(query) {
   }
   try {
     const term = `"displayName:${query.replace(/"/g, '')}"`;
-    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`;
+    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=50&$select=id,displayName,description&$count=true`;
     const data = await graphGet(path, { headers: { ConsistencyLevel: 'eventual' } });
     const groups = data.value || [];
+    const totalCount = data['@odata.count'];
+    const truncNote = (typeof totalCount === 'number' && totalCount > groups.length)
+      ? `<div class="meta" style="padding:8px 10px; font-size:11px;">Showing first ${groups.length} of ${totalCount} matches — refine your search to narrow down.</div>`
+      : '';
     if (!groups.length) {
       box.innerHTML = `<div class="meta" style="padding:10px;">No groups match "${esc(query)}"</div>`;
     } else {
-      box.innerHTML = groups.map(g => `
+      box.innerHTML = truncNote + groups.map(g => `
         <div data-md-group-id="${esc(g.id)}" data-md-group-name="${esc(g.displayName)}" style="padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--line);">
           <div style="font-size:13px;">${esc(g.displayName)}</div>
           <div style="font-size:11px; color:var(--muted);">${esc(g.description || g.id)}</div>
@@ -6800,42 +6832,17 @@ function selectMeteringDeployGroup(g) {
   $('mdGroupSelected').innerHTML = `Selected: <strong>${esc(g.displayName)}</strong> <span style="color:var(--muted); font-family:ui-monospace,monospace; font-size:11px;">${esc(g.id)}</span>`;
 }
 
-// Proactively obtain consent for the metering write scope BEFORE the first
-// graphPost call. Works around an MSAL footgun: when SCOPES is extended in
-// a release, acquireTokenSilent can silently return a token that lacks the
-// new scope (mints from a refresh token that was only consented to the old
-// scope set), so the POST then hits Graph 403. By asking explicitly here
-// — and checking the granted scopes on the response — we force an interactive
-// popup if the cached refresh token can't deliver the write scope.
-async function ensureMeteringWriteConsent() {
-  if (!msalApp) throw new Error('not signed in');
-  const writeScope = 'DeviceManagementScripts.ReadWrite.All';
-  const account = msalApp.getActiveAccount();
-  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
-  try {
-    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
-    if (granted(r)) return;
-  } catch (e) { /* fall through to popup */ }
-  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
-  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
+// JIT consent for the remediation-script write scope. Returns the write token —
+// callers must pass it to graphPost/Patch/Delete via opts.token, since the
+// default getToken() mints from the read-only SCOPES array.
+function ensureMeteringWriteConsent() {
+  return ensureScopeToken('DeviceManagementScripts.ReadWrite.All');
 }
 
 // Directory.AccessAsUser.All is requested just-in-time so list-only viewers
-// aren't prompted at sign-in. graphPost can't be reused here — it acquires a
-// token for the static SCOPES array, which (deliberately) does not include
-// this scope. We mint a token explicitly and POST via fetch.
-async function ensureDirectoryWriteConsent() {
-  if (!msalApp) throw new Error('not signed in');
-  const writeScope = 'Directory.AccessAsUser.All';
-  const account = msalApp.getActiveAccount();
-  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
-  try {
-    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
-    if (granted(r)) return r.accessToken;
-  } catch (_) { /* fall through to popup */ }
-  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
-  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
-  return r.accessToken;
+// aren't prompted at sign-in.
+function ensureDirectoryWriteConsent() {
+  return ensureScopeToken('Directory.AccessAsUser.All');
 }
 
 async function restoreDeletedDevice(id) {
@@ -6918,7 +6925,7 @@ async function confirmMeteringDeploy() {
   btn.textContent = 'Consent…';
 
   try {
-    await ensureMeteringWriteConsent();
+    const writeToken = await ensureMeteringWriteConsent();
     btn.textContent = 'Checking…';
     const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
     const existing = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
@@ -6954,7 +6961,7 @@ async function confirmMeteringDeploy() {
     let maaJust = null;
     const postWithMaa = async (path, body, label) => {
       try {
-        return { kind: 'ok', data: await graphPost(path, body) };
+        return { kind: 'ok', data: await graphPost(path, body, { token: writeToken }) };
       } catch (e) {
         if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
           if (!maaJust) {
@@ -6962,7 +6969,7 @@ async function confirmMeteringDeploy() {
             if (!maaJust) throw new Error('Justification cancelled.');
           }
           try {
-            const data = await graphPost(path, body, { headers: { 'x-msft-approval-justification': btoa(maaJust) } });
+            const data = await graphPost(path, body, { headers: { 'x-msft-approval-justification': btoa(maaJust) }, token: writeToken });
             return { kind: 'ok', data };
           } catch (e2) {
             if (e2.status === 412 || e2.status === 409) return { kind: 'pending', error: e2 };
@@ -7046,7 +7053,7 @@ async function replaceExistingMeteringScript() {
   const original = btn.textContent;
   btn.textContent = 'Deleting…';
   try {
-    await graphDelete(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`);
+    await graphDelete(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`, { token: await ensureMeteringWriteConsent() });
     mdExistingScriptId = null;
     $('mdConflict').style.display = 'none';
     // Drop the stale GUID locally too — if it happened to match what we
@@ -7288,7 +7295,7 @@ async function ensureImeRemediation() {
   if (imeEnsuring) return imeEnsuring;
 
   imeEnsuring = (async () => {
-    await ensureMeteringWriteConsent(); // DeviceManagementScripts.ReadWrite.All
+    const writeToken = await ensureMeteringWriteConsent(); // DeviceManagementScripts.ReadWrite.All
     await loadImeScriptsB64();
     const localVersion = imeContentVersion();
 
@@ -7309,7 +7316,7 @@ async function ensureImeRemediation() {
         if (getActiveImeScriptVersion() === localVersion) return storedId; // exists + current
         // exists but content drifted → PATCH it in place.
         try {
-          await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}`, imeScriptBody(), { headers: h }));
+          await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(storedId)}`, imeScriptBody(), { headers: h, token: writeToken }));
           saveImeScriptVersionToActiveCustomer(localVersion);
           imeToast('↻ Updated the IME remediation script in this tenant to the latest version.', 'ok');
           remediationLoaded = false;
@@ -7330,13 +7337,13 @@ async function ensureImeRemediation() {
     const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
     const hit = (found && found.value || [])[0];
     if (hit) {
-      try { await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(hit.id)}`, imeScriptBody(), { headers: h })); } catch (_) { /* best-effort refresh */ }
+      try { await imeWrite(h => graphPatch(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(hit.id)}`, imeScriptBody(), { headers: h, token: writeToken })); } catch (_) { /* best-effort refresh */ }
       saveImeScriptIdToActiveCustomer(hit.id);
       saveImeScriptVersionToActiveCustomer(localVersion);
       return hit.id;
     }
 
-    const data = await imeWrite(h => graphPost('beta/deviceManagement/deviceHealthScripts', imeScriptBody(), { headers: h }));
+    const data = await imeWrite(h => graphPost('beta/deviceManagement/deviceHealthScripts', imeScriptBody(), { headers: h, token: writeToken }));
     saveImeScriptIdToActiveCustomer(data.id);
     saveImeScriptVersionToActiveCustomer(localVersion);
     remediationLoaded = false;
@@ -7348,21 +7355,10 @@ async function ensureImeRemediation() {
   finally { imeEnsuring = null; }
 }
 
-// Mint a token for the privileged managed-device action scope. graphPost can't
-// be reused — it acquires a token for the static SCOPES array, which omits this
-// scope so list-only viewers aren't prompted at sign-in.
-async function ensurePrivilegedOpsToken() {
-  if (!msalApp) throw new Error('not signed in');
-  const scope = 'DeviceManagementManagedDevices.PrivilegedOperations.All';
-  const account = msalApp.getActiveAccount();
-  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === scope.toLowerCase());
-  try {
-    const r = await msalApp.acquireTokenSilent({ scopes: [scope], account });
-    if (granted(r)) return r.accessToken;
-  } catch (_) { /* fall through to popup */ }
-  const r = await msalApp.acquireTokenPopup({ scopes: [scope], account });
-  if (!granted(r)) throw new Error(`Consent for ${scope} was not granted.`);
-  return r.accessToken;
+// Mint a token for the privileged managed-device action scope, requested
+// just-in-time so list-only viewers aren't prompted at sign-in.
+function ensurePrivilegedOpsToken() {
+  return ensureScopeToken('DeviceManagementManagedDevices.PrivilegedOperations.All');
 }
 
 // Run an on-demand IME required-app check-in on one chosen device. Auto-creates
@@ -7745,7 +7741,7 @@ async function submitApprovalAction(id, action, justification) {
     await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, {
       justification,
       approvalSource: 'adminConsole'
-    });
+    }, { token: await ensureScopeToken('DeviceManagementApps.ReadWrite.All') });
     closeApprovalActionModal();
     loadApprovals(true);
   } catch (e) {
@@ -8894,13 +8890,17 @@ async function searchGroupsForAssignments(query) {
     // $search is substring/token-based across displayName — needs ConsistencyLevel: eventual.
     // Much more forgiving than startswith() for users who paste partial names.
     const term = `"displayName:${query.replace(/"/g, '')}"`;
-    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`;
+    const path = `v1.0/groups?$search=${encodeURIComponent(term)}&$top=50&$select=id,displayName,description&$count=true`;
     const data = await graphGet(path, { headers: { ConsistencyLevel: 'eventual' } });
     const groups = data.value || [];
+    const totalCount = data['@odata.count'];
+    const truncNote = (typeof totalCount === 'number' && totalCount > groups.length)
+      ? `<div class="meta" style="padding:8px 12px; font-size:11px;">Showing first ${groups.length} of ${totalCount} matches — refine your search to narrow down.</div>`
+      : '';
     if (!groups.length) {
       box.innerHTML = `<div class="meta" style="padding:12px;">No groups match "${esc(query)}"</div>`;
     } else {
-      box.innerHTML = groups.map(g => `
+      box.innerHTML = truncNote + groups.map(g => `
         <div class="app-row" data-group-id="${esc(g.id)}" data-group-name="${esc(g.displayName)}" style="cursor:pointer;">
           <div style="flex:1; min-width:0;">
             <div class="name">${esc(g.displayName)}</div>
@@ -9847,18 +9847,9 @@ function exportStaleUsersCsv() {
   URL.revokeObjectURL(url);
 }
 
-// Per-scope JIT consent. Pattern mirrors ensureDirectoryWriteConsent for Restore.
-async function ensureUserWriteConsent(writeScope) {
-  if (!msalApp) throw new Error('not signed in');
-  const account = msalApp.getActiveAccount();
-  const granted = (r) => (r && r.scopes || []).some(s => s.toLowerCase() === writeScope.toLowerCase());
-  try {
-    const r = await msalApp.acquireTokenSilent({ scopes: [writeScope], account });
-    if (granted(r)) return r.accessToken;
-  } catch (_) { /* fall through to popup */ }
-  const r = await msalApp.acquireTokenPopup({ scopes: [writeScope], account });
-  if (!granted(r)) throw new Error(`Consent for ${writeScope} was not granted.`);
-  return r.accessToken;
+// Per-scope JIT consent for the stale-users write actions.
+function ensureUserWriteConsent(writeScope) {
+  return ensureScopeToken(writeScope);
 }
 
 async function revokeUserSessions(id) {

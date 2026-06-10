@@ -195,7 +195,7 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 
 **Software Metering** — agentless per-user application usage on Intune-managed Windows devices. Closes the "is this license actually being used?" question without deploying a metering agent — the data is collected by a Proactive Remediation detection script that reads Windows' built-in BAM (Background Activity Moderator) registry on a daily schedule and emits a gzip-compressed snapshot via the detection script's stdout channel. The dashboard fans out across `/deviceHealthScripts/{id}/deviceRunStates`, decodes per-device, aggregates fleet-wide.
 
-> **Per-customer config required.** Two paths: **⚡ Auto-deploy** (one click from the sub-tab's empty state — the dashboard creates the Proactive Remediation in this tenant and assigns it to your chosen group or All Devices, then auto-fills the script ID in Settings; requires re-consent for the `DeviceManagementConfiguration.ReadWrite.All` write scope on first use; idempotent — detects a name collision and offers to reuse the existing script instead of duplicating), or **manual** (upload `scripts/software-metering-detect.ps1` to Intune yourself, then paste the script's GUID into **Settings → Customers → Metering script ID** for the customer). See `scripts/README.md` for the manual deploy recipe and the portal metadata block.
+> **Per-customer config required.** Two paths: **⚡ Auto-deploy** (one click from the sub-tab's empty state — the dashboard creates the Proactive Remediation in this tenant and assigns it to your chosen group or All Devices, then auto-fills the script ID in Settings; requires consent for the `DeviceManagementScripts.ReadWrite.All` write scope on first use; idempotent — detects a name collision and offers to reuse the existing script instead of duplicating), or **manual** (upload `scripts/software-metering-detect.ps1` to Intune yourself, then paste the script's GUID into **Settings → Customers → Metering script ID** for the customer). See `scripts/README.md` for the manual deploy recipe and the portal metadata block.
 
 - **KPI tiles**: Devices reporting (with median snapshot-age subtitle) · Apps tracked across the fleet · **Likely unused** (install × device pairs idle 90+ days or never launched; clickable filter) · **Reclaim candidates** (apps installed on ≥10 devices where ≥50% of installs are idle 90+ days or never launched; clickable filter).
 - Sortable main table: **App** · **Publisher** · **Installs** · **Active 30d** · **Idle 90d+** · **Never launched** · **Last fleet use**. Default sort: Idle 90d+ desc. Reclaim-candidate rows have their Idle 90d+ cell highlighted.
@@ -236,12 +236,10 @@ Everything runs in your browser. CSV data never leaves your machine. Intune data
 
 When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a login popup against the multi-tenant endpoint (`login.microsoftonline.com/common`). The app is pre-registered in Azure AD, so you do **not** need to create your own app registration.
 
-**Scopes requested (delegated):**
+**Scopes requested at sign-in (delegated, all read-only):**
 
 - `DeviceManagementManagedDevices.Read.All` — read managed device data
 - `DeviceManagementApps.Read.All` — read Intune app data and install reports
-- `DeviceManagementApps.ReadWrite.All` — **write scope** for deleting apps from Intune (Installed sub-tab → 🗑 Delete from Intune)
-- `Mail.Send` — **write scope** to send the MAA approver notification email from your own mailbox at the moment a delete is submitted; never used for anything else
 - `BitlockerKey.ReadBasic.All` — list BitLocker recovery-key metadata for the BitLocker sub-tab (returns id / deviceId / volumeType only — key material is never fetched)
 - `Device.Read.All` — read Entra device objects, used by the Hardware tab's hygiene tiles to flag Intune devices with no matching Entra record
 - `Group.Read.All` — read group names to display the groups an app is assigned to (Installed sub-tab)
@@ -250,18 +248,20 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `AuditLog.Read.All` — gates the `signInActivity` property on `/v1.0/users` (Stale users sub-tab); without it, Graph silently omits the property
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
-- `DeviceManagementScripts.ReadWrite.All` — **write scope** for the Software Metering ⚡ Auto-deploy and the Remediation tab's ⚡ IME Required App Check-in deploy (each creates a Proactive Remediation in the tenant + assigns it)
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
 
-**Just-in-time scopes (not requested at sign-in):**
+**Just-in-time write scopes (not requested at sign-in):** each is requested via a consent popup the first time you use the matching write action in a session, so read-only viewers never carry write permissions.
 
-- `Directory.AccessAsUser.All` — **write scope** for the Soft-deleted sub-tab's ↻ Restore button. Requested via a popup the first time you click Restore in a session, so list-only viewers of the Entra recycle bin are never prompted. Requires admin consent and an Entra role of Cloud Device Administrator, Intune Administrator, or Global Administrator on the signed-in account; the LIST call uses the existing `Device.Read.All` scope.
-- `User.RevokeSessions.All` — **write scope** for the Stale users sub-tab's ↻ Revoke sessions button. Requested via a popup the first time you click Revoke in a session. List-only viewers of the stale-users list are never prompted.
-- `User.EnableDisableAccount.All` — **write scope** for the Stale users sub-tab's ⊘ Disable account button. Requested via a popup the first time you click Disable in a session. Confirm modal requires typing `DISABLE` before the button enables.
-- `DeviceManagementManagedDevices.PrivilegedOperations.All` — **write scope** for the per-device **⚡ Check-in** action (Hardware / Failed Install / Cert health tabs), which fires `initiateOnDemandProactiveRemediation` to force an IME required-app sync. Requested via a popup the first time you trigger a check-in in a session; requires an Intune Administrator role.
+- `DeviceManagementApps.ReadWrite.All` — deleting apps from Intune (Installed sub-tab → 🗑 Delete from Intune) and approving/rejecting Multi-Admin-Approval requests (Approvals sub-tab)
+- `Mail.Send` — send the MAA approver notification email from your own mailbox at the moment a delete is submitted; never used for anything else
+- `DeviceManagementScripts.ReadWrite.All` — the Software Metering ⚡ Auto-deploy and the Remediation tab's ⚡ IME Required App Check-in deploy (each creates a Proactive Remediation in the tenant + assigns it)
+- `Directory.AccessAsUser.All` — the Soft-deleted sub-tab's ↻ Restore button. Requires admin consent and an Entra role of Cloud Device Administrator, Intune Administrator, or Global Administrator on the signed-in account; the LIST call uses the existing `Device.Read.All` scope.
+- `User.RevokeSessions.All` — the Stale users sub-tab's ↻ Revoke sessions button.
+- `User.EnableDisableAccount.All` — the Stale users sub-tab's ⊘ Disable account button. Confirm modal requires typing `DISABLE` before the button enables.
+- `DeviceManagementManagedDevices.PrivilegedOperations.All` — the per-device **⚡ Check-in** action (Hardware / Failed Install / Cert health tabs), which fires `initiateOnDemandProactiveRemediation` to force an IME required-app sync; requires an Intune Administrator role.
 
-Three static write scopes — `DeviceManagementApps.ReadWrite.All`, `Mail.Send`, and `DeviceManagementScripts.ReadWrite.All` — plus three JIT write scopes (`Directory.AccessAsUser.All`, `User.RevokeSessions.All`, `User.EnableDisableAccount.All`). Everything else is read-only. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, ↻ Restore (Soft-deleted sub-tab), and ↻ Revoke / ⊘ Disable (Stale users sub-tab) will work.
+Everything requested at sign-in is read-only; all seven write scopes are just-in-time. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, ↻ Restore (Soft-deleted sub-tab), and ↻ Revoke / ⊘ Disable (Stale users sub-tab) will work.
 
 **First-time consent.** On first sign-in, you (or your tenant admin, depending on tenant policy) must consent to the scopes above. If your tenant requires admin consent for these scopes and you are not an admin, sign-in will fail with an admin-consent-required error — ask your Intune admin to grant consent for the app. Existing users will see a one-time re-consent prompt whenever a new scope is added (most recently `User.Read.All` and `AuditLog.Read.All` for the Stale users sub-tab).
 
