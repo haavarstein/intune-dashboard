@@ -9485,11 +9485,13 @@ window.removeLog = function(i) {
 };
 
 // Trim log to error-adjacent lines: grep for error/fail/return-value patterns,
-// keep ±15 lines of context around each match. Deduplicate overlapping windows.
-function trimLog(content) {
+// keep ±N lines of context around each match. Deduplicate overlapping windows.
+// Decimal error codes must be negative (-2016281112) or carry an HRESULT
+// prefix (214…/322… = 0x8…/0xC…) — a bare \d{7,10} would match the
+// fractional seconds in every CMTrace timestamp and keep the whole file.
+function trimLog(content, context = 15) {
   const lines = content.split(/\r?\n/);
-  const pattern = /\b(error|fail(ed|ure)?|exception|return value [^0-3]|0x[0-9a-f]{8}|-?\d{7,10}|cannot|denied|timeout|abort)\b/i;
-  const context = 15;
+  const pattern = /\b(error|fail(ed|ure)?|exception|return value [^0-2]|0x[0-9a-f]{8}|cannot|denied|timeout|abort)\b|-\d{7,10}\b|\b(214|322)\d{7}\b/i;
   const keep = new Set();
   lines.forEach((line, i) => {
     if (pattern.test(line)) {
@@ -9527,15 +9529,34 @@ async function analyzeLogs() {
   const activeModel = model || 'claude-haiku-4-5-20251001';
   const autoTrim = $('logAutoTrim').checked;
 
-  // Build prompt content
+  // Build prompt content under a hard size budget — the API rejects prompts
+  // over 200k tokens, and CMTrace logs tokenize densely (~3.5 chars/token),
+  // so cap well below: ~550k chars ≈ 155k tokens. Escalation per file:
+  // normal trim → tight trim (±3 lines) → keep the tail (the failure being
+  // investigated is almost always the most recent activity in the log).
+  const CHAR_BUDGET = 550000;
+  const perFileBudget = Math.floor(CHAR_BUDGET / uploadedLogs.length);
+  let truncated = false;
   const processed = uploadedLogs.map(f => {
-    const body = autoTrim ? trimLog(f.content) : f.content;
-    return `=== ${f.name} (${autoTrim ? 'trimmed' : 'full'}, ${body.length} chars) ===\n${body}`;
+    let body = autoTrim ? trimLog(f.content) : f.content;
+    let note = autoTrim ? 'trimmed' : 'full';
+    if (autoTrim && body.length > perFileBudget) {
+      body = trimLog(f.content, 3);
+      note = 'trimmed tight';
+    }
+    if (body.length > perFileBudget) {
+      body = body.slice(-perFileBudget);
+      body = body.slice(body.indexOf('\n') + 1);
+      note += ', oldest entries dropped to fit the model context — newest kept';
+      truncated = true;
+    }
+    return `=== ${f.name} (${note}, ${body.length} chars) ===\n${body}`;
   }).join('\n\n');
 
   const approxTokens = Math.ceil(processed.length / 4);
   $('btnAnalyzeLogs').disabled = true;
-  $('logStatus').textContent = `Sending ${(processed.length / 1024).toFixed(1)} KB (~${approxTokens.toLocaleString()} tokens) to ${activeModel}…`;
+  $('logStatus').textContent = `Sending ${(processed.length / 1024).toFixed(1)} KB (~${approxTokens.toLocaleString()} tokens) to ${activeModel}…`
+    + (truncated ? ' Log exceeded the model context — oldest entries were dropped, newest kept.' : '');
   $('logAnalysisResult').style.display = '';
   $('logAnalysisResult').innerHTML = '<div style="color:var(--muted); font-size:13px;">Analyzing with Claude…</div>';
 

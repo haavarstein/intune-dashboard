@@ -206,7 +206,8 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 
 ### Analyze tab (log files)
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
-- **Auto-trim** preprocessor — greps for error/failure/return-value lines and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
+- **Auto-trim** preprocessor — greps for error/failure/return-value lines (including negative and HRESULT-style decimal error codes) and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
+- **Size guard** — the prompt is capped under the model's 200k-token context. If a log is still too big after trimming, it is re-trimmed with tighter context (±3 lines), and as a last resort the oldest entries are dropped — the newest activity (usually the failure under investigation) is always kept. The status line tells you when this happens.
 - **Haiku 4.5 by default** — cheapest, fastest, separate rate-limit bucket. Switch to Sonnet 4.6 in Settings for tougher logs.
 - **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
 - **Session cost pill** — a small counter in the bottom-right shows total spend and call count for the current browser session across both error-code and log analyses. Click to reset. Resets automatically when the tab closes.
