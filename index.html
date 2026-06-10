@@ -976,6 +976,18 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div class="tab-hint">Find which devices have a given app, with per-device version and state. Export the device list for targeted upgrades or exclusion groups.</div>
         <!-- App picker (shown when no app selected) -->
         <div id="installedAppPicker" class="app-picker">
+          <div class="tiles" id="installedTiles" style="grid-template-columns: repeat(2, 1fr); display:none; margin-bottom:16px;">
+            <div class="tile">
+              <div class="tile-label">Assigned apps</div>
+              <div class="tile-value" id="instTileTotal">0</div>
+              <div class="tile-sub">in this tenant</div>
+            </div>
+            <div class="tile" id="instTileZero" style="cursor:pointer;" title="Filter: assigned 30+ days ago but installed on zero devices — retire candidates">
+              <div class="tile-label">Zero installs</div>
+              <div class="tile-value" id="instTileZeroVal">…</div>
+              <div class="tile-sub">assigned 30+ days · installed nowhere</div>
+            </div>
+          </div>
           <div class="app-picker-bar">
             <input type="text" class="search" id="installedAppFilter" placeholder="Search apps by name or publisher…">
             <div class="filter-group">
@@ -3245,6 +3257,8 @@ function resetTenantState() {
   hwLoaded = false; hwDevices = []; hwTileFilter = null;
   // Installed
   installedAppsLoaded = false; installedApps = []; installedAppsFiltered = [];
+  installedZeroSet = null; installedZeroFilter = false;
+  if ($('installedTiles')) { $('installedTiles').style.display = 'none'; $('instTileZero').style.outline = ''; $('instTileZeroVal').textContent = '…'; }
   selectedApp = null; installedRows = [];
   if ($('installedAppPicker')) $('installedAppPicker').style.display = '';
   if ($('installedView')) $('installedView').style.display = 'none';
@@ -4149,19 +4163,66 @@ async function loadInstalledApps() {
         id: app.id,
         displayName: app.displayName,
         publisher: app.publisher,
-        platform: platformFromOdataType(app['@odata.type'])
+        platform: platformFromOdataType(app['@odata.type']),
+        created: app.createdDateTime || null
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
 
     installedAppsFiltered = installedApps;
     populateInstalledAppPlatformOptions();
     applyInstalledAppFilter();
+    refreshZeroInstallTile(); // async fill, doesn't block the picker
   } catch (e) {
     installedAppsLoaded = false; // retry on next visit
     showIntuneError(e.message);
     $('installedAppList').innerHTML = '';
   }
 }
+
+// --- Zero-installs view (issue #6): assigned apps installed on no device ---
+// "Urgently needed" apps that nobody has anymore are retire candidates.
+// Install counts come from getAppsInstallSummaryReport (full paged sweep,
+// left-joined onto the picker's app list — absent from the report = 0).
+// Age guard: only apps created 30+ days ago count, so freshly published or
+// staged apps don't cry wolf.
+const ZERO_INSTALL_MIN_AGE_DAYS = 30;
+let installedZeroSet = null;     // Set<appId> | null while report loads
+let installedZeroFilter = false;
+
+async function refreshZeroInstallTile() {
+  $('installedTiles').style.display = '';
+  $('instTileTotal').textContent = installedApps.length;
+  try {
+    const counts = new Map();
+    const top = 500;
+    for (let skip = 0; skip < 10000; skip += top) {
+      const body = { top, skip, filter: '', orderBy: [], search: '', select: ['ApplicationId', 'InstalledDeviceCount'] };
+      const data = await graphPost('beta/deviceManagement/reports/getAppsInstallSummaryReport', body);
+      const rows = parseReport(data);
+      rows.forEach(r => counts.set(r.ApplicationId, Number(r.InstalledDeviceCount) || 0));
+      if (rows.length < top) break;
+    }
+    const cutoff = Date.now() - ZERO_INSTALL_MIN_AGE_DAYS * 864e5;
+    installedZeroSet = new Set(installedApps
+      .filter(a => (counts.get(a.id) || 0) === 0 && a.created && Date.parse(a.created) < cutoff)
+      .map(a => a.id));
+    const n = installedZeroSet.size;
+    $('instTileZeroVal').textContent = n;
+    $('instTileZero').classList.remove('tile-good', 'tile-watch');
+    $('instTileZero').classList.add(n === 0 ? 'tile-good' : 'tile-watch');
+  } catch (e) {
+    console.warn('Zero-install report failed', e);
+    $('instTileZeroVal').textContent = '—';
+    $('instTileZero').title = 'Install-summary report unavailable: ' + (e.message || e);
+  }
+}
+
+$('instTileZero').addEventListener('click', () => {
+  if (!installedZeroSet) return; // report still loading or failed
+  installedZeroFilter = !installedZeroFilter;
+  $('instTileZero').style.outline = installedZeroFilter ? '2px solid var(--accent)' : '';
+  applyInstalledAppFilter();
+});
 
 function populateInstalledAppPlatformOptions() {
   const plats = [...new Set(installedApps.map(a => platformLabel(a.platform)).filter(p => p && p !== '—'))].sort();
@@ -4175,6 +4236,7 @@ function applyInstalledAppFilter() {
   const platF = $('installedAppPlatformFilter').value;
   const includePmpc = $('includePmpcInstalled').checked;
   installedAppsFiltered = installedApps.filter(a => {
+    if (installedZeroFilter && installedZeroSet && !installedZeroSet.has(a.id)) return false;
     if (!includePmpc && pmpcAppIds.has(a.id)) return false;
     if (platF && platformLabel(a.platform) !== platF) return false;
     if (q && !(
@@ -4199,15 +4261,21 @@ function renderInstalledAppList() {
   const start = (installedAppsPage - 1) * INSTALLED_PAGE_SIZE;
   const slice = installedAppsFiltered.slice(start, start + INSTALLED_PAGE_SIZE);
 
-  $('installedAppList').innerHTML = slice.map(a => `
+  $('installedAppList').innerHTML = slice.map(a => {
+    let meta = esc(a.publisher) || '—';
+    if (installedZeroFilter && a.created) {
+      const days = Math.floor((Date.now() - Date.parse(a.created)) / 864e5);
+      meta += ` · 0 installs · published ${days >= 60 ? Math.floor(days / 30) + ' months' : days + ' days'} ago`;
+    }
+    return `
     <div class="app-row" data-id="${esc(a.id)}">
       <div style="flex:1; min-width:0;">
         <div class="name">${esc(a.displayName)}</div>
-        <div class="meta">${esc(a.publisher) || '—'}</div>
+        <div class="meta">${meta}</div>
       </div>
       <div class="pub-small">→</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   renderInstalledAppsPager(totalPages, total);
 }
