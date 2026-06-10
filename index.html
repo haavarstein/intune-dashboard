@@ -2117,6 +2117,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <h2>Remediations</h2>
             <div class="controls">
               <input type="text" class="search" id="remediationFilter" placeholder="Search script or publisher…">
+              <button class="btn" id="btnRdDeploy" style="font-size:12px; padding:5px 12px;">+ Deploy a remediation</button>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRemediationRefresh">↻ Refresh</span>
             </div>
           </div>
@@ -2484,6 +2485,111 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button class="btn btn-ghost" id="mdBtnCancel">Cancel</button>
         <button class="btn" id="mdBtnDeploy">Deploy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="rdDeployModal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div>
+        <h3>Deploy a remediation</h3>
+        <div class="panel-sub" id="rdSubtitle" style="margin-top:4px;"></div>
+      </div>
+      <button class="close-btn" id="rdClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="rdError" style="display:none; margin-bottom:14px;"></div>
+
+      <div style="padding:10px 12px; background:#f5f5f0; border-left:3px solid var(--accent); font-size:12px; margin-bottom:14px; line-height:1.6;">
+        Creates a Proactive Remediation (<code>deviceHealthScript</code>) in the active tenant from your detection + remediation scripts. Author them however you like — for registry keys, <a href="https://chrispro.tech/tools/registry-to-remediation" target="_blank" rel="noopener noreferrer">chrispro.tech Registry → Remediation</a> generates both — then paste or upload below. The <strong>detection script must <code>exit 1</code></strong> when the issue is found (so the remediation runs), and keep its stdout under <strong>2,048 chars</strong> (Intune's cap). Scripts are sent UTF-8. First use requires the <code>DeviceManagementScripts.ReadWrite.All</code> scope.
+      </div>
+
+      <div style="display:grid; grid-template-columns:130px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Name *</label>
+        <input type="text" class="search" id="rdName" placeholder="e.g. Set HKLM\…\Foo = 1">
+
+        <label style="font-size:12px; color:var(--muted);">Publisher</label>
+        <input type="text" class="search" id="rdPublisher" value="THE Intune Dashboard">
+
+        <label style="font-size:12px; color:var(--muted); align-self:start; padding-top:6px;">Description</label>
+        <textarea id="rdDescription" class="search" rows="2" style="font-family:inherit; resize:vertical;"></textarea>
+
+        <label style="font-size:12px; color:var(--muted);">Run as</label>
+        <select id="rdRunAs" class="search" style="cursor:pointer;">
+          <option value="system" selected>System (HKLM / machine-wide)</option>
+          <option value="user">Logged-on user (HKCU / per-user)</option>
+        </select>
+
+        <label style="font-size:12px; color:var(--muted);">64-bit PowerShell</label>
+        <select id="rdBitness" class="search" style="cursor:pointer;">
+          <option value="64" selected>Yes — 64-bit</option>
+          <option value="32">No — 32-bit (writes HKLM\Software to WOW6432Node)</option>
+        </select>
+
+        <label style="font-size:12px; color:var(--muted);">Signature check</label>
+        <select id="rdSig" class="search" style="cursor:pointer;">
+          <option value="no" selected>Don't enforce</option>
+          <option value="yes">Enforce (scripts must be signed)</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <span style="font-weight:600; font-size:13px;">Detection script (.ps1) *</span>
+          <input type="file" id="rdDetectFile" accept=".ps1,.txt" style="display:none;">
+          <button class="btn btn-ghost" id="rdDetectUpload" style="font-size:11px; padding:3px 9px;">⬆ Upload</button>
+          <span class="meta" id="rdDetectInfo" style="font-size:11px;"></span>
+        </div>
+        <textarea id="rdDetect" class="search" rows="6" style="width:100%; font-family:ui-monospace,monospace; font-size:12px; white-space:pre; resize:vertical;" placeholder="# detection — must exit 1 when the issue is found, exit 0 when compliant"></textarea>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <span style="font-weight:600; font-size:13px;">Remediation script (.ps1)</span>
+          <span class="meta" style="font-size:11px;">optional — detection-only if blank</span>
+          <input type="file" id="rdRemediateFile" accept=".ps1,.txt" style="display:none;">
+          <button class="btn btn-ghost" id="rdRemediateUpload" style="font-size:11px; padding:3px 9px;">⬆ Upload</button>
+          <span class="meta" id="rdRemediateInfo" style="font-size:11px;"></span>
+        </div>
+        <textarea id="rdRemediate" class="search" rows="6" style="width:100%; font-family:ui-monospace,monospace; font-size:12px; white-space:pre; resize:vertical;" placeholder="# remediation — applies the fix"></textarea>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Assignment</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="rdTarget" value="none" checked> On-demand only — unassigned, no schedule
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="rdTarget" value="group"> Specific group
+          </label>
+          <div id="rdGroupRow" style="padding-left:24px;">
+            <input type="text" class="search" id="rdGroupSearch" placeholder="Type to search groups…" style="width:100%;">
+            <div id="rdGroupResults" style="display:none; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:6px; background:white;"></div>
+            <div id="rdGroupSelected" style="display:none; margin-top:6px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="radio" name="rdTarget" value="all"> All Devices
+          </label>
+        </div>
+      </div>
+
+      <div id="rdScheduleRow" style="display:none; grid-template-columns:130px 1fr; gap:8px 12px; align-items:center; margin-bottom:14px;">
+        <label style="font-size:12px; color:var(--muted);">Schedule</label>
+        <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+          <select class="filter-select" id="rdSchedType">
+            <option value="hourly" selected>Hourly</option>
+            <option value="daily">Daily</option>
+          </select>
+          <span id="rdDailyWrap" style="display:none;">at <input type="text" id="rdSchedTime" value="03:00" maxlength="5" class="search" style="width:70px; text-align:center;"> UTC</span>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-ghost" id="rdCancel">Cancel</button>
+        <button class="btn" id="rdDeploy">Deploy</button>
       </div>
     </div>
   </div>
@@ -7491,6 +7597,180 @@ if ($('imePickerSearch')) {
     }
   });
 }
+
+// ============================================================
+// Deploy a custom remediation — paste/upload detection + remediation
+// PowerShell → create a deviceHealthScript, optionally assign + schedule.
+// Author scripts anywhere (e.g. chrispro.tech Registry → Remediation).
+// Reuses ensureMeteringWriteConsent (scope) + imeWrite (MAA) + imeToast.
+// ============================================================
+let rdGroup = null;
+let rdSearchTimer = null;
+let rdDeploying = false;
+
+function rdToB64(txt) {
+  const enc = new TextEncoder().encode(txt);
+  let s = '';
+  for (let i = 0; i < enc.length; i++) s += String.fromCharCode(enc[i]);
+  return btoa(s);
+}
+
+function showRdError(msg) {
+  $('rdError').innerHTML = `<div class="error-banner">${esc(msg)}</div>`;
+  $('rdError').style.display = '';
+}
+
+function rdSyncTarget() {
+  const t = document.querySelector('input[name="rdTarget"]:checked').value;
+  $('rdGroupRow').style.opacity = t === 'group' ? '1' : '0.35';
+  $('rdGroupRow').style.pointerEvents = t === 'group' ? '' : 'none';
+  $('rdScheduleRow').style.display = (t === 'group' || t === 'all') ? 'grid' : 'none';
+}
+
+function rdSyncSchedType() {
+  $('rdDailyWrap').style.display = $('rdSchedType').value === 'daily' ? '' : 'none';
+}
+
+function openRdModal() {
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  $('rdSubtitle').textContent = customer ? `Tenant: ${customer.code} (${customer.email})` : 'No customer matched — sign in / add one in Settings.';
+  $('rdError').style.display = 'none'; $('rdError').innerHTML = '';
+  $('rdName').value = ''; $('rdPublisher').value = 'THE Intune Dashboard'; $('rdDescription').value = '';
+  $('rdRunAs').value = 'system'; $('rdBitness').value = '64'; $('rdSig').value = 'no';
+  $('rdDetect').value = ''; $('rdRemediate').value = '';
+  $('rdDetectInfo').textContent = ''; $('rdRemediateInfo').textContent = '';
+  $('rdGroupSearch').value = ''; $('rdGroupResults').style.display = 'none'; $('rdGroupSelected').style.display = 'none';
+  rdGroup = null;
+  document.querySelector('input[name="rdTarget"][value="none"]').checked = true;
+  $('rdSchedType').value = 'hourly'; $('rdSchedTime').value = '03:00';
+  rdSyncTarget(); rdSyncSchedType();
+  $('rdDeployModal').classList.add('show');
+}
+
+function closeRdModal() { if (rdDeploying) return; $('rdDeployModal').classList.remove('show'); }
+
+function rdLoadFile(input, textareaId, infoId) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { $(textareaId).value = r.result; $(infoId).textContent = `${f.name} · ${(f.size / 1024).toFixed(1)} KB`; };
+  r.onerror = () => { $(infoId).textContent = 'read failed'; };
+  r.readAsText(f);
+}
+
+async function searchGroupsForRd(query) {
+  const box = $('rdGroupResults');
+  if (!query || query.length < 2) { box.style.display = 'none'; return; }
+  try {
+    const term = `"displayName:${query.replace(/"/g, '')}"`;
+    const data = await graphGet(`v1.0/groups?$search=${encodeURIComponent(term)}&$top=20&$select=id,displayName,description&$count=true`, { headers: { ConsistencyLevel: 'eventual' } });
+    const groups = data.value || [];
+    box.innerHTML = groups.length
+      ? groups.map(g => `<div data-rd-group-id="${esc(g.id)}" data-rd-group-name="${esc(g.displayName)}" style="padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--line);"><div style="font-size:13px;">${esc(g.displayName)}</div><div style="font-size:11px; color:var(--muted);">${esc(g.description || g.id)}</div></div>`).join('')
+      : `<div class="meta" style="padding:10px;">No groups match "${esc(query)}"</div>`;
+    box.querySelectorAll('[data-rd-group-id]').forEach(row => {
+      row.addEventListener('click', () => selectRdGroup({ id: row.dataset.rdGroupId, displayName: row.dataset.rdGroupName }));
+      row.addEventListener('mouseenter', () => row.style.background = 'var(--accent-soft)');
+      row.addEventListener('mouseleave', () => row.style.background = '');
+    });
+    box.style.display = '';
+  } catch (e) {
+    box.innerHTML = `<div style="padding:10px; color:#c0392b; font-size:12px;">Search failed: ${esc(e.message || String(e))}</div>`;
+    box.style.display = '';
+  }
+}
+
+function selectRdGroup(g) {
+  rdGroup = g;
+  $('rdGroupSearch').value = '';
+  $('rdGroupResults').style.display = 'none';
+  $('rdGroupSelected').style.display = '';
+  $('rdGroupSelected').innerHTML = `Selected: <strong>${esc(g.displayName)}</strong> <span style="color:var(--muted); font-family:ui-monospace,monospace; font-size:11px;">${esc(g.id)}</span>`;
+}
+
+async function confirmRdDeploy() {
+  if (rdDeploying) return;
+  $('rdError').style.display = 'none';
+  const name = ($('rdName').value || '').trim();
+  const publisher = ($('rdPublisher').value || '').trim() || 'THE Intune Dashboard';
+  const description = ($('rdDescription').value || '').trim();
+  const detect = $('rdDetect').value;
+  const remediate = $('rdRemediate').value;
+  const target = document.querySelector('input[name="rdTarget"]:checked').value;
+  const schedType = $('rdSchedType').value;
+  const timeStr = ($('rdSchedTime').value || '').trim();
+
+  if (!name) return showRdError('Name is required.');
+  if (!detect.trim()) return showRdError('A detection script is required.');
+  if (target === 'group' && !rdGroup) return showRdError('Pick a group, or switch to On-demand only / All Devices.');
+  if ((target === 'group' || target === 'all') && schedType === 'daily' && !/^[0-2]?\d:[0-5]\d$/.test(timeStr)) return showRdError('Schedule time must be HH:MM (24-hour).');
+  if (!loadCustomers().find(c => c.code === getActiveCustomerCode())) return showRdError('No customer matched the signed-in account.');
+
+  rdDeploying = true;
+  const btn = $('rdDeploy');
+  btn.disabled = true;
+  btn.textContent = 'Consent…';
+  try {
+    await ensureMeteringWriteConsent(); // DeviceManagementScripts.ReadWrite.All
+    btn.textContent = 'Creating…';
+    const body = {
+      displayName: name,
+      description: description,
+      publisher: publisher,
+      detectionScriptContent: rdToB64(detect),
+      runAsAccount: $('rdRunAs').value,          // 'system' | 'user'
+      runAs32Bit: $('rdBitness').value === '32',
+      enforceSignatureCheck: $('rdSig').value === 'yes',
+      roleScopeTagIds: ['0'],
+    };
+    if (remediate.trim()) body.remediationScriptContent = rdToB64(remediate);
+
+    const data = await imeWrite(h => graphPost('beta/deviceManagement/deviceHealthScripts', body, { headers: h }));
+    const scriptId = data.id;
+
+    if (target !== 'none') {
+      btn.textContent = 'Assigning…';
+      const tgt = target === 'all'
+        ? { '@odata.type': '#microsoft.graph.allDevicesAssignmentTarget' }
+        : { '@odata.type': '#microsoft.graph.groupAssignmentTarget', groupId: rdGroup.id };
+      const runSchedule = schedType === 'hourly'
+        ? { '@odata.type': '#microsoft.graph.deviceHealthScriptHourlySchedule', interval: 1 }
+        : (() => { const [hh, mm] = timeStr.split(':'); return { '@odata.type': '#microsoft.graph.deviceHealthScriptDailySchedule', interval: 1, time: `${hh.padStart(2, '0')}:${mm}:00.0000000`, useUtc: true }; })();
+      const assignBody = { deviceHealthScriptAssignments: [{ target: tgt, runRemediationScript: !!remediate.trim(), runSchedule }] };
+      await imeWrite(h => graphPost(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody, { headers: h }));
+    }
+
+    rdDeploying = false;
+    $('rdDeployModal').classList.remove('show');
+    imeToast(`✓ Deployed remediation "${name}"${target === 'none' ? ' (unassigned — run it on-demand)' : target === 'all' ? ' to All Devices' : ' to ' + rdGroup.displayName}.`, 'ok');
+    remediationLoaded = false;
+    loadRemediation(true);
+  } catch (e) {
+    console.error('Remediation deploy failed', e);
+    showRdError(e.message || String(e));
+  } finally {
+    rdDeploying = false;
+    btn.disabled = false;
+    btn.textContent = 'Deploy';
+  }
+}
+
+$('btnRdDeploy').addEventListener('click', openRdModal);
+$('rdClose').addEventListener('click', closeRdModal);
+$('rdCancel').addEventListener('click', closeRdModal);
+$('rdDeploy').addEventListener('click', confirmRdDeploy);
+$('rdDetectUpload').addEventListener('click', () => $('rdDetectFile').click());
+$('rdRemediateUpload').addEventListener('click', () => $('rdRemediateFile').click());
+$('rdDetectFile').addEventListener('change', () => rdLoadFile($('rdDetectFile'), 'rdDetect', 'rdDetectInfo'));
+$('rdRemediateFile').addEventListener('change', () => rdLoadFile($('rdRemediateFile'), 'rdRemediate', 'rdRemediateInfo'));
+$('rdSchedType').addEventListener('change', rdSyncSchedType);
+$('rdGroupSearch').addEventListener('input', e => {
+  clearTimeout(rdSearchTimer);
+  const q = e.target.value.trim();
+  rdSearchTimer = setTimeout(() => searchGroupsForRd(q), 300);
+});
+document.querySelectorAll('input[name="rdTarget"]').forEach(r => r.addEventListener('change', rdSyncTarget));
+$('rdDeployModal').addEventListener('click', e => { if (e.target.id === 'rdDeployModal' && !rdDeploying) closeRdModal(); });
 
 // ============================================================
 // Approvals sub-tab — Multi-Admin Approval queue
