@@ -6274,12 +6274,30 @@ async function loadMetering(force = false) {
   if (meteringLoaded && !force) return;
 
   const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
-  const scriptId = customer && customer.meteringScriptId;
+  let scriptId = customer && customer.meteringScriptId;
 
   $('meteringEmpty').style.display = 'none';
   $('meteringLoading').style.display = 'none';
   $('meteringMain').style.display = 'none';
   $('meteringError').innerHTML = '';
+
+  // Self-heal a missing local ID before declaring "not configured": every
+  // redeploy mints a new script ID and the 404 handler below clears stale
+  // ones, so the script can exist in the tenant while localStorage has no ID.
+  // Look it up by the default display name and re-link (same pattern as the
+  // IME flow's by-name recovery).
+  if (!scriptId && customer) {
+    try {
+      const filter = `displayName eq 'THE Intune Dashboard - Software Metering'`;
+      const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
+      const hits = (found && found.value) || [];
+      if (hits.length === 1) {
+        scriptId = hits[0].id;
+        saveMeteringScriptIdToActiveCustomer(scriptId);
+        $('meteringError').innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">Re-linked to the metering script found in this tenant (<code>${esc(scriptId)}</code>) — the locally stored script ID was missing or stale.</div>`;
+      }
+    } catch (_) { /* fall through to the deploy wizard */ }
+  }
 
   if (!scriptId) {
     $('meteringEmpty').style.display = '';
