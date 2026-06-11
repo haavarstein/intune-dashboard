@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Eighteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), and Stale users (P1).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Nineteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -157,6 +157,15 @@ Sign in once with MSAL — all eighteen sub-tabs share the same session.
 - **Read scopes**: `User.Read.All` + `AuditLog.Read.All` (the latter gates `signInActivity` on the Graph side). Added in the same release as this sub-tab; existing users will see a one-time re-consent prompt.
 - Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
 
+**AI agents (P2/E5)** — shadow-AI visibility. Lists locally installed AI agents (Copilot, ChatGPT, Claude, Ollama, …) discovered across managed devices, sourced from the Defender XDR **`AIAgentsInfo`** advanced-hunting table (Microsoft **Agent 365 agent discovery, preview**) filtered to `Platform == "LocalAgents"`. Detection logic adapted from [SlimKQL / Detections.AI](https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql) — the original alerts on a 24-hour window; the dashboard shows the full inventory and surfaces recent installs as a warn tile instead.
+
+> ⚠️ **Licensing / rollout required.** Advanced hunting needs **Defender for Endpoint P2 or M365 E5** (same `ThreatHunting.Read.All` scope as the Vulnerabilities tab — no new consent), *and* the `AIAgentsInfo` table only exists once the Agent 365 preview reaches the tenant. Tenants without it get a "table not available" notice instead of a raw KQL 400; the tab lights up automatically once the preview lands.
+
+- **KPI tiles**: **Agent installs** (total detections; click to show all) · **Unique agents** (distinct agent names; click to group the table by agent) · **Devices with agents** · **New (7 days)** (amber, click-to-filter — the recently-installed slice) · **Fleet footprint** (SVG gauge — share of Defender-onboarded devices seen in the last 7 days with ≥1 local AI agent; amber on purpose, it's a watch metric, not a success rate; fed by a second, individually-caught `DeviceInfo` query so its failure never breaks the tab).
+- **Two table views** (dropdown): **Installations** (Agent name with a *New* badge · Vendor · Device · OS · User · Detected, default sort newest first) and **By agent name** (Agent · Vendor · Installs · Devices · Last detected, default sort most-installed first). Both sortable; search filters across agent, vendor, device, and user.
+- **⬇ Export CSV** of the current filtered view, shaped to whichever view is active.
+- Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
+
 **Disk space** — Win32 app requirement-rule pre-flight. The Intune Win32 `Disk space required (MB)` requirement rule silently marks devices as **Requirements not met** or **Not Applicable** when free space is below the rule — no obvious error in the Intune console, just a missing install. This tab lists Windows devices below a chosen free-space threshold so you can find the silent victims before they call helpdesk. Background context for *why* this matters in 2025–2026: Microsoft incident **IT1168328** (the Intune Store / WinGet log bloat bug) silently filled `%windir%\Temp\WinGet\defaultState`, and Windows 11 24H2 upgrades have pushed disk pressure up across the fleet.
 
 - **KPI tiles**: Windows devices in scope · **< 1 GB free** (red, emergency / Windows breaking) · **< 5 GB free** (amber, at-risk / common helpdesk pain) · **< 20 GB free** (yellow, watch / proactive monitoring band) · **Lowest free** (worst offender in the fleet, with device name). The three coloured tiles are click-to-filter; click again to clear.
@@ -248,7 +257,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `User.Read` — read your basic profile (to show your name in the UI)
 - `User.Read.All` — read directory users (Stale users sub-tab); pairs with `AuditLog.Read.All` below
 - `AuditLog.Read.All` — gates the `signInActivity` property on `/v1.0/users` (Stale users sub-tab); without it, Graph silently omits the property
-- `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities sub-tab; requires Defender for Endpoint P2 or M365 E5 to return data)
+- `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities, Drift & Compliance, and AI agents sub-tabs; requires Defender for Endpoint P2 or M365 E5 to return data)
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
 - `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
@@ -290,7 +299,7 @@ Everything requested at sign-in is read-only; all seven write scopes are just-in
 - `GET /beta/groups/{id}?$select=displayName,id` — group name lookup for each assignment target (Installed sub-tab)
 - `GET /beta/deviceManagement/managedDevices?$select=...` — device inventory list. Hardware sub-tab uses the full property set (manufacturer/model/RAM/storage/etc); Overview sub-tab calls it with a lightweight `id,osVersion,operatingSystem,lastSyncDateTime` selection only, skipping the per-device RAM fan-out.
 - `GET /beta/deviceManagement/managedDevices/{id}?$select=physicalMemoryInBytes` — per-device RAM fetch (the list endpoint returns 0 for this field)
-- `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab) and against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab)
+- `POST /v1.0/security/runHuntingQuery` — Defender Advanced Hunting KQL query against `DeviceTvmSoftwareInventory` and `DeviceTvmSoftwareVulnerabilities` (Vulnerabilities sub-tab), against `DeviceTvmSoftwareInventory` grouped by `SoftwareName, SoftwareVendor, SoftwareVersion` (Drift & Compliance sub-tab), and against `AIAgentsInfo` (`Platform == "LocalAgents"`, parsing `RawAgentInfo`) plus a `DeviceInfo` device count for the footprint gauge (AI agents sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts?$expand=assignments` — proactive remediation scripts with their assignments (Remediation sub-tab, reused by Assignments sub-tab)
 - `GET /beta/deviceManagement/deviceHealthScripts/{id}/deviceRunStates?$expand=managedDevice` — per-device output from the software metering detection script (Software Metering sub-tab); decoded client-side from base64+gzip and aggregated for license-reclaim signal
 - `GET /beta/deviceManagement/deviceHealthScripts?$filter=displayName eq '…'` — pre-create idempotency check for the Software Metering ⚡ Auto-deploy button (offers to reuse an existing script with the same name rather than duplicating)

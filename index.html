@@ -804,6 +804,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
         <button class="subtab" data-subtab="staleusers">Stale users (P1)</button>
+        <button class="subtab" data-subtab="aiagents">AI agents (P2/E5)</button>
       </div>
 
       <div id="intuneError"></div>
@@ -2016,6 +2017,74 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubStaleusers -->
+
+      <div id="intuneSubAiagents" style="display:none;">
+        <div class="tab-hint">
+          Locally installed <strong>AI agents</strong> discovered across the fleet — the shadow-AI visibility view. Sourced from the Defender XDR <code>AIAgentsInfo</code> advanced-hunting table (Agent 365 agent discovery, <strong>preview</strong>), filtered to <code>Platform == "LocalAgents"</code>: desktop agents like Copilot, ChatGPT, Claude, and Ollama that users installed on managed devices. Detection logic adapted from <a href="https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql" target="_blank" rel="noopener noreferrer">SlimKQL / Detections.AI</a>. Requires Defender for Endpoint P2 / M365 E5 (same <code>ThreatHunting.Read.All</code> scope as the Vulnerabilities tab) <em>and</em> the Agent 365 preview rolled out to the tenant — without it the table doesn't resolve and this tab shows a not-available notice.
+        </div>
+        <div class="tiles" style="grid-template-columns: repeat(5, 1fr);">
+          <div class="tile" data-ai-tile="" style="cursor:pointer;" title="Show all detected local AI agent installations">
+            <div class="tile-label">Agent installs</div>
+            <div class="tile-value" id="aiTileTotal">0</div>
+            <div class="tile-sub">local AI agents detected</div>
+          </div>
+          <div class="tile" id="aiTileNamesTile" style="cursor:pointer;" title="Distinct agent products detected — click to group the table by agent name">
+            <div class="tile-label">Unique agents</div>
+            <div class="tile-value" id="aiTileNames">0</div>
+            <div class="tile-sub">distinct agent names</div>
+          </div>
+          <div class="tile" title="Devices with at least one local AI agent">
+            <div class="tile-label">Devices with agents</div>
+            <div class="tile-value" id="aiTileDevices">0</div>
+            <div class="tile-sub">≥ 1 agent installed</div>
+          </div>
+          <div class="tile tile-warn" data-ai-tile="new" style="cursor:pointer;" title="Filter: agents first detected in the last 7 days — the SlimKQL detection uses a 24h window for alerting">
+            <div class="tile-label">New (7 days)</div>
+            <div class="tile-value" id="aiTileNew">0</div>
+            <div class="tile-sub">recently installed</div>
+          </div>
+          <div class="tile" title="Share of Defender-onboarded devices (seen in the last 7 days) with at least one local AI agent">
+            <div class="tile-label">Fleet footprint</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="aiFootprintRing" cx="25" cy="25" r="20" fill="none" stroke="#d4a017" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="aiTileFootprint" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">of onboarded devices</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Detected agents</h2>
+            <div class="controls">
+              <input type="text" class="search" id="aiagentsFilter" placeholder="Search agent, vendor, device, user…">
+              <div class="filter-group">
+                <span class="filter-group-label">View</span>
+                <select class="filter-select" id="aiagentsViewMode">
+                  <option value="installs" selected>Installations</option>
+                  <option value="byagent">By agent name</option>
+                </select>
+              </div>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAiagentsClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAiagentsExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAiagentsRefresh">↻ Refresh</span>
+            </div>
+          </div>
+          <div id="aiagentsLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading AI agents…</div>
+          <div id="aiagentsError"></div>
+          <div id="aiagentsContent" style="display:none;">
+            <table id="aiagentsTable"></table>
+            <div class="footer-count"><span id="aiagentsCount">0</span> <span id="aiagentsCountLabel">installations</span> shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubAiagents -->
 
       <div id="intuneSubDiskspace" style="display:none;">
         <div class="tab-hint">
@@ -5113,6 +5182,7 @@ function switchSubtab(name) {
   $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
   $('intuneSubSoftdeleted').style.display = name === 'softdeleted' ? '' : 'none';
   $('intuneSubStaleusers').style.display = name === 'staleusers' ? '' : 'none';
+  $('intuneSubAiagents').style.display = name === 'aiagents' ? '' : 'none';
   $('intuneSubDiskspace').style.display = name === 'diskspace' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
@@ -5135,6 +5205,7 @@ function switchSubtab(name) {
   if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
   if (name === 'softdeleted' && !softdeletedLoaded) loadSoftdeleted();
   if (name === 'staleusers' && !staleusersLoaded) loadStaleUsers();
+  if (name === 'aiagents' && !aiagentsLoaded) loadAiAgents();
   if (name === 'diskspace' && !diskspaceLoaded) loadDiskspace();
 }
 
@@ -10124,6 +10195,292 @@ document.querySelectorAll('#intuneSubStaleusers th[data-su-sort]').forEach(th =>
   });
 });
 $('staleActionModal').addEventListener('click', e => { if (e.target === $('staleActionModal')) closeStaleActionModal(); });
+
+// ============================================================
+// AI agents (P2/E5) sub-tab — locally installed AI agents
+// discovered by Defender XDR / Agent 365 agent discovery.
+// One KQL query against the AIAgentsInfo table (preview),
+// Platform == "LocalAgents", parsing RawAgentInfo for the agent
+// name, vendor, device, OS and account. Detection logic adapted
+// from SlimKQL/Detections.AI (agent-365--local-ai-agent-
+// installation-detection.kql) — the original alerts on a 24h
+// window; the dashboard shows the full inventory and surfaces
+// "new in 7 days" as the warn tile instead.
+// A second, individually-caught query (DeviceInfo, last 7d)
+// feeds the fleet-footprint gauge; if it fails the gauge just
+// shows an em-dash and the tab still works.
+// Requires ThreatHunting.Read.All (already in SCOPES) and the
+// Agent 365 preview — tenants without the table get a friendly
+// not-available notice instead of a raw 400.
+// ============================================================
+let aiagentsLoaded = false;
+let aiagentsLoading = false;
+let aiagentsRows = [];
+let aiagentsFleetTotal = null;   // dcount(DeviceId) from DeviceInfo, null = unavailable
+let aiagentsSortKey = 'detectedAtMs';
+let aiagentsSortDir = 'desc';
+let aiagentsTileFilter = null;   // null | 'new'
+
+const AI_NEW_WINDOW_MS = 7 * 86400000;
+
+const AIAGENTS_KQL = `
+AIAgentsInfo
+| where Platform == @"LocalAgents"
+| extend Raw = parse_json(RawAgentInfo)
+| project AgentName = tostring(Raw.name),
+          Vendor = tostring(Raw.localAgentMetadata.vendor),
+          DeviceName = tostring(Raw.localAgentMetadata.deviceName),
+          OSPlatform = tostring(Raw.localAgentMetadata.osPlatform),
+          UserName = tostring(Raw.localAgentMetadata.accountName),
+          DetectedAt = AgentCreationTime
+| order by DetectedAt desc
+`;
+
+const AIAGENTS_FLEET_KQL = `
+DeviceInfo
+| where Timestamp > ago(7d)
+| summarize Total = dcount(DeviceId)
+`;
+
+async function loadAiAgents(force = false) {
+  if (aiagentsLoading) return;
+  if (aiagentsLoaded && !force) return;
+  aiagentsLoading = true;
+  $('aiagentsLoading').style.display = '';
+  $('aiagentsContent').style.display = 'none';
+  $('aiagentsError').innerHTML = '';
+  try {
+    const [agentsJson, fleetJson] = await Promise.all([
+      graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_KQL }),
+      graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_FLEET_KQL }).catch(() => null)
+    ]);
+    const results = Array.isArray(agentsJson.results) ? agentsJson.results : [];
+    aiagentsRows = results.map(r => {
+      const ms = r.DetectedAt ? Date.parse(r.DetectedAt) : NaN;
+      return {
+        agentName: r.AgentName || '',
+        vendor: r.Vendor || '',
+        deviceName: r.DeviceName || '',
+        osPlatform: r.OSPlatform || '',
+        userName: r.UserName || '',
+        detectedAtMs: Number.isNaN(ms) ? null : ms
+      };
+    });
+    const fleetRows = fleetJson && Array.isArray(fleetJson.results) ? fleetJson.results : [];
+    aiagentsFleetTotal = fleetRows.length ? (Number(fleetRows[0].Total) || null) : null;
+    aiagentsLoaded = true;
+    $('aiagentsLoading').style.display = 'none';
+    $('aiagentsContent').style.display = '';
+    renderAiAgents();
+  } catch (e) {
+    $('aiagentsLoading').style.display = 'none';
+    // A tenant without the Agent 365 preview has no AIAgentsInfo table —
+    // the hunting API answers 400 "Failed to resolve table…", not 403.
+    if (e.status === 400 && /AIAgentsInfo|Failed to resolve table/i.test(e.body || e.message || '')) {
+      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>AIAgentsInfo table not available in this tenant.</strong> Agent discovery (Microsoft Agent 365, preview) hasn't rolled out here yet, so Defender advanced hunting can't resolve the table. No action needed in the dashboard — the tab lights up automatically once the preview reaches the tenant.</div>`;
+    } else if (e.status === 403) {
+      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>403 from Graph.</strong> ${esc(e.message || String(e))}<br>Likely causes: the tenant isn't licensed for Defender for Endpoint P2 / M365 E5 (required for advanced hunting), or admin consent for <code>ThreatHunting.Read.All</code> hasn't been granted yet — sign out and back in to re-consent.</div>`;
+    } else {
+      console.error('AI agents load failed', e);
+      $('aiagentsError').innerHTML = `<div class="error-banner">Failed to load AI agents: ${esc(e.message || String(e))}</div>`;
+    }
+  } finally {
+    aiagentsLoading = false;
+  }
+}
+
+function aiIsNew(r) {
+  return r.detectedAtMs != null && (Date.now() - r.detectedAtMs) <= AI_NEW_WINDOW_MS;
+}
+
+function applyAiAgentsFilters(rows) {
+  const q = ($('aiagentsFilter').value || '').toLowerCase().trim();
+  return rows.filter(r => {
+    if (aiagentsTileFilter === 'new' && !aiIsNew(r)) return false;
+    if (q) {
+      const hay = (r.agentName + ' ' + r.vendor + ' ' + r.deviceName + ' ' + r.userName).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderAiAgentsTiles() {
+  const names = new Set(), devices = new Set();
+  let fresh = 0;
+  for (const r of aiagentsRows) {
+    if (r.agentName) names.add(r.agentName.toLowerCase());
+    if (r.deviceName) devices.add(r.deviceName.toLowerCase());
+    if (aiIsNew(r)) fresh++;
+  }
+  $('aiTileTotal').textContent = aiagentsRows.length;
+  $('aiTileNames').textContent = names.size;
+  $('aiTileDevices').textContent = devices.size;
+  $('aiTileNew').textContent = fresh;
+
+  // Fleet footprint gauge — devices with ≥1 agent / Defender-onboarded
+  // devices seen in the last 7 days. Amber on purpose: an AI-agent
+  // footprint is a watch metric, not a success rate.
+  const ring = $('aiFootprintRing');
+  const CIRC = 125.66; // 2 * π * 20
+  if (!aiagentsFleetTotal || devices.size > aiagentsFleetTotal) {
+    $('aiTileFootprint').textContent = '—';
+    $('aiTileFootprint').style.color = 'var(--muted)';
+    if (ring) ring.style.strokeDashoffset = CIRC;
+  } else {
+    const rate = (devices.size / aiagentsFleetTotal) * 100;
+    const shown = rate > 0 && rate < 1 ? '<1' : Math.round(rate);
+    $('aiTileFootprint').textContent = shown + '%';
+    $('aiTileFootprint').style.color = '';
+    if (ring) ring.style.strokeDashoffset = CIRC * (1 - rate / 100);
+  }
+
+  document.querySelectorAll('#intuneSubAiagents [data-ai-tile]').forEach(tile => {
+    tile.classList.toggle('active', tile.dataset.aiTile !== '' && aiagentsTileFilter === tile.dataset.aiTile);
+  });
+  const searchActive = !!($('aiagentsFilter').value || '').trim();
+  $('btnAiagentsClearKpi').style.display = (aiagentsTileFilter || searchActive) ? '' : 'none';
+}
+
+function aiGroupByAgent(rows) {
+  const byName = new Map();
+  for (const r of rows) {
+    const key = (r.agentName || '(unnamed)').toLowerCase();
+    if (!byName.has(key)) {
+      byName.set(key, { agentName: r.agentName || '(unnamed)', vendor: r.vendor, installs: 0, devices: new Set(), lastMs: null });
+    }
+    const g = byName.get(key);
+    g.installs++;
+    if (!g.vendor && r.vendor) g.vendor = r.vendor;
+    if (r.deviceName) g.devices.add(r.deviceName.toLowerCase());
+    if (r.detectedAtMs != null && (g.lastMs == null || r.detectedAtMs > g.lastMs)) g.lastMs = r.detectedAtMs;
+  }
+  return [...byName.values()].map(g => ({
+    agentName: g.agentName, vendor: g.vendor, installs: g.installs, devices: g.devices.size, lastMs: g.lastMs
+  }));
+}
+
+function renderAiAgents() {
+  renderAiAgentsTiles();
+  const view = $('aiagentsViewMode').value;
+  const filtered = applyAiAgentsFilters(aiagentsRows);
+  const dir = aiagentsSortDir === 'asc' ? 1 : -1;
+  const sortRows = rows => rows.sort((a, b) => {
+    let av = a[aiagentsSortKey], bv = b[aiagentsSortKey];
+    if (av == null) av = dir > 0 ? Infinity : -Infinity;
+    if (bv == null) bv = dir > 0 ? Infinity : -Infinity;
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.agentName || '').toLowerCase().localeCompare((b.agentName || '').toLowerCase());
+  });
+
+  const arrow = key => `<span class="arrow">${aiagentsSortKey === key ? (aiagentsSortDir === 'asc' ? '▲' : '▼') : '▼'}</span>`;
+  const newBadge = `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#fff8d6; border:1px solid #f0d090; color:#6a5314;">New</span>`;
+  const table = $('aiagentsTable');
+  let rows;
+  if (view === 'byagent') {
+    rows = sortRows(aiGroupByAgent(filtered));
+    table.innerHTML = `<thead><tr>
+        <th data-ai-sort="agentName">Agent name ${arrow('agentName')}</th>
+        <th data-ai-sort="vendor">Vendor ${arrow('vendor')}</th>
+        <th data-ai-sort="installs">Installs ${arrow('installs')}</th>
+        <th data-ai-sort="devices">Devices ${arrow('devices')}</th>
+        <th data-ai-sort="lastMs">Last detected ${arrow('lastMs')}</th>
+      </tr></thead><tbody>` + (rows.length ? rows.map(r => `<tr>
+        <td>${esc(r.agentName) || '—'}</td>
+        <td>${esc(r.vendor) || '—'}</td>
+        <td>${r.installs}</td>
+        <td>${r.devices}</td>
+        <td class="date">${r.lastMs == null ? '—' : new Date(r.lastMs).toLocaleDateString()}</td>
+      </tr>`).join('') : `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:24px;">No AI agents match the current filters.</td></tr>`) + `</tbody>`;
+    $('aiagentsCountLabel').textContent = 'agents';
+  } else {
+    rows = sortRows(filtered.slice());
+    table.innerHTML = `<thead><tr>
+        <th data-ai-sort="agentName">Agent name ${arrow('agentName')}</th>
+        <th data-ai-sort="vendor">Vendor ${arrow('vendor')}</th>
+        <th data-ai-sort="deviceName">Device ${arrow('deviceName')}</th>
+        <th data-ai-sort="osPlatform">OS ${arrow('osPlatform')}</th>
+        <th data-ai-sort="userName">User ${arrow('userName')}</th>
+        <th data-ai-sort="detectedAtMs">Detected ${arrow('detectedAtMs')}</th>
+      </tr></thead><tbody>` + (rows.length ? rows.map(r => `<tr>
+        <td>${esc(r.agentName) || '—'} ${aiIsNew(r) ? newBadge : ''}</td>
+        <td>${esc(r.vendor) || '—'}</td>
+        <td>${esc(r.deviceName) || '—'}</td>
+        <td>${esc(r.osPlatform) || '—'}</td>
+        <td>${esc(r.userName) || '—'}</td>
+        <td class="date">${r.detectedAtMs == null ? '—' : new Date(r.detectedAtMs).toLocaleString()}</td>
+      </tr>`).join('') : `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:24px;">No AI agents match the current filters.</td></tr>`) + `</tbody>`;
+    $('aiagentsCountLabel').textContent = 'installations';
+  }
+  $('aiagentsCount').textContent = rows.length;
+
+  table.querySelectorAll('th[data-ai-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.aiSort;
+      if (aiagentsSortKey === key) aiagentsSortDir = aiagentsSortDir === 'asc' ? 'desc' : 'asc';
+      else { aiagentsSortKey = key; aiagentsSortDir = 'asc'; }
+      renderAiAgents();
+    });
+  });
+}
+
+function exportAiAgentsCsv() {
+  const view = $('aiagentsViewMode').value;
+  const filtered = applyAiAgentsFilters(aiagentsRows);
+  let header, body;
+  if (view === 'byagent') {
+    header = ['AgentName','Vendor','Installs','Devices','LastDetected'];
+    body = aiGroupByAgent(filtered).map(r => [
+      r.agentName, r.vendor, r.installs, r.devices,
+      r.lastMs == null ? '' : new Date(r.lastMs).toISOString()
+    ]);
+  } else {
+    header = ['AgentName','Vendor','DeviceName','OSPlatform','UserName','DetectedAt'];
+    body = filtered.map(r => [
+      r.agentName, r.vendor, r.deviceName, r.osPlatform, r.userName,
+      r.detectedAtMs == null ? '' : new Date(r.detectedAtMs).toISOString()
+    ]);
+  }
+  const lines = [header.join(',')].concat(body.map(cols => cols.map(escCsv).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ai-agents-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Wire controls
+$('aiagentsFilter').addEventListener('input', renderAiAgents);
+$('aiagentsViewMode').addEventListener('change', () => {
+  // Reset the sort to the natural default of the new view
+  if ($('aiagentsViewMode').value === 'byagent') { aiagentsSortKey = 'installs'; aiagentsSortDir = 'desc'; }
+  else { aiagentsSortKey = 'detectedAtMs'; aiagentsSortDir = 'desc'; }
+  renderAiAgents();
+});
+$('btnAiagentsRefresh').addEventListener('click', () => loadAiAgents(true));
+$('btnAiagentsExport').addEventListener('click', exportAiAgentsCsv);
+$('btnAiagentsClearKpi').addEventListener('click', () => {
+  aiagentsTileFilter = null;
+  $('aiagentsFilter').value = '';
+  $('aiagentsFilter').dispatchEvent(new Event('input', { bubbles: true }));
+  renderAiAgents();
+});
+document.querySelectorAll('#intuneSubAiagents [data-ai-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const target = tile.dataset.aiTile;
+    if (target === '') aiagentsTileFilter = null;
+    else aiagentsTileFilter = aiagentsTileFilter === target ? null : target;
+    renderAiAgents();
+  });
+});
+$('aiTileNamesTile').addEventListener('click', () => {
+  $('aiagentsViewMode').value = 'byagent';
+  $('aiagentsViewMode').dispatchEvent(new Event('change', { bubbles: true }));
+});
 </script>
 <div class="session-pill" id="sessionPill" title="Click to reset">
   <span class="dot"></span>
