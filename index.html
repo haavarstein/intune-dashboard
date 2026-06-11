@@ -10244,6 +10244,7 @@ let aiagentsLoaded = false;
 let aiagentsLoading = false;
 let aiagentsRows = [];
 let aiagentsSource = null;       // 'AgentsInfo' | 'AIAgentsInfo' | 'ExposureGraph' | null
+let aiagentsChecked = [];        // per-source outcomes from the last load, for the empty-state banner
 let aiagentsFleetTotal = null;   // dcount(DeviceId) from DeviceInfo, null = unavailable
 let aiagentsSortKey = 'detectedAtMs';
 let aiagentsSortDir = 'desc';
@@ -10278,10 +10279,12 @@ DeviceInfo
 `;
 
 // Walk the sources in order; return rows from the first one that
-// resolves AND has data. A source that resolves but is empty is
-// remembered so zero-everywhere still reports an honest source.
+// resolves AND has data. Every source's outcome is recorded —
+// "absent" (400, table not in tenant) vs a row count — so the
+// empty state can say exactly which claim failed instead of a
+// vague "no data".
 async function queryLocalAgents() {
-  let emptySource = null;
+  const checked = [];  // { source, outcome: 'absent' | number }
   for (const table of ['AgentsInfo', 'AIAgentsInfo']) {
     try {
       const json = await graphPost('v1.0/security/runHuntingQuery', { Query: localAgentsKql(table) });
@@ -10297,10 +10300,11 @@ async function queryLocalAgents() {
           detectedAtMs: Number.isNaN(ms) ? null : ms
         };
       });
-      if (rows.length) return { rows, source: table };
-      emptySource = emptySource || table;
+      checked.push({ source: table, outcome: rows.length });
+      if (rows.length) return { rows, source: table, checked };
     } catch (e) {
       if (e.status !== 400) throw e;  // 403 role errors etc. — surface them
+      checked.push({ source: table, outcome: 'absent' });
     }
   }
   try {
@@ -10311,21 +10315,27 @@ async function queryLocalAgents() {
       vendor: '', deviceName: r.DeviceName || '', osPlatform: '', userName: '',
       detectedAtMs: null
     }));
-    if (rows.length || !emptySource) return { rows, source: rows.length ? 'ExposureGraph' : (emptySource || 'ExposureGraph') };
+    checked.push({ source: 'ExposureGraph', outcome: rows.length });
+    if (rows.length) return { rows, source: 'ExposureGraph', checked };
   } catch (e) {
     if (e.status !== 400) throw e;
-    if (!emptySource) {
-      const err = new Error('No agent-discovery data source available');
-      err.aiNoSource = true;
-      throw err;
-    }
+    checked.push({ source: 'ExposureGraph', outcome: 'absent' });
   }
-  return { rows: [], source: emptySource };
+  if (checked.every(c => c.outcome === 'absent')) {
+    const err = new Error('No agent-discovery data source available');
+    err.aiNoSource = true;
+    throw err;
+  }
+  return { rows: [], source: null, checked };
 }
 
 function aiagentsSourceNoticeHtml() {
+  const labels = { AgentsInfo: 'AgentsInfo', AIAgentsInfo: 'AIAgentsInfo', ExposureGraph: 'Exposure graph (endpointAiAgent)' };
   if (!aiagentsRows.length) {
-    return `<div class="notice-banner">No local AI agents discovered yet (source checked: <code>${esc(aiagentsSource || '—')}</code>). For an agent to appear: the device must be onboarded to Defender for Endpoint, run Defender Antivirus in active mode with current platform/engine updates, the tenant needs Defender for Endpoint P2, and the agent must be on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a> (Claude Code, Codex, Gemini CLI, GitHub Copilot, ChatGPT/Claude/Ollama desktop, Cursor, Windsurf, …). Discovery is automatic but not instant — allow up to ~24h after install, then ↻ Refresh.</div>`;
+    const detail = (aiagentsChecked || []).map(c =>
+      `<code>${esc(labels[c.source] || c.source)}</code>: ${c.outcome === 'absent' ? 'not present in tenant' : 'queryable, 0 rows'}`
+    ).join(' · ');
+    return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>A queryable-but-empty source means the hunting surface has reached the tenant but discovery results haven't landed: verify the <strong>Defender portal → Assets → AI Agents → Local agents</strong> page (ground truth — if agents show there but not here, it's a dashboard bug, tell us), check <strong>Settings → Microsoft Defender XDR → Preview features</strong> is on, and give a fresh install up to ~24h before ↻ Refresh. Device prerequisites: onboarded to Defender for Endpoint, Defender Antivirus in active mode with current platform/engine updates, Defender for Endpoint P2 licensing, and the agent must be on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a> (Claude Code, Codex, Gemini CLI, GitHub Copilot, ChatGPT/Claude/Ollama desktop, Cursor, Windsurf, …).</div>`;
   }
   if (aiagentsSource === 'ExposureGraph') {
     return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable.</div>`;
@@ -10348,6 +10358,7 @@ async function loadAiAgents(force = false) {
     ]);
     aiagentsRows = agents.rows;
     aiagentsSource = agents.source;
+    aiagentsChecked = agents.checked || [];
     const fleetRows = fleetJson && Array.isArray(fleetJson.results) ? fleetJson.results : [];
     aiagentsFleetTotal = fleetRows.length ? (Number(fleetRows[0].Total) || null) : null;
     aiagentsLoaded = true;
