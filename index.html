@@ -2020,7 +2020,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div id="intuneSubAiagents" style="display:none;">
         <div class="tab-hint">
-          Locally installed <strong>AI agents</strong> discovered across the fleet — the shadow-AI visibility view, fed by Defender for Endpoint <strong>agent discovery (preview)</strong>: CLI agents (Claude Code, Codex, Gemini CLI, GitHub Copilot CLI), desktop apps (ChatGPT, Claude, Ollama), agentic IDEs (Cursor, Windsurf), and VS Code extensions — see <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">the supported-agent list</a>; agents not on it are invisible to discovery. Detection logic adapted from <a href="https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql" target="_blank" rel="noopener noreferrer">SlimKQL / Detections.AI</a>. Because the preview's hunting schema is in flux, the tab cascades through three sources — <code>AgentsInfo</code> → <code>AIAgentsInfo</code> (retired July 1, 2026) → the exposure graph (<code>ExposureGraphEdges</code>) — and a banner states which one answered. Requires Defender for Endpoint P2 / M365 E5, the <code>ThreatHunting.Read.All</code> scope (already requested at sign-in), and a Defender security role on the signed-in user.
+          Locally installed <strong>AI agents</strong> discovered across the fleet — the shadow-AI visibility view, fed by Defender for Endpoint <strong>agent discovery (preview)</strong>: CLI agents (Claude Code, Codex, Gemini CLI, GitHub Copilot CLI), desktop apps (ChatGPT, Claude, Ollama), agentic IDEs (Cursor, Windsurf), and VS Code extensions — see <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">the supported-agent list</a>; agents not on it are invisible to discovery. Detection logic adapted from <a href="https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql" target="_blank" rel="noopener noreferrer">SlimKQL / Detections.AI</a>. Because the preview's hunting schema is in flux, the tab cascades through four sources — <code>AgentsInfo</code> → <code>AIAgentsInfo</code> (retired July 1, 2026) → the exposure graph (<code>ExposureGraphEdges</code>) → the <strong>fleet scan</strong> (the <code>AI Agent Scan</code> Proactive Remediation, deployable from this tab's empty state — agentless client-side hunting until Microsoft enables discovery by default) — and a banner states which one answered. Defender sources need P2 / M365 E5, the <code>ThreatHunting.Read.All</code> scope (already requested at sign-in), and a Defender security role on the signed-in user; the fleet scan only needs the existing Intune scopes.
         </div>
         <div class="tiles" style="grid-template-columns: repeat(5, 1fr);">
           <div class="tile" data-ai-tile="" style="cursor:pointer;" title="Show all detected local AI agent installations">
@@ -2503,7 +2503,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   <div class="modal" style="max-width:680px;">
     <div class="modal-header">
       <div>
-        <h3>Auto-deploy Software Metering script</h3>
+        <h3 id="mdTitle">Auto-deploy Software Metering script</h3>
         <div class="panel-sub" id="mdSubtitle" style="margin-top: 4px;"></div>
       </div>
       <button class="close-btn" id="btnMeteringDeployClose">×</button>
@@ -6451,7 +6451,7 @@ async function loadMetering(force = false) {
       const hits = (found && found.value) || [];
       if (hits.length === 1) {
         scriptId = hits[0].id;
-        saveMeteringScriptIdToActiveCustomer(scriptId);
+        saveMeteringScriptIdToActiveCustomer(scriptId, 'meteringScriptId');
         $('meteringError').innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">Re-linked to the metering script found in this tenant (<code>${esc(scriptId)}</code>) — the locally stored script ID was missing or stale.</div>`;
       }
     } catch (_) { /* fall through to the deploy wizard */ }
@@ -6549,18 +6549,18 @@ async function loadMetering(force = false) {
   }
 }
 
-function clearMeteringScriptIdForActiveCustomer() {
+function clearMeteringScriptIdForActiveCustomer(idField = 'meteringScriptId') {
   const customers = loadCustomers();
   const code = getActiveCustomerCode();
   const idx = customers.findIndex(c => c.code === code);
   if (idx === -1) return;
-  if (!customers[idx].meteringScriptId) return;
-  const { meteringScriptId, ...rest } = customers[idx];
+  if (!customers[idx][idField]) return;
+  const { [idField]: _, ...rest } = customers[idx];
   customers[idx] = rest;
   saveCustomers(customers);
 }
 
-async function decodeMeteringPayload(b64) {
+async function gunzipB64(b64) {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream not supported in this browser');
   }
@@ -6569,8 +6569,11 @@ async function decodeMeteringPayload(b64) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const ds = new DecompressionStream('gzip');
   const stream = new Blob([bytes]).stream().pipeThrough(ds);
-  const text = await new Response(stream).text();
-  return parseMeteringPayload(text);
+  return await new Response(stream).text();
+}
+
+async function decodeMeteringPayload(b64) {
+  return parseMeteringPayload(await gunzipB64(b64));
 }
 
 function parseMeteringPayload(text) {
@@ -6911,11 +6914,12 @@ document.querySelectorAll('[data-sort-metering-drill]').forEach(th => {
 });
 
 // ============================================================
-// Software Metering — auto-deploy
-// One-click "create + assign" of the metering Proactive Remediation
-// against the active tenant. Requires DeviceManagementConfiguration
-// .ReadWrite.All (new write scope; triggers re-consent first time).
-// Idempotent: detects displayName collision and offers to reuse.
+// Proactive Remediation auto-deploy (shared by Software Metering
+// and the AI Agent Scan). One-click "create + assign" against the
+// active tenant. Requires DeviceManagementScripts.ReadWrite.All
+// (write scope; triggers re-consent first time). Idempotent:
+// detects displayName collision and offers to reuse. mdMode picks
+// which script the modal deploys; everything else is shared.
 // ============================================================
 
 const MD_DEFAULT_DESCRIPTION = `Agentless software metering. Collects per-user application last-execution data from Windows BAM (Background Activity Moderator) and reports a gzip+base64-encoded snapshot via the detection script's stdout channel. Read by THE Intune Dashboard's Software Metering sub-tab to surface idle-90d+ and never-launched installs for license reclamation. Always exits 0; never triggers a remediation.
@@ -6929,6 +6933,41 @@ Source / setup: github.com/haavarstein/intune-dashboard`;
 
 const MD_SCRIPT_PATH = 'scripts/software-metering-detect.ps1';
 
+const AI_SCAN_SCRIPT_NAME = 'THE Intune Dashboard - AI Agent Scan';
+const AI_SCAN_DESCRIPTION = `Agentless AI-agent discovery (shadow-AI inventory). Scans every user profile and the machine for locally installed AI agents — Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline, Roo Code, Continue, Aider, OpenCode — via WinGet packages, npm globals, desktop-app folders, VS Code extensions, agent config directories, machine-wide installs, and running processes. Reports a gzip+base64-encoded snapshot via the detection script's stdout channel; read by THE Intune Dashboard's AI agents sub-tab as the fleet-scan fallback until Microsoft Defender's agent-discovery preview is enabled by default. Always exits 0; never triggers a remediation.
+
+Privacy: agent name, vendor, version, profile USERNAME, detection channel, and integer days-since-install only. No file contents, prompts, or document names are collected.
+
+Per-run progress is logged to:
+C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\IntuneDashboard-AiAgentScan.log
+
+Source / setup: github.com/haavarstein/intune-dashboard`;
+
+const MD_MODES = {
+  metering: {
+    title: 'Auto-deploy Software Metering script',
+    name: 'THE Intune Dashboard - Software Metering',
+    description: MD_DEFAULT_DESCRIPTION,
+    scriptPath: MD_SCRIPT_PATH,
+    idField: 'meteringScriptId',
+    label: 'metering script',
+    bannerEl: 'meteringError',
+    afterDeploy: () => { meteringLoaded = false; loadMetering(true); }
+  },
+  aiscan: {
+    title: 'Auto-deploy AI Agent Scan script',
+    name: AI_SCAN_SCRIPT_NAME,
+    description: AI_SCAN_DESCRIPTION,
+    scriptPath: 'scripts/ai-agent-detect.ps1',
+    idField: 'aiScanScriptId',
+    label: 'AI agent scan script',
+    bannerEl: 'aiagentsError',
+    afterDeploy: () => { aiagentsLoaded = false; loadAiAgents(true); }
+  }
+};
+let mdMode = 'metering';
+const mdScriptCache = {};   // scriptPath -> { text, b64 }
+
 let mdScriptText = null;
 let mdScriptB64 = null;
 let mdSelectedGroup = null;
@@ -6936,16 +6975,20 @@ let mdSearchTimer = null;
 let mdDeploying = false;
 let mdExistingScriptId = null;
 
-async function openMeteringDeployModal() {
+async function openMeteringDeployModal(mode) {
+  // Guard: addEventListener passes the click event as the first arg.
+  mdMode = MD_MODES[mode] ? mode : 'metering';
+  const cfg = MD_MODES[mdMode];
   const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
   if (!customer) {
     alert('No customer matched the signed-in account. Sign in via the Multi-Customer dropdown or add a customer in Settings.');
     return;
   }
+  $('mdTitle').textContent = cfg.title;
   $('mdSubtitle').textContent = `Tenant: ${customer.code} (${customer.email})`;
-  $('mdName').value = 'THE Intune Dashboard - Software Metering';
+  $('mdName').value = cfg.name;
   $('mdPublisher').value = 'THE Intune Dashboard';
-  $('mdDescription').value = MD_DEFAULT_DESCRIPTION;
+  $('mdDescription').value = cfg.description;
   $('mdScheduleTime').value = '03:00';
   $('mdGroupSearch').value = '';
   $('mdGroupResults').style.display = 'none';
@@ -6962,23 +7005,27 @@ async function openMeteringDeployModal() {
   $('meteringDeployModal').classList.add('show');
 
   try {
-    if (!mdScriptText) {
-      const res = await fetch(MD_SCRIPT_PATH);
-      if (!res.ok) throw new Error(`fetch ${MD_SCRIPT_PATH} returned ${res.status}`);
-      mdScriptText = await res.text();
-      const enc = new TextEncoder().encode(mdScriptText);
+    if (!mdScriptCache[cfg.scriptPath]) {
+      const res = await fetch(cfg.scriptPath);
+      if (!res.ok) throw new Error(`fetch ${cfg.scriptPath} returned ${res.status}`);
+      const text = await res.text();
+      const enc = new TextEncoder().encode(text);
       let binary = '';
       for (let i = 0; i < enc.length; i++) binary += String.fromCharCode(enc[i]);
-      mdScriptB64 = btoa(binary);
+      mdScriptCache[cfg.scriptPath] = { text, b64: btoa(binary) };
     }
+    mdScriptText = mdScriptCache[cfg.scriptPath].text;
+    mdScriptB64 = mdScriptCache[cfg.scriptPath].b64;
     const lineCount = mdScriptText.split('\n').length;
     const byteSize = new TextEncoder().encode(mdScriptText).length;
     $('mdScriptSize').textContent = `${lineCount} lines · ${(byteSize / 1024).toFixed(1)} KB`;
     $('mdScriptPreview').textContent = mdScriptText;
   } catch (e) {
+    mdScriptText = null;
+    mdScriptB64 = null;
     $('mdScriptPreview').textContent = '';
     $('mdScriptSize').textContent = 'failed';
-    showMdError(`Could not fetch the script content from "${MD_SCRIPT_PATH}". Local file:// origins typically block sibling fetches — serve the dashboard via an HTTP server (or use the production GitHub Pages URL) and reopen this modal. Manual upload is the fallback.`);
+    showMdError(`Could not fetch the script content from "${cfg.scriptPath}". Local file:// origins typically block sibling fetches — serve the dashboard via an HTTP server (or use the production GitHub Pages URL) and reopen this modal. Manual upload is the fallback.`);
   }
 }
 
@@ -7191,7 +7238,7 @@ async function confirmMeteringDeploy() {
       }
     };
 
-    const createResult = await postWithMaa('beta/deviceManagement/deviceHealthScripts', createBody, 'create metering script');
+    const createResult = await postWithMaa('beta/deviceManagement/deviceHealthScripts', createBody, `create ${MD_MODES[mdMode].label}`);
     if (createResult.kind === 'pending') {
       $('mdError').innerHTML = `<div class="notice-banner"><strong>Submitted for Multi-Admin Approval.</strong> An admin must approve in <em>Tenant administration → Multi Admin Approval → Access requests</em>. Once approved, Intune creates the script automatically. After that, finish the deploy by either:<br><br>1. <strong>Re-running Auto-deploy</strong> here — the conflict modal will detect the now-created script and "Reuse existing" links the GUID; then create the assignment separately in Intune admin.<br><br>2. Or <strong>going to Intune admin → Devices → Scripts and remediations → [your script] → Properties</strong> to set the assignment manually.</div>`;
       $('mdError').style.display = '';
@@ -7216,7 +7263,7 @@ async function confirmMeteringDeploy() {
         },
       }],
     };
-    const assignResult = await postWithMaa(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody, 'assign metering script');
+    const assignResult = await postWithMaa(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/assign`, assignBody, `assign ${MD_MODES[mdMode].label}`);
     if (assignResult.kind === 'pending') {
       saveMeteringScriptIdToActiveCustomer(scriptId);
       closeMeteringDeployModal();
@@ -7227,8 +7274,7 @@ async function confirmMeteringDeploy() {
     saveMeteringScriptIdToActiveCustomer(scriptId);
     closeMeteringDeployModal();
     showMeteringDeployedBanner(scriptId, targetType === 'all' ? 'All Devices' : mdSelectedGroup.displayName);
-    meteringLoaded = false;
-    loadMetering(true);
+    MD_MODES[mdMode].afterDeploy();
   } catch (e) {
     console.error('Auto-deploy failed', e);
     showMdError(e.message || String(e));
@@ -7244,8 +7290,7 @@ function reuseExistingMeteringScript() {
   saveMeteringScriptIdToActiveCustomer(mdExistingScriptId);
   closeMeteringDeployModal();
   showMeteringDeployedBanner(mdExistingScriptId, '(reused existing script — no new assignment created)');
-  meteringLoaded = false;
-  loadMetering(true);
+  MD_MODES[mdMode].afterDeploy();
 }
 
 // Hard-reset path for the "displayName collision but I just want a clean
@@ -7270,8 +7315,8 @@ async function replaceExistingMeteringScript() {
     // Drop the stale GUID locally too — if it happened to match what we
     // just deleted, leaving it would mislead the next loadMetering call.
     const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
-    if (customer && customer.meteringScriptId === doomedId) {
-      clearMeteringScriptIdForActiveCustomer();
+    if (customer && customer[MD_MODES[mdMode].idField] === doomedId) {
+      clearMeteringScriptIdForActiveCustomer(MD_MODES[mdMode].idField);
     }
     await confirmMeteringDeploy();
   } catch (e) {
@@ -7281,21 +7326,23 @@ async function replaceExistingMeteringScript() {
   }
 }
 
-function saveMeteringScriptIdToActiveCustomer(scriptId) {
+function saveMeteringScriptIdToActiveCustomer(scriptId, idField) {
+  const field = idField || MD_MODES[mdMode].idField;
   const customers = loadCustomers();
   const code = getActiveCustomerCode();
   const idx = customers.findIndex(c => c.code === code);
   if (idx === -1) return;
-  customers[idx] = { ...customers[idx], meteringScriptId: scriptId };
+  customers[idx] = { ...customers[idx], [field]: scriptId };
   saveCustomers(customers);
 }
 
 function showMeteringDeployedBanner(scriptId, target) {
-  $('meteringError').innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">✓ Deployed metering script (ID: <code>${esc(scriptId)}</code>) to <strong>${esc(target)}</strong>. Devices will run it on the next Intune sync; data will appear here as soon as the first device check-in cycle completes (typically within 24 hours).</div>`;
+  const cfg = MD_MODES[mdMode];
+  $(cfg.bannerEl).innerHTML = `<div class="notice-banner" style="margin-bottom:14px;">✓ Deployed ${esc(cfg.label)} (ID: <code>${esc(scriptId)}</code>) to <strong>${esc(target)}</strong>. Devices will run it on the next Intune sync; data will appear here as soon as the first device check-in cycle completes (typically within 24 hours).</div>`;
 }
 
-$('btnMeteringDeploy').addEventListener('click', openMeteringDeployModal);
-$('btnMeteringRedeploy').addEventListener('click', openMeteringDeployModal);
+$('btnMeteringDeploy').addEventListener('click', () => openMeteringDeployModal('metering'));
+$('btnMeteringRedeploy').addEventListener('click', () => openMeteringDeployModal('metering'));
 $('btnMeteringDeployClose').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnCancel').addEventListener('click', closeMeteringDeployModal);
 $('mdBtnDeploy').addEventListener('click', confirmMeteringDeploy);
@@ -10321,21 +10368,114 @@ async function queryLocalAgents() {
     if (e.status !== 400) throw e;
     checked.push({ source: 'ExposureGraph', outcome: 'absent' });
   }
-  if (checked.every(c => c.outcome === 'absent')) {
-    const err = new Error('No agent-discovery data source available');
-    err.aiNoSource = true;
-    throw err;
-  }
   return { rows: [], source: null, checked };
 }
 
+// Fleet-scan fallback: the "THE Intune Dashboard - AI Agent Scan" Proactive
+// Remediation (scripts/ai-agent-detect.ps1) — agentless client-side discovery
+// until Microsoft's agent-discovery preview is on by default. Mirrors the
+// metering tab's plumbing: per-customer script ID with by-name self-heal,
+// deviceRunStates fan-out, gzip+base64 decode of the detection output.
+let aiagentsScanDevices = 0;
+
+function parseAiScanPayload(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) throw new Error('payload too short');
+  if (lines[0].split('|')[0] !== 'v1') throw new Error('unsupported version');
+  const rows = [];
+  for (let i = 2; i < lines.length; i++) {
+    const parts = lines[i].trim().split('|');
+    if (parts.length !== 6 || !parts[0]) continue;
+    const daysAgo = parseInt(parts[5], 10);
+    rows.push({
+      agent: parts[0], vendor: parts[1] || '', ver: parts[2] || '',
+      user: parts[3] || '', via: parts[4] || '',
+      daysAgo: Number.isNaN(daysAgo) ? -1 : daysAgo
+    });
+  }
+  return { rows };
+}
+
+async function queryFleetScan(checked) {
+  aiagentsScanDevices = 0;
+  const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
+  let scriptId = customer && customer.aiScanScriptId;
+  if (!scriptId && customer) {
+    try {
+      const filter = `displayName eq '${AI_SCAN_SCRIPT_NAME}'`;
+      const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
+      const hits = (found && found.value) || [];
+      if (hits.length === 1) {
+        scriptId = hits[0].id;
+        saveMeteringScriptIdToActiveCustomer(scriptId, 'aiScanScriptId');
+      }
+    } catch (_) { /* hunting-only viewers may lack the scripts scope */ }
+  }
+  if (!scriptId) {
+    checked.push({ source: 'FleetScan', outcome: 'absent' });
+    return null;
+  }
+  try {
+    const runStates = await graphGetAll(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/deviceRunStates?$expand=managedDevice($select=id,deviceName)&$top=200`);
+    const rows = [];
+    const devices = new Set();
+    for (const rs of runStates) {
+      const raw = (rs.preRemediationDetectionScriptOutput || '').trim();
+      if (!raw || raw.startsWith('v1|error|')) continue;
+      const deviceName = (rs.managedDevice && rs.managedDevice.deviceName) || '(unknown)';
+      try {
+        const parsed = parseAiScanPayload(await gunzipB64(raw));
+        if (parsed.rows.length) devices.add(deviceName);
+        for (const r of parsed.rows) {
+          rows.push({
+            agentName: r.agent,
+            vendor: r.vendor,
+            version: r.ver,
+            deviceName,
+            osPlatform: 'Windows',
+            userName: r.user === '*' ? '' : r.user,
+            via: r.via,
+            detectedAtMs: r.daysAgo >= 0 ? Date.now() - r.daysAgo * 86400000 : null
+          });
+        }
+      } catch (_) { /* skip undecodable snapshots */ }
+    }
+    aiagentsScanDevices = devices.size;
+    checked.push({ source: 'FleetScan', outcome: rows.length });
+    return { rows };
+  } catch (e) {
+    if (e.status === 404) {
+      // Script was deleted in Intune — clear the stale local ID so the
+      // empty-state deploy button offers a clean redeploy.
+      clearMeteringScriptIdForActiveCustomer('aiScanScriptId');
+      checked.push({ source: 'FleetScan', outcome: 'absent' });
+      return null;
+    }
+    throw e;
+  }
+}
+
 function aiagentsSourceNoticeHtml() {
-  const labels = { AgentsInfo: 'AgentsInfo', AIAgentsInfo: 'AIAgentsInfo', ExposureGraph: 'Exposure graph (endpointAiAgent)' };
+  const labels = {
+    AgentsInfo: 'AgentsInfo', AIAgentsInfo: 'AIAgentsInfo',
+    ExposureGraph: 'Exposure graph (endpointAiAgent)', AdvancedHunting: 'Advanced hunting',
+    FleetScan: 'Fleet scan (Proactive Remediation)'
+  };
   if (!aiagentsRows.length) {
-    const detail = (aiagentsChecked || []).map(c =>
-      `<code>${esc(labels[c.source] || c.source)}</code>: ${c.outcome === 'absent' ? 'not present in tenant' : 'queryable, 0 rows'}`
-    ).join(' · ');
-    return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>A queryable-but-empty source means the hunting surface has reached the tenant but discovery results haven't landed: verify the <strong>Defender portal → Assets → AI Agents → Local agents</strong> page (ground truth — if agents show there but not here, it's a dashboard bug, tell us), check <strong>Settings → Microsoft Defender XDR → Preview features</strong> is on, and give a fresh install up to ~24h before ↻ Refresh. Device prerequisites: onboarded to Defender for Endpoint, Defender Antivirus in active mode with current platform/engine updates, Defender for Endpoint P2 licensing, and the agent must be on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a> (Claude Code, Codex, Gemini CLI, GitHub Copilot, ChatGPT/Claude/Ollama desktop, Cursor, Windsurf, …). The AI-agent feature family is staged through Defender's <strong>Beta platform/engine update channel</strong> (<code>Set-MpPreference -PlatformUpdatesChannel Beta</code>) — Microsoft's runtime-protection setup doc requires it explicitly, and devices on the production channel may not report discovery results yet either; consider a test device on the Beta channel to validate.</div>`;
+    const detail = (aiagentsChecked || []).map(c => {
+      const outcome = c.outcome === 'absent'
+        ? (c.source === 'FleetScan' ? 'not deployed' : 'not present in tenant')
+        : 'queryable, 0 rows';
+      return `<code>${esc(labels[c.source] || c.source)}</code>: ${outcome}`;
+    }).join(' · ');
+    const scanDeployed = (aiagentsChecked || []).some(c => c.source === 'FleetScan' && c.outcome !== 'absent');
+    const deployCta = scanDeployed
+      ? `The fleet scan is deployed but no device has reported a detection yet — devices run it on their daily schedule, so allow one check-in cycle (typically ≤ 24h) and ↻ Refresh.`
+      : `<button class="btn" style="margin-top:4px;" onclick="openMeteringDeployModal('aiscan')">⚡ Deploy AI Agent Scan…</button> — an agentless Proactive Remediation (<code>scripts/ai-agent-detect.ps1</code>, same pattern as Software Metering) that hunts AI agents client-side until Microsoft enables Defender agent discovery by default. Devices report on their next daily run.`;
+    return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>${deployCta}<br><br><strong>Why the Defender sources are empty:</strong> agent discovery is a staged preview — it requires Defender for Endpoint P2, onboarded devices running Defender Antivirus in active mode, the agent on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a>, and currently ships through Defender's <strong>Beta platform/engine update channel</strong>. Ground truth lives in the Defender portal → <strong>Assets → AI Agents → Local agents</strong>; if agents show there but not here, that's a dashboard bug — tell us.</div>`;
+  }
+  if (aiagentsSource === 'FleetScan') {
+    return `<div class="notice-banner">Source: <strong>Fleet scan</strong> — the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'} reporting detections). The Defender hunting sources were empty, so this client-side scan fills the tab until Microsoft's agent-discovery preview reaches the tenant — once it does, the native source takes over automatically. "Detected" is the install-artifact creation date reported by the scan.</div>`;
   }
   if (aiagentsSource === 'ExposureGraph') {
     return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable.</div>`;
@@ -10353,12 +10493,24 @@ async function loadAiAgents(force = false) {
   $('aiagentsNotice').innerHTML = '';
   try {
     const [agents, fleetJson] = await Promise.all([
-      queryLocalAgents(),
+      queryLocalAgents().catch(e => {
+        // All-hunting-sources-missing is not fatal — the fleet scan below can
+        // still carry the tab. 403s and other real errors still surface.
+        if (e.status === 400) return { rows: [], source: null, checked: [{ source: 'AdvancedHunting', outcome: 'absent' }] };
+        throw e;
+      }),
       graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_FLEET_KQL }).catch(() => null)
     ]);
-    aiagentsRows = agents.rows;
-    aiagentsSource = agents.source;
-    aiagentsChecked = agents.checked || [];
+    let rows = agents.rows;
+    let source = agents.source;
+    const checked = agents.checked || [];
+    if (!rows.length) {
+      const scan = await queryFleetScan(checked);
+      if (scan && scan.rows.length) { rows = scan.rows; source = 'FleetScan'; }
+    }
+    aiagentsRows = rows;
+    aiagentsSource = source;
+    aiagentsChecked = checked;
     const fleetRows = fleetJson && Array.isArray(fleetJson.results) ? fleetJson.results : [];
     aiagentsFleetTotal = fleetRows.length ? (Number(fleetRows[0].Total) || null) : null;
     aiagentsLoaded = true;
@@ -10368,9 +10520,7 @@ async function loadAiAgents(force = false) {
     renderAiAgents();
   } catch (e) {
     $('aiagentsLoading').style.display = 'none';
-    if (e.aiNoSource) {
-      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>No agent-discovery data source in this tenant.</strong> None of <code>AgentsInfo</code>, <code>AIAgentsInfo</code>, or the exposure-graph <code>endpointAiAgent</code> nodes resolve in advanced hunting, which means the Defender agent-discovery preview hasn't reached this tenant yet. No dashboard action needed — the tab lights up automatically once it rolls out.</div>`;
-    } else if (e.status === 403) {
+    if (e.status === 403) {
       $('aiagentsError').innerHTML = hunting403Html(e);
     } else {
       console.error('AI agents load failed', e);
@@ -10500,7 +10650,7 @@ function renderAiAgents() {
         <th data-ai-sort="userName">User ${arrow('userName')}</th>
         <th data-ai-sort="detectedAtMs">Detected ${arrow('detectedAtMs')}</th>
       </tr></thead><tbody>` + (rows.length ? rows.map(r => `<tr>
-        <td>${esc(r.agentName) || '—'} ${aiIsNew(r) ? newBadge : ''}</td>
+        <td${r.via ? ` title="Detected via ${esc(r.via)}"` : ''}>${esc(r.agentName) || '—'}${r.version ? ` <span style="color:var(--muted); font-size:11px;">${esc(r.version)}</span>` : ''} ${aiIsNew(r) ? newBadge : ''}</td>
         <td>${esc(r.vendor) || '—'}</td>
         <td>${esc(r.deviceName) || '—'}</td>
         <td>${esc(r.osPlatform) || '—'}</td>
@@ -10532,9 +10682,9 @@ function exportAiAgentsCsv() {
       r.lastMs == null ? '' : new Date(r.lastMs).toISOString()
     ]);
   } else {
-    header = ['AgentName','Vendor','DeviceName','OSPlatform','UserName','DetectedAt'];
+    header = ['AgentName','Vendor','Version','DeviceName','OSPlatform','UserName','DetectedVia','DetectedAt'];
     body = filtered.map(r => [
-      r.agentName, r.vendor, r.deviceName, r.osPlatform, r.userName,
+      r.agentName, r.vendor, r.version || '', r.deviceName, r.osPlatform, r.userName, r.via || '',
       r.detectedAtMs == null ? '' : new Date(r.detectedAtMs).toISOString()
     ]);
   }

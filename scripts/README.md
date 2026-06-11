@@ -191,3 +191,38 @@ Or paste this into File Explorer's address bar:
 A new `IMERequiredAppCheckin_<timestamp>.log` per run records whether the `IStatusService.CheckInAsync` call succeeded. Note: the remediation will always report **"With issues"** in Intune — the detection script exits 1 by design so the remediation runs every time, so the post-remediation re-detection never reports compliant. That's expected; the log (or a required app installing faster) is the real success signal.
 
 This tool is unofficial and not supported by Microsoft.
+
+---
+
+# AI Agent Scan — detection script
+
+PowerShell detection script (`ai-agent-detect.ps1`) for THE Intune Dashboard's **AI agents** sub-tab. Hunts locally installed AI agents (shadow-AI inventory) on Windows devices, agentless, until Microsoft Defender's agent-discovery preview is enabled by default — at which point the dashboard's native Defender sources take over automatically.
+
+## What it does
+
+1. Runs as SYSTEM, so it sweeps **every user profile** under `C:\Users\*` plus machine-wide locations.
+2. Checks seven detection channels against a catalog of known agents (Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline, Roo Code, Continue, Aider, OpenCode):
+   - **winget** — `%LOCALAPPDATA%\Microsoft\WinGet\Packages\<id>_*` (catches user-profile installs like `Anthropic.ClaudeCode`)
+   - **arp** — machine-wide `HKLM\...\Uninstall` entries
+   - **desktop** — `%LOCALAPPDATA%\Programs\<app>`
+   - **npm** — `%APPDATA%\npm\node_modules\@anthropic-ai\claude-code` etc.
+   - **vscode** — `<profile>\.vscode\extensions\<publisher>.<ext>-*`
+   - **config** — agent config dirs (`.claude`, `.codex`, `.gemini`, `.ollama`, …) that survive even if the binary moved
+   - **process** — running processes at scan time (catches portable installs)
+3. Dedupes to one row per `(agent, user)`; the strongest channel wins, `daysAgo` keeps the oldest artifact as the install-date proxy.
+4. Serializes `agent|vendor|ver|user|via|daysAgo`, gzip+base64-encodes, writes to stdout (≤ ~2 KB). Always exits 0; on failure writes `v1|error|<message>`.
+5. Logs per-run progress to `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\IntuneDashboard-AiAgentScan.log` (auto-rotating at 1 MB).
+
+## What it does NOT collect
+
+- No prompts, conversations, file contents, document names, or URLs
+- No usage data — install presence only
+- Unlike the metering script, the **profile username is transmitted** (this is a security inventory; knowing *who* runs an agent is the point). Stated in the script header and the Intune description.
+
+## Deploying
+
+**Easiest:** Intune tab → **AI agents** sub-tab → empty state → **⚡ Deploy AI Agent Scan…** — same auto-deploy wizard as Software Metering (create + assign + daily schedule, MAA-aware, idempotent on name collision). Requires `DeviceManagementScripts.ReadWrite.All` just-in-time.
+
+**Manual:** Intune admin center → Devices → Scripts and remediations → Add → Windows. Name it exactly `THE Intune Dashboard - AI Agent Scan` (the dashboard self-links by display name — no GUID paste needed), detection script = `ai-agent-detect.ps1`, no remediation script, run as SYSTEM, 64-bit PowerShell, no signature check, assign + schedule Daily.
+
+This tool is unofficial and not supported by Microsoft.
