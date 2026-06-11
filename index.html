@@ -9639,24 +9639,11 @@ function trimLog(content, context = 15) {
 
 $('btnAnalyzeLogs').addEventListener('click', analyzeLogs);
 
-async function analyzeLogs() {
-  const { apiKey, model } = getSettings();
-  if (!apiKey) {
-    $('logStatus').textContent = 'Add your Claude API key in Settings first.';
-    return;
-  }
-  if (!uploadedLogs.length) return;
-
-  const activeModel = model || 'claude-haiku-4-5-20251001';
-  const autoTrim = $('logAutoTrim').checked;
-
-  // Build prompt content under a hard size budget — the API rejects prompts
-  // over 200k tokens, and CMTrace logs tokenize densely (~3.5 chars/token),
-  // so cap well below: ~550k chars ≈ 155k tokens. Escalation per file:
-  // normal trim → tight trim (±3 lines) → keep the tail (the failure being
-  // investigated is almost always the most recent activity in the log).
-  const CHAR_BUDGET = 550000;
-  const perFileBudget = Math.floor(CHAR_BUDGET / uploadedLogs.length);
+// Assemble all uploaded logs into one block under a hard char budget.
+// Escalation per file: normal trim → tight trim (±3 lines) → keep the tail
+// (the failure being investigated is almost always the most recent activity).
+function buildLogPayload(charBudget, autoTrim) {
+  const perFileBudget = Math.floor(charBudget / uploadedLogs.length);
   let truncated = false;
   const processed = uploadedLogs.map(f => {
     let body = autoTrim ? trimLog(f.content) : f.content;
@@ -9673,6 +9660,26 @@ async function analyzeLogs() {
     }
     return `=== ${f.name} (${note}, ${body.length} chars) ===\n${body}`;
   }).join('\n\n');
+  return { processed, truncated };
+}
+
+async function analyzeLogs() {
+  const { apiKey, model } = getSettings();
+  if (!apiKey) {
+    $('logStatus').textContent = 'Add your Claude API key in Settings first.';
+    return;
+  }
+  if (!uploadedLogs.length) return;
+
+  const activeModel = model || 'claude-haiku-4-5-20251001';
+  const autoTrim = $('logAutoTrim').checked;
+
+  // The API rejects prompts over 200k tokens. Dense logs (CMTrace, PSADT)
+  // tokenize at ~2.5–2.7 chars/token, so 400k chars ≈ 150–160k tokens.
+  // If the estimate is still off, the catch below reads the real token count
+  // from the API error and retries once with a corrected budget.
+  const CHAR_BUDGET = 400000;
+  let { processed, truncated } = buildLogPayload(CHAR_BUDGET, autoTrim);
 
   const approxTokens = Math.ceil(processed.length / 4);
   $('btnAnalyzeLogs').disabled = true;
@@ -9681,10 +9688,10 @@ async function analyzeLogs() {
   $('logAnalysisResult').style.display = '';
   $('logAnalysisResult').innerHTML = '<div style="color:var(--muted); font-size:13px;">Analyzing with Claude…</div>';
 
-  const prompt = `You are an Intune/MEM expert analyzing log files from a Windows endpoint. The user is an experienced Intune administrator troubleshooting an app install failure.
+  const buildPrompt = logs => `You are an Intune/MEM expert analyzing log files from a Windows endpoint. The user is an experienced Intune administrator troubleshooting an app install failure.
 
 Log files provided:
-${processed}
+${logs}
 
 Analyze the logs and produce a focused diagnosis. Format:
 
@@ -9696,7 +9703,22 @@ Analyze the logs and produce a focused diagnosis. Format:
 Be technical and specific. Assume the reader knows Intune internals. No preamble, no generic advice.`;
 
   try {
-    const { text, inputTokens, outputTokens } = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt });
+    let result;
+    try {
+      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed) });
+    } catch (e) {
+      // "prompt is too long: N tokens > M maximum" — our chars/token estimate
+      // was too optimistic for this log. Use the API's actual count to compute
+      // the real density and retry once with a budget that must fit.
+      const m = /prompt is too long: (\d+) tokens > (\d+) maximum/.exec(e.message);
+      if (!m) throw e;
+      const charsPerToken = processed.length / Number(m[1]);
+      const retryBudget = Math.floor(Number(m[2]) * 0.9 * charsPerToken);
+      ({ processed, truncated } = buildLogPayload(retryBudget, autoTrim));
+      $('logStatus').textContent = `Log denser than estimated — retrying with ${(processed.length / 1024).toFixed(1)} KB…`;
+      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed) });
+    }
+    const { text, inputTokens, outputTokens } = result;
     trackUsage(activeModel, inputTokens, outputTokens);
     const html = esc(text)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
