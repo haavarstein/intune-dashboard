@@ -2020,7 +2020,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div id="intuneSubAiagents" style="display:none;">
         <div class="tab-hint">
-          Locally installed <strong>AI agents</strong> discovered across the fleet — the shadow-AI visibility view. Sourced from the Defender XDR <code>AIAgentsInfo</code> advanced-hunting table (Agent 365 agent discovery, <strong>preview</strong>), filtered to <code>Platform == "LocalAgents"</code>: desktop agents like Copilot, ChatGPT, Claude, and Ollama that users installed on managed devices. Detection logic adapted from <a href="https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql" target="_blank" rel="noopener noreferrer">SlimKQL / Detections.AI</a>. Requires Defender for Endpoint P2 / M365 E5 (same <code>ThreatHunting.Read.All</code> scope as the Vulnerabilities tab) <em>and</em> the Agent 365 preview rolled out to the tenant — without it the table doesn't resolve and this tab shows a not-available notice.
+          Locally installed <strong>AI agents</strong> discovered across the fleet — the shadow-AI visibility view, fed by Defender for Endpoint <strong>agent discovery (preview)</strong>: CLI agents (Claude Code, Codex, Gemini CLI, GitHub Copilot CLI), desktop apps (ChatGPT, Claude, Ollama), agentic IDEs (Cursor, Windsurf), and VS Code extensions — see <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">the supported-agent list</a>; agents not on it are invisible to discovery. Detection logic adapted from <a href="https://github.com/SlimKQL/Detections.AI/blob/main/KQL/agent-365--local-ai-agent-installation-detection.kql" target="_blank" rel="noopener noreferrer">SlimKQL / Detections.AI</a>. Because the preview's hunting schema is in flux, the tab cascades through three sources — <code>AgentsInfo</code> → <code>AIAgentsInfo</code> (retired July 1, 2026) → the exposure graph (<code>ExposureGraphEdges</code>) — and a banner states which one answered. Requires Defender for Endpoint P2 / M365 E5, the <code>ThreatHunting.Read.All</code> scope (already requested at sign-in), and a Defender security role on the signed-in user.
         </div>
         <div class="tiles" style="grid-template-columns: repeat(5, 1fr);">
           <div class="tile" data-ai-tile="" style="cursor:pointer;" title="Show all detected local AI agent installations">
@@ -2079,6 +2079,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
           <div id="aiagentsLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading AI agents…</div>
           <div id="aiagentsError"></div>
+          <div id="aiagentsNotice"></div>
           <div id="aiagentsContent" style="display:none;">
             <table id="aiagentsTable"></table>
             <div class="footer-count"><span id="aiagentsCount">0</span> <span id="aiagentsCountLabel">installations</span> shown</div>
@@ -10216,24 +10217,33 @@ $('staleActionModal').addEventListener('click', e => { if (e.target === $('stale
 
 // ============================================================
 // AI agents (P2/E5) sub-tab — locally installed AI agents
-// discovered by Defender XDR / Agent 365 agent discovery.
-// One KQL query against the AIAgentsInfo table (preview),
-// Platform == "LocalAgents", parsing RawAgentInfo for the agent
-// name, vendor, device, OS and account. Detection logic adapted
-// from SlimKQL/Detections.AI (agent-365--local-ai-agent-
-// installation-detection.kql) — the original alerts on a 24h
-// window; the dashboard shows the full inventory and surfaces
-// "new in 7 days" as the warn tile instead.
-// A second, individually-caught query (DeviceInfo, last 7d)
-// feeds the fleet-footprint gauge; if it fails the gauge just
-// shows an em-dash and the tab still works.
-// Requires ThreatHunting.Read.All (already in SCOPES) and the
-// Agent 365 preview — tenants without the table get a friendly
-// not-available notice instead of a raw 400.
+// discovered by Defender for Endpoint agent discovery (preview).
+// Detection logic adapted from SlimKQL/Detections.AI (agent-365--
+// local-ai-agent-installation-detection.kql); the original alerts
+// on a 24h window, the dashboard shows the full inventory and
+// surfaces "new in 7 days" as the warn tile instead.
+// The preview's hunting surface is in flux, so the load cascades
+// through three sources and reports which one answered:
+//   1. AgentsInfo   — the table replacing AIAgentsInfo (the old
+//      name stops resolving July 1, 2026)
+//   2. AIAgentsInfo — SlimKQL's original table, kept while it lasts
+//   3. ExposureGraphEdges (endpointAiAgent → "runs on" → device) —
+//      Microsoft's documented home for endpoint agent discovery;
+//      gives agent+device only, so vendor / user / install-time
+//      columns render "—" and the New (7d) tile is unavailable.
+// A 400 from a source means "table/column doesn't exist here" —
+// fall through to the next; anything else (403 role errors etc.)
+// bubbles to the shared banners.
+// A second, individually-caught query (DeviceInfo, last 7d) feeds
+// the fleet-footprint gauge; if it fails the gauge just shows an
+// em-dash and the tab still works.
+// Requires ThreatHunting.Read.All (already in SCOPES) plus a
+// Defender security role on the signed-in user.
 // ============================================================
 let aiagentsLoaded = false;
 let aiagentsLoading = false;
 let aiagentsRows = [];
+let aiagentsSource = null;       // 'AgentsInfo' | 'AIAgentsInfo' | 'ExposureGraph' | null
 let aiagentsFleetTotal = null;   // dcount(DeviceId) from DeviceInfo, null = unavailable
 let aiagentsSortKey = 'detectedAtMs';
 let aiagentsSortDir = 'desc';
@@ -10241,8 +10251,8 @@ let aiagentsTileFilter = null;   // null | 'new'
 
 const AI_NEW_WINDOW_MS = 7 * 86400000;
 
-const AIAGENTS_KQL = `
-AIAgentsInfo
+const localAgentsKql = table => `
+${table}
 | where Platform == @"LocalAgents"
 | extend Raw = parse_json(RawAgentInfo)
 | project AgentName = tostring(Raw.name),
@@ -10254,11 +10264,74 @@ AIAgentsInfo
 | order by DetectedAt desc
 `;
 
+const AIAGENTS_GRAPH_KQL = `
+ExposureGraphEdges
+| where SourceNodeLabel == "endpointAiAgent" and EdgeLabel =~ "runs on"
+| project AgentName = SourceNodeName, DeviceName = TargetNodeName
+| distinct AgentName, DeviceName
+`;
+
 const AIAGENTS_FLEET_KQL = `
 DeviceInfo
 | where Timestamp > ago(7d)
 | summarize Total = dcount(DeviceId)
 `;
+
+// Walk the sources in order; return rows from the first one that
+// resolves AND has data. A source that resolves but is empty is
+// remembered so zero-everywhere still reports an honest source.
+async function queryLocalAgents() {
+  let emptySource = null;
+  for (const table of ['AgentsInfo', 'AIAgentsInfo']) {
+    try {
+      const json = await graphPost('v1.0/security/runHuntingQuery', { Query: localAgentsKql(table) });
+      const results = Array.isArray(json.results) ? json.results : [];
+      const rows = results.map(r => {
+        const ms = r.DetectedAt ? Date.parse(r.DetectedAt) : NaN;
+        return {
+          agentName: r.AgentName || '',
+          vendor: r.Vendor || '',
+          deviceName: r.DeviceName || '',
+          osPlatform: r.OSPlatform || '',
+          userName: r.UserName || '',
+          detectedAtMs: Number.isNaN(ms) ? null : ms
+        };
+      });
+      if (rows.length) return { rows, source: table };
+      emptySource = emptySource || table;
+    } catch (e) {
+      if (e.status !== 400) throw e;  // 403 role errors etc. — surface them
+    }
+  }
+  try {
+    const json = await graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_GRAPH_KQL });
+    const results = Array.isArray(json.results) ? json.results : [];
+    const rows = results.map(r => ({
+      agentName: r.AgentName || '',
+      vendor: '', deviceName: r.DeviceName || '', osPlatform: '', userName: '',
+      detectedAtMs: null
+    }));
+    if (rows.length || !emptySource) return { rows, source: rows.length ? 'ExposureGraph' : (emptySource || 'ExposureGraph') };
+  } catch (e) {
+    if (e.status !== 400) throw e;
+    if (!emptySource) {
+      const err = new Error('No agent-discovery data source available');
+      err.aiNoSource = true;
+      throw err;
+    }
+  }
+  return { rows: [], source: emptySource };
+}
+
+function aiagentsSourceNoticeHtml() {
+  if (!aiagentsRows.length) {
+    return `<div class="notice-banner">No local AI agents discovered yet (source checked: <code>${esc(aiagentsSource || '—')}</code>). For an agent to appear: the device must be onboarded to Defender for Endpoint, run Defender Antivirus in active mode with current platform/engine updates, the tenant needs Defender for Endpoint P2, and the agent must be on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a> (Claude Code, Codex, Gemini CLI, GitHub Copilot, ChatGPT/Claude/Ollama desktop, Cursor, Windsurf, …). Discovery is automatic but not instant — allow up to ~24h after install, then ↻ Refresh.</div>`;
+  }
+  if (aiagentsSource === 'ExposureGraph') {
+    return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable.</div>`;
+  }
+  return `<div class="notice-banner">Source: Defender XDR <code>${esc(aiagentsSource)}</code> table.${aiagentsSource === 'AIAgentsInfo' ? ' Heads-up: this table is retired on <strong>July 1, 2026</strong> in favour of <code>AgentsInfo</code>; the dashboard already tries the new name first on every load.' : ''}</div>`;
+}
 
 async function loadAiAgents(force = false) {
   if (aiagentsLoading) return;
@@ -10267,35 +10340,25 @@ async function loadAiAgents(force = false) {
   $('aiagentsLoading').style.display = '';
   $('aiagentsContent').style.display = 'none';
   $('aiagentsError').innerHTML = '';
+  $('aiagentsNotice').innerHTML = '';
   try {
-    const [agentsJson, fleetJson] = await Promise.all([
-      graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_KQL }),
+    const [agents, fleetJson] = await Promise.all([
+      queryLocalAgents(),
       graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_FLEET_KQL }).catch(() => null)
     ]);
-    const results = Array.isArray(agentsJson.results) ? agentsJson.results : [];
-    aiagentsRows = results.map(r => {
-      const ms = r.DetectedAt ? Date.parse(r.DetectedAt) : NaN;
-      return {
-        agentName: r.AgentName || '',
-        vendor: r.Vendor || '',
-        deviceName: r.DeviceName || '',
-        osPlatform: r.OSPlatform || '',
-        userName: r.UserName || '',
-        detectedAtMs: Number.isNaN(ms) ? null : ms
-      };
-    });
+    aiagentsRows = agents.rows;
+    aiagentsSource = agents.source;
     const fleetRows = fleetJson && Array.isArray(fleetJson.results) ? fleetJson.results : [];
     aiagentsFleetTotal = fleetRows.length ? (Number(fleetRows[0].Total) || null) : null;
     aiagentsLoaded = true;
     $('aiagentsLoading').style.display = 'none';
     $('aiagentsContent').style.display = '';
+    $('aiagentsNotice').innerHTML = aiagentsSourceNoticeHtml();
     renderAiAgents();
   } catch (e) {
     $('aiagentsLoading').style.display = 'none';
-    // A tenant without the Agent 365 preview has no AIAgentsInfo table —
-    // the hunting API answers 400 "Failed to resolve table…", not 403.
-    if (e.status === 400 && /AIAgentsInfo|Failed to resolve table/i.test(e.body || e.message || '')) {
-      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>AIAgentsInfo table not available in this tenant.</strong> Agent discovery (Microsoft Agent 365, preview) hasn't rolled out here yet, so Defender advanced hunting can't resolve the table. No action needed in the dashboard — the tab lights up automatically once the preview reaches the tenant.</div>`;
+    if (e.aiNoSource) {
+      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>No agent-discovery data source in this tenant.</strong> None of <code>AgentsInfo</code>, <code>AIAgentsInfo</code>, or the exposure-graph <code>endpointAiAgent</code> nodes resolve in advanced hunting, which means the Defender agent-discovery preview hasn't reached this tenant yet. No dashboard action needed — the tab lights up automatically once it rolls out.</div>`;
     } else if (e.status === 403) {
       $('aiagentsError').innerHTML = hunting403Html(e);
     } else {
@@ -10334,7 +10397,10 @@ function renderAiAgentsTiles() {
   $('aiTileTotal').textContent = aiagentsRows.length;
   $('aiTileNames').textContent = names.size;
   $('aiTileDevices').textContent = devices.size;
-  $('aiTileNew').textContent = fresh;
+  // The exposure-graph source has no install timestamps — show an honest
+  // em-dash rather than a 0 that pretends nothing is new.
+  const anyTimestamps = aiagentsRows.some(r => r.detectedAtMs != null);
+  $('aiTileNew').textContent = (aiagentsRows.length && !anyTimestamps) ? '—' : fresh;
 
   // Fleet footprint gauge — devices with ≥1 agent / Defender-onboarded
   // devices seen in the last 7 days. Amber on purpose: an AI-agent
