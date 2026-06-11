@@ -5963,6 +5963,20 @@ function defenderInventoryUrl(row) {
   return `https://security.microsoft.com/vulnerability-management-inventories/VulnerableComponents?${tidParam}`;
 }
 
+// Shared 403 explainer for the advanced-hunting tabs (Vulnerabilities,
+// Drift & Compliance, AI agents). Defender XDR evaluates the signed-in
+// USER's own security permissions (SecurityData.Read / TvmData.Read) on
+// top of the app's ThreatHunting.Read.All scope — even a Global
+// Administrator without a security role gets "Missing user permissions"
+// with an empty user-permissions list. Security Administrator fixes it;
+// Security Reader is the least-privilege read-only alternative.
+function hunting403Html(e) {
+  if (/Missing user permissions/i.test(e.message || '')) {
+    return `<div class="error-banner">⚠ <strong>Defender security role required.</strong> Advanced hunting checks the signed-in <em>user's</em> Defender XDR permissions on top of the app's <code>ThreatHunting.Read.All</code> scope — even a Global Administrator gets this 403 without one. Assign yourself the <strong>Security Administrator</strong> Entra role (or <strong>Security Reader</strong> for read-only), wait a few minutes for it to propagate, then sign out and back in.<br><span style="font-size:12px; color:var(--muted);">${esc(e.message || String(e))}</span></div>`;
+  }
+  return `<div class="error-banner">⚠ <strong>403 from Graph.</strong> ${esc(e.message || String(e))}<br>Likely causes: the tenant isn't licensed for Defender for Endpoint P2 / M365 E5 (required for advanced hunting), admin consent for <code>ThreatHunting.Read.All</code> hasn't been granted yet (sign out and back in to re-consent), or the signed-in user lacks a Defender security role (Security Administrator / Security Reader).</div>`;
+}
+
 async function loadVulnerabilities(force = false) {
   if (vulnLoaded && !force) return;
   $('vulnLoading').style.display = '';
@@ -5986,7 +6000,9 @@ async function loadVulnerabilities(force = false) {
   } catch (e) {
     console.error('Vulnerabilities load failed', e);
     $('vulnLoading').style.display = 'none';
-    $('vulnError').innerHTML = `<div class="error-banner">Failed to load vulnerabilities: ${esc(e.message || String(e))}</div>`;
+    $('vulnError').innerHTML = e.status === 403
+      ? hunting403Html(e)
+      : `<div class="error-banner">Failed to load vulnerabilities: ${esc(e.message || String(e))}</div>`;
   }
 }
 
@@ -6128,7 +6144,9 @@ async function loadDriftData(force = false) {
   } catch (e) {
     console.error('Drift load failed', e);
     $('driftLoading').style.display = 'none';
-    $('driftError').innerHTML = `<div class="error-banner">Failed to load drift data: ${esc(e.message || String(e))}</div>`;
+    $('driftError').innerHTML = e.status === 403
+      ? hunting403Html(e)
+      : `<div class="error-banner">Failed to load drift data: ${esc(e.message || String(e))}</div>`;
   } finally {
     driftLoading = false;
   }
@@ -10279,7 +10297,7 @@ async function loadAiAgents(force = false) {
     if (e.status === 400 && /AIAgentsInfo|Failed to resolve table/i.test(e.body || e.message || '')) {
       $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>AIAgentsInfo table not available in this tenant.</strong> Agent discovery (Microsoft Agent 365, preview) hasn't rolled out here yet, so Defender advanced hunting can't resolve the table. No action needed in the dashboard — the tab lights up automatically once the preview reaches the tenant.</div>`;
     } else if (e.status === 403) {
-      $('aiagentsError').innerHTML = `<div class="error-banner">⚠ <strong>403 from Graph.</strong> ${esc(e.message || String(e))}<br>Likely causes: the tenant isn't licensed for Defender for Endpoint P2 / M365 E5 (required for advanced hunting), or admin consent for <code>ThreatHunting.Read.All</code> hasn't been granted yet — sign out and back in to re-consent.</div>`;
+      $('aiagentsError').innerHTML = hunting403Html(e);
     } else {
       console.error('AI agents load failed', e);
       $('aiagentsError').innerHTML = `<div class="error-banner">Failed to load AI agents: ${esc(e.message || String(e))}</div>`;
