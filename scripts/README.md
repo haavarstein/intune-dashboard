@@ -201,7 +201,7 @@ PowerShell detection script (`ai-agent-detect.ps1`) for THE Intune Dashboard's *
 ## What it does
 
 1. Runs as SYSTEM, so it sweeps **every user profile** under `C:\Users\*` plus machine-wide locations.
-2. Checks seven detection channels against a catalog of known agents (Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline, Roo Code, Continue, Aider, OpenCode):
+2. Checks seven detection channels against a catalog of known agents (Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline, Roo Code, Continue, Aider, OpenCode, OpenClaw — npm global + `~/.openclaw`, Hermes Agent — `~/.hermes` + `%LOCALAPPDATA%\hermes` incl. desktop `Hermes.exe` version):
    - **winget** — `%LOCALAPPDATA%\Microsoft\WinGet\Packages\<id>_*` (catches user-profile installs like `Anthropic.ClaudeCode`)
    - **arp** — machine-wide `HKLM\...\Uninstall` entries
    - **desktop** — `%LOCALAPPDATA%\Programs\<app>`

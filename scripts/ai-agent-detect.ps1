@@ -10,9 +10,10 @@
 # ║    user profile and the machine for locally installed AI agents —       ║
 # ║    Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/       ║
 # ║    ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline,   ║
-# ║    Roo Code, Continue, Aider, OpenCode — via WinGet packages, npm        ║
-# ║    globals, desktop-app folders, VS Code extensions, agent config        ║
-# ║    directories, machine-wide installs, and running processes. Reports    ║
+# ║    Roo Code, Continue, Aider, OpenCode, OpenClaw, Hermes Agent — via     ║
+# ║    WinGet packages, npm globals, desktop-app folders, VS Code            ║
+# ║    extensions, agent config directories, machine-wide installs, and      ║
+# ║    running processes. Reports                                            ║
 # ║    a gzip+base64-encoded snapshot via the detection script's stdout      ║
 # ║    channel. Read by THE Intune Dashboard's AI agents sub-tab as the      ║
 # ║    fleet-scan fallback until Microsoft Defender's agent-discovery        ║
@@ -100,6 +101,7 @@ $NpmPkgs = @(      # %APPDATA%\npm\node_modules\<Path>
     @{ Path = '@google\gemini-cli';        Agent = 'Gemini CLI';         Vendor = 'Google' }
     @{ Path = '@github\copilot';           Agent = 'GitHub Copilot CLI'; Vendor = 'GitHub' }
     @{ Path = 'opencode-ai';               Agent = 'OpenCode';           Vendor = 'OpenCode' }
+    @{ Path = 'openclaw';                  Agent = 'OpenClaw';           Vendor = 'OpenClaw' }
 )
 $VsixPrefixes = @( # <profile>\.vscode\extensions\<prefix>-<version>
     @{ Prefix = 'anthropic.claude-code';    Agent = 'Claude Code (VS Code)'; Vendor = 'Anthropic' }
@@ -111,6 +113,9 @@ $VsixPrefixes = @( # <profile>\.vscode\extensions\<prefix>-<version>
 )
 $ConfigDirs = @(   # <profile>\<Dir> — config artifacts survive even if the binary moved
     @{ Dir = '.claude';   Agent = 'Claude Code';        Vendor = 'Anthropic' }
+    @{ Dir = '.hermes';   Agent = 'Hermes Agent';       Vendor = 'Nous Research' }
+    # Hermes' Windows install root (repo clone + desktop app live underneath)
+    @{ Dir = 'AppData\Local\hermes'; Agent = 'Hermes Agent'; Vendor = 'Nous Research'; Exe = 'hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe' }
     @{ Dir = '.codex';    Agent = 'Codex CLI';          Vendor = 'OpenAI' }
     @{ Dir = '.gemini';   Agent = 'Gemini CLI';         Vendor = 'Google' }
     @{ Dir = '.copilot';  Agent = 'GitHub Copilot CLI'; Vendor = 'GitHub' }
@@ -120,6 +125,7 @@ $ConfigDirs = @(   # <profile>\<Dir> — config artifacts survive even if the bi
     @{ Dir = '.continue'; Agent = 'Continue';           Vendor = 'Continue' }
     @{ Dir = '.aider';    Agent = 'Aider';              Vendor = 'Aider' }
     @{ Dir = '.opencode'; Agent = 'OpenCode';           Vendor = 'OpenCode' }
+    @{ Dir = '.openclaw'; Agent = 'OpenClaw';           Vendor = 'OpenClaw' }
 )
 $ArpPatterns = @(  # machine-wide HKLM uninstall entries
     @{ Rx = '^Ollama';     Agent = 'Ollama';          Vendor = 'Ollama' }
@@ -139,6 +145,7 @@ $ProcMap = @{      # point-in-time running processes (catches portable/unknown i
     'lm studio'  = @{ Agent = 'LM Studio';       Vendor = 'Element Labs' }
     'codex'      = @{ Agent = 'Codex CLI';       Vendor = 'OpenAI' }
     'gemini'     = @{ Agent = 'Gemini CLI';      Vendor = 'Google' }
+    'hermes'     = @{ Agent = 'Hermes Agent';    Vendor = 'Nous Research' }
 }
 
 # --- Helpers --------------------------------------------------------------------
@@ -242,19 +249,19 @@ try {
         }
         foreach ($d in $DesktopApps) {
             $dir = Join-Path $p.FullName "AppData\Local\Programs\$($d.Dir)"
-            if (Test-Path $dir) {
+            if (Test-Path $dir -ErrorAction SilentlyContinue) {
                 $ver = Get-ExeVersion (Join-Path $dir $d.Exe)
-                Add-Hit $d.Agent $d.Vendor $ver $user 'desktop' 3 (Get-DaysAgo (Get-Item $dir))
+                Add-Hit $d.Agent $d.Vendor $ver $user 'desktop' 3 (Get-DaysAgo (Get-Item $dir -ErrorAction SilentlyContinue))
             }
         }
         foreach ($n in $NpmPkgs) {
             $dir = Join-Path $p.FullName "AppData\Roaming\npm\node_modules\$($n.Path)"
-            if (Test-Path $dir) {
-                Add-Hit $n.Agent $n.Vendor (Get-NpmVersion $dir) $user 'npm' 4 (Get-DaysAgo (Get-Item $dir))
+            if (Test-Path $dir -ErrorAction SilentlyContinue) {
+                Add-Hit $n.Agent $n.Vendor (Get-NpmVersion $dir) $user 'npm' 4 (Get-DaysAgo (Get-Item $dir -ErrorAction SilentlyContinue))
             }
         }
         $extRoot = Join-Path $p.FullName '.vscode\extensions'
-        if (Test-Path $extRoot) {
+        if (Test-Path $extRoot -ErrorAction SilentlyContinue) {
             foreach ($v in $VsixPrefixes) {
                 foreach ($ext in (Get-ChildItem $extRoot -Directory -Filter "$($v.Prefix)*" -ErrorAction SilentlyContinue)) {
                     $ver = ''
@@ -266,8 +273,13 @@ try {
         }
         foreach ($c in $ConfigDirs) {
             $dir = Join-Path $p.FullName $c.Dir
-            if (Test-Path $dir) {
-                Add-Hit $c.Agent $c.Vendor '' $user 'config' 6 (Get-DaysAgo (Get-Item $dir))
+            # -ErrorAction on Test-Path matters: probing a protected profile
+            # raises a non-terminating access error that EAP=Stop would
+            # otherwise promote to a run-killer.
+            if (Test-Path $dir -ErrorAction SilentlyContinue) {
+                $ver = ''
+                if ($c.Exe) { $ver = Get-ExeVersion (Join-Path $dir $c.Exe) }
+                Add-Hit $c.Agent $c.Vendor $ver $user 'config' 6 (Get-DaysAgo (Get-Item $dir -ErrorAction SilentlyContinue))
             }
         }
     }
