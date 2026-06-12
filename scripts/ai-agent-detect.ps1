@@ -66,10 +66,10 @@ function Write-ScanLog {
         }
         if ((Test-Path $LogPath) -and (Get-Item $LogPath).Length -gt $LogMaxBytes) {
             $rotateLine = "$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) [INFO] === log rotated (exceeded $($LogMaxBytes/1KB) KB) ==="
-            Set-Content -LiteralPath $LogPath -Value $rotateLine -Encoding UTF8
+            Set-Content -LiteralPath $LogPath -Value $rotateLine -Encoding ASCII
         }
         $line = "$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) [$Level] $Message"
-        Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+        Add-Content -LiteralPath $LogPath -Value $line -Encoding ASCII
     } catch {}
 }
 
@@ -215,7 +215,7 @@ function Build-Payload {
 try {
     $osVer = try { [System.Environment]::OSVersion.Version.ToString() } catch { '?' }
     $psVer = $PSVersionTable.PSVersion.ToString()
-    Write-ScanLog 'INFO' "=== Run started · schema v1 · PS $psVer · OS $osVer ==="
+    Write-ScanLog 'INFO' "=== Run started - schema v1 - PS $psVer - OS $osVer ==="
 
     # Dedupe on agent|user; lower Rank = stronger evidence wins via/version;
     # DaysAgo keeps the OLDEST artifact (best install-date proxy).
@@ -338,7 +338,7 @@ try {
     }
     $sorted = $rows.ToArray()
     $originalCount = $sorted.Count
-    Write-ScanLog 'INFO' "Agents found: $originalCount unique (agent × user) across $profileCount profile(s)"
+    Write-ScanLog 'INFO' "Agents found: $originalCount unique (agent x user) across $profileCount profile(s)"
 
     $encoded = Compress-Payload (Build-Payload $sorted $originalCount)
     $initialEncodedLen = $encoded.Length
@@ -349,9 +349,9 @@ try {
             $list.RemoveAt($list.Count - 1)
             $encoded = Compress-Payload (Build-Payload $list $originalCount)
         }
-        Write-ScanLog 'WARN' "Payload truncated: kept $($list.Count) of $originalCount rows · $initialEncodedLen → $($encoded.Length) bytes (cap $MaxOutputBytes)"
+        Write-ScanLog 'WARN' "Payload truncated: kept $($list.Count) of $originalCount rows - $initialEncodedLen -> $($encoded.Length) bytes (cap $MaxOutputBytes)"
     } else {
-        Write-ScanLog 'INFO' "Payload: $originalCount rows · $($encoded.Length) bytes base64-gzip (cap $MaxOutputBytes)"
+        Write-ScanLog 'INFO' "Payload: $originalCount rows - $($encoded.Length) bytes base64-gzip (cap $MaxOutputBytes)"
     }
 
     Write-Output $encoded
