@@ -796,6 +796,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
       <div class="subtabs">
         <button class="subtab" data-subtab="diskspace">Disk space</button>
+        <button class="subtab" data-subtab="appversions">App versions</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
         <button class="subtab" data-subtab="certhealth">Cert health</button>
@@ -2326,6 +2327,101 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div><!-- /meteringMain -->
       </div><!-- /intuneSubMetering -->
+
+      <div id="intuneSubAppversions" style="display:none;">
+        <div class="tab-hint">Version sprawl across the fleet, from Intune's discovered-apps inventory (<code>detectedApps</code>). Surfaces apps installed in many different versions — the classic "11 copies of Notepad++" mess — so you can target the old ones for cleanup (e.g. a PatchMyPC "keep newest N" rule or an uninstall remediation). <strong>Stale installs</strong> = device-installs not on the newest version Intune has seen. No extra permission — reads the inventory you already grant.</div>
+
+        <div id="appversionsLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading discovered-apps inventory…</div>
+        <div id="appversionsError"></div>
+
+        <div id="appversionsContent" style="display:none;">
+          <div class="tiles" style="margin-bottom:14px;">
+            <div class="tile clickable" id="kAppverMultiTile" title="Click to filter: apps Intune has seen in more than one version">
+              <div class="tile-label">Multi-version apps</div>
+              <div class="tile-value" id="kAppverMulti">—</div>
+              <div class="tile-sub" id="kAppverMultiSub">of <span id="kAppverTotal">—</span> apps</div>
+            </div>
+            <div class="tile" id="kAppverWorstTile" title="The app with the most distinct versions detected — click to open it">
+              <div class="tile-label">Worst offender</div>
+              <div class="tile-value" id="kAppverWorst" style="font-size:20px; line-height:1.25;">—</div>
+              <div class="tile-sub" id="kAppverWorstSub">—</div>
+            </div>
+            <div class="tile clickable" id="kAppverStaleTile" title="Click to filter: apps with installs on an older-than-newest version">
+              <div class="tile-label">Stale installs</div>
+              <div class="tile-value" id="kAppverStale">—</div>
+              <div class="tile-sub">device-installs on old versions</div>
+            </div>
+            <div class="tile" title="On-latest rate — share of detected installs that sit on the newest version of their app. Green ≥ 85%, yellow ≥ 60%, red below.">
+              <div class="tile-label">On-latest rate</div>
+              <div style="display:flex; align-items:center; gap:14px;">
+                <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                  <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                  <circle id="kAppverRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                          stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                          transform="rotate(-90 25 25)" stroke-linecap="round"
+                          style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+                </svg>
+                <div>
+                  <div class="tile-value" id="kAppverRate" style="font-size:30px;">—</div>
+                  <div class="tile-sub" style="margin-top:4px;">installs on newest</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <h2 id="appverTableTitle">Apps</h2>
+              <div class="controls">
+                <input type="text" class="search" id="appverFilter" placeholder="Search app or publisher…">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); cursor:pointer; white-space:nowrap;" title="Hide drivers, redistributables, runtimes, and OS updates — the version churn you don't manage">
+                  <input type="checkbox" id="appverHideNoise" checked> Hide runtimes &amp; drivers
+                </label>
+                <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnAppverClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverExport">⬇ Export CSV</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverRefresh">↻ Refresh</span>
+              </div>
+            </div>
+
+            <div id="appverAppsView">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-sort-appver="app">App <span class="arrow">▼</span></th>
+                    <th data-sort-appver="publisher">Publisher <span class="arrow">▼</span></th>
+                    <th data-sort-appver="versionCount">Versions <span class="arrow">▼</span></th>
+                    <th data-sort-appver="newest">Newest seen <span class="arrow">▼</span></th>
+                    <th data-sort-appver="installs">Installs <span class="arrow">▼</span></th>
+                    <th data-sort-appver="staleInstalls">Stale installs <span class="arrow">▼</span></th>
+                    <th data-sort-appver="platform">Platform <span class="arrow">▼</span></th>
+                  </tr>
+                </thead>
+                <tbody id="appverAppRows"></tbody>
+              </table>
+              <div class="footer-count"><span id="appverAppCount">0</span> apps shown<span id="appverFootnote" style="color:var(--muted);"></span></div>
+            </div>
+
+            <div id="appverDrillView" style="display:none;">
+              <div style="padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px;">
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDrillBack">← Back to apps</span>
+                <span style="font-weight:600;" id="appverDrillTitle"></span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th data-sort-appver-drill="version">Version <span class="arrow">▼</span></th>
+                    <th data-sort-appver-drill="deviceCount">Devices <span class="arrow">▼</span></th>
+                    <th data-sort-appver-drill="isNewest">Status <span class="arrow">▼</span></th>
+                    <th>Devices</th>
+                  </tr>
+                </thead>
+                <tbody id="appverDrillRows"></tbody>
+              </table>
+              <div class="footer-count"><span id="appverDrillCount">0</span> versions</div>
+            </div>
+          </div>
+        </div><!-- /appversionsContent -->
+      </div><!-- /intuneSubAppversions -->
     </div>
   </div><!-- /viewIntune -->
 
@@ -3352,6 +3448,11 @@ function resetTenantState() {
   bitlockerLoaded = false; bitlockerRows = [];
   // Disk space
   diskspaceLoaded = false; diskspaceRows = [];
+  // App versions (version sprawl)
+  appversionsLoaded = false; appversionsLoading = false; appverApps = []; appverFiltered = [];
+  appverTileFilter = null; appverSelectedApp = null;
+  if ($('appverAppsView')) $('appverAppsView').style.display = '';
+  if ($('appverDrillView')) $('appverDrillView').style.display = 'none';
   // Cert health
   certhealthLoaded = false; certhealthRows = [];
   // Stale users
@@ -5185,6 +5286,7 @@ function switchSubtab(name) {
   $('intuneSubStaleusers').style.display = name === 'staleusers' ? '' : 'none';
   $('intuneSubAiagents').style.display = name === 'aiagents' ? '' : 'none';
   $('intuneSubDiskspace').style.display = name === 'diskspace' ? '' : 'none';
+  $('intuneSubAppversions').style.display = name === 'appversions' ? '' : 'none';
   $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
   $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
   $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
@@ -5208,6 +5310,7 @@ function switchSubtab(name) {
   if (name === 'staleusers' && !staleusersLoaded) loadStaleUsers();
   if (name === 'aiagents' && !aiagentsLoaded) loadAiAgents();
   if (name === 'diskspace' && !diskspaceLoaded) loadDiskspace();
+  if (name === 'appversions' && !appversionsLoaded) loadAppversions();
 }
 
 // ============================================================
@@ -6910,6 +7013,392 @@ document.querySelectorAll('[data-sort-metering-drill]').forEach(th => {
       meteringDrillSortDir = ['daysSinceUse'].includes(k) ? 'desc' : 'asc';
     }
     renderMeteringDrillRows();
+  });
+});
+
+// ============================================================
+// App versions sub-tab — version sprawl from /deviceManagement/
+// detectedApps (Intune's discovered-apps inventory). Groups the
+// per-(name,version) rows back into apps, counts distinct versions,
+// and surfaces installs sitting on anything older than the newest
+// version Intune has seen — the PatchMyPC "keep newest N" cleanup
+// target. Read-only; rides the existing DeviceManagementManaged-
+// Devices.Read.All scope (no new consent). No per-device calls on
+// load — device lists are fetched lazily when a version is expanded.
+// ============================================================
+let appversionsLoaded = false;
+let appversionsLoading = false;
+let appverApps = [];        // aggregated per-app groups
+let appverFiltered = [];    // after noise/search/KPI filters
+let appverTileFilter = null; // null | 'multi' | 'stale'
+let appverSelectedApp = null;
+let appverSortKey = 'versionCount';
+let appverSortDir = 'desc';
+let appverDrillSortKey = 'deviceCount';
+let appverDrillSortDir = 'desc';
+
+// Compare two version strings numerically, segment by segment.
+// "8.6.5" > "8.6.4.1" handled; non-numeric junk ignored.
+function appverCmp(a, b) {
+  const pa = String(a).split(/[^\d]+/).filter(Boolean).map(Number);
+  const pb = String(b).split(/[^\d]+/).filter(Boolean).map(Number);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+// Collapse arch markers and trailing version tails so versions of
+// the same product group together — both when the version lives in
+// the separate `version` field (Notepad++) and when it's baked into
+// the display name (VC++ redistributables, Python, etc.).
+function appverNormalizeKey(name) {
+  let s = (name || '').toLowerCase();
+  s = s.replace(/\((?:x64|x86|arm64|64-bit|32-bit|64 bit|32 bit)[^)]*\)/g, ' ');
+  s = s.replace(/\b(?:x64|x86|amd64|win64|win32|arm64|64-bit|32-bit)\b/g, ' ');
+  s = s.replace(/[\s\-–—]+v?\d+(?:[._]\d+)*\s*$/, ' ');           // " - 14.30.30704", " 1.2.3"
+  s = s.replace(/\b(?:version|ver|update|release)\s+[\w.]+\s*$/, ' ');
+  s = s.replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  return s;
+}
+
+// Version churn you don't manage — drivers, redistributables,
+// runtimes, OS servicing. Hidden by default; toggle reveals them.
+const APPVER_NOISE_NAME = /(redistributable|runtime|visual c\+\+|\.net|directx|\bsdk\b|\bddk\b|driver|\bkb\d{6,}\b|security update|update for (?:windows|microsoft)|servicing stack|microsoft edge update|webview2|microsoft visual studio)/i;
+const APPVER_NOISE_PUB = /(nvidia|realtek|\bintel\b|advanced micro devices|qualcomm|synaptics|conexant|dolby|microsoft corporation\b.*driver)/i;
+function appverIsNoise(name, publisher) {
+  return APPVER_NOISE_NAME.test(name || '') || APPVER_NOISE_PUB.test(publisher || '');
+}
+
+async function loadAppversions(force = false) {
+  if ((appversionsLoaded || appversionsLoading) && !force) return;
+  appversionsLoading = true;
+  $('appversionsLoading').style.display = '';
+  $('appversionsContent').style.display = 'none';
+  $('appversionsError').innerHTML = '';
+  try {
+    const detected = await graphGetAll(
+      'beta/deviceManagement/detectedApps?$select=' +
+      encodeURIComponent('id,displayName,version,publisher,platform,deviceCount') + '&$top=100'
+    );
+
+    // Group per-(name,version) rows back into apps.
+    const groups = new Map();
+    for (const d of detected) {
+      const name = (d.displayName || '').trim();
+      if (!name) continue;
+      const ver = (d.version || '').trim() || '(no version)';
+      const pub = (d.publisher || '').trim();
+      const key = appverNormalizeKey(name) + '|' + pub.toLowerCase();
+      let g = groups.get(key);
+      if (!g) { g = { key, app: name, publisher: pub, platforms: new Set(), versions: new Map() }; groups.set(key, g); }
+      if (name.length < g.app.length) g.app = name; // prefer the shorter (base) label
+      if (!g.publisher && pub) g.publisher = pub;
+      if (d.platform) g.platforms.add(d.platform);
+      let v = g.versions.get(ver);
+      if (!v) { v = { version: ver, deviceCount: 0, ids: [] }; g.versions.set(ver, v); }
+      v.deviceCount += (d.deviceCount || 0);
+      if (d.id) v.ids.push(d.id);
+    }
+
+    appverApps = [...groups.values()].map(g => {
+      const versions = [...g.versions.values()].sort((a, b) => appverCmp(b.version, a.version));
+      const real = versions.filter(v => v.version !== '(no version)');
+      const newest = (real[0] || versions[0] || {}).version || '—';
+      const installs = versions.reduce((s, v) => s + v.deviceCount, 0);
+      const staleInstalls = versions.filter(v => v.version !== newest).reduce((s, v) => s + v.deviceCount, 0);
+      return {
+        key: g.key, app: g.app, publisher: g.publisher,
+        platform: [...g.platforms].join(', '),
+        versionCount: g.versions.size,
+        newest, installs, staleInstalls, versions,
+        noise: appverIsNoise(g.app, g.publisher),
+      };
+    });
+
+    appversionsLoaded = true;
+    appversionsLoading = false;
+    $('appversionsLoading').style.display = 'none';
+    $('appversionsContent').style.display = '';
+    showAppverAppsView();
+    renderAppverTab();
+  } catch (e) {
+    console.error('App versions load failed', e);
+    appversionsLoading = false;
+    $('appversionsLoading').style.display = 'none';
+    $('appversionsError').innerHTML = `<div class="error-banner">Failed to load discovered-apps inventory: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+// Base set the KPIs summarise = noise filter only (not search / KPI filter).
+function appverBaseSet() {
+  const hideNoise = $('appverHideNoise').checked;
+  return hideNoise ? appverApps.filter(a => !a.noise) : appverApps.slice();
+}
+
+function renderAppverTab() {
+  const base = appverBaseSet();
+  const total = base.length;
+  const multi = base.filter(a => a.versionCount > 1).length;
+  const stale = base.reduce((s, a) => s + a.staleInstalls, 0);
+  const installs = base.reduce((s, a) => s + a.installs, 0);
+  const worst = base.reduce((w, a) => (!w || a.versionCount > w.versionCount) ? a : w, null);
+
+  $('kAppverTotal').textContent = total;
+  $('kAppverMulti').textContent = multi || '0';
+  $('kAppverStale').textContent = stale || '0';
+  if (worst && worst.versionCount > 1) {
+    $('kAppverWorst').textContent = worst.app;
+    $('kAppverWorstSub').textContent = `${worst.versionCount} versions seen`;
+    $('kAppverWorstTile').dataset.appverKey = worst.key;
+    $('kAppverWorstTile').style.cursor = 'pointer';
+  } else {
+    $('kAppverWorst').textContent = '—';
+    $('kAppverWorstSub').textContent = 'no version sprawl';
+    delete $('kAppverWorstTile').dataset.appverKey;
+    $('kAppverWorstTile').style.cursor = '';
+  }
+
+  const rate = installs === 0 ? null : ((installs - stale) / installs) * 100;
+  setGaugeKpi('kAppverRing', 'kAppverRate', rate, { thresholds: { good: 85, watch: 60 } });
+
+  $('kAppverMultiTile').classList.toggle('active', appverTileFilter === 'multi');
+  $('kAppverStaleTile').classList.toggle('active', appverTileFilter === 'stale');
+  $('btnAppverClearKpi').style.display = appverTileFilter ? '' : 'none';
+
+  applyAppverFilter();
+}
+
+function applyAppverFilter() {
+  const hideNoise = $('appverHideNoise').checked;
+  const q = ($('appverFilter').value || '').toLowerCase().trim();
+  appverFiltered = appverApps.filter(a => {
+    if (hideNoise && a.noise) return false;
+    if (appverTileFilter === 'multi' && a.versionCount <= 1) return false;
+    if (appverTileFilter === 'stale' && a.staleInstalls <= 0) return false;
+    if (!q) return true;
+    return (a.app || '').toLowerCase().includes(q) || (a.publisher || '').toLowerCase().includes(q);
+  });
+  sortAppverRows();
+  renderAppverRows();
+}
+
+function sortAppverRows() {
+  const k = appverSortKey, dir = appverSortDir === 'desc' ? -1 : 1;
+  appverFiltered.sort((a, b) => {
+    if (k === 'newest') return appverCmp(a.newest, b.newest) * dir;
+    const av = a[k], bv = b[k];
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av || '').localeCompare(String(bv || ''), undefined, { sensitivity: 'base' }) * dir;
+  });
+}
+
+function appverVerCell(n) {
+  const color = n >= 10 ? '#8a2020' : n >= 5 ? '#704500' : n >= 2 ? 'var(--ink)' : 'var(--muted)';
+  const weight = n >= 2 ? '700' : '400';
+  return `<td style="color:${color}; font-weight:${weight};">${n}</td>`;
+}
+
+function renderAppverRows() {
+  const tbody = $('appverAppRows');
+  $('appverAppCount').textContent = appverFiltered.length;
+  const hiddenNoise = $('appverHideNoise').checked ? appverApps.filter(a => a.noise).length : 0;
+  $('appverFootnote').textContent = hiddenNoise ? ` · ${hiddenNoise} runtime/driver app${hiddenNoise === 1 ? '' : 's'} hidden` : '';
+
+  if (!appverFiltered.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">No apps to show${appverApps.length ? ' (filter active)' : ' — no discovered-apps inventory reported yet'}.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = appverFiltered.map(a => {
+    const staleCell = a.staleInstalls > 0
+      ? `<td style="font-weight:700; color:var(--accent); background:var(--accent-soft);">${a.staleInstalls}</td>`
+      : `<td>0</td>`;
+    return `<tr style="cursor:pointer;" data-appver-key="${esc(a.key)}">
+      <td>${esc(a.app)}</td>
+      <td>${esc(a.publisher) || '—'}</td>
+      ${appverVerCell(a.versionCount)}
+      <td class="version">${esc(a.newest)}</td>
+      <td>${a.installs}</td>
+      ${staleCell}
+      <td><span class="badge platform-badge">${esc(a.platform) || '—'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function openAppverDrilldown(key) {
+  const a = appverApps.find(x => x.key === key);
+  if (!a) return;
+  appverSelectedApp = a;
+  $('appverAppsView').style.display = 'none';
+  $('appverDrillView').style.display = '';
+  $('appverDrillTitle').textContent = `${a.app} — ${a.versionCount} version${a.versionCount === 1 ? '' : 's'}, ${a.installs} install${a.installs === 1 ? '' : 's'}, ${a.staleInstalls} stale`;
+  $('appverTableTitle').textContent = a.app;
+  renderAppverDrillRows();
+}
+
+function showAppverAppsView() {
+  appverSelectedApp = null;
+  $('appverDrillView').style.display = 'none';
+  $('appverAppsView').style.display = '';
+  $('appverTableTitle').textContent = 'Apps';
+}
+
+function sortAppverDrillRows() {
+  if (!appverSelectedApp) return;
+  const k = appverDrillSortKey, dir = appverDrillSortDir === 'desc' ? -1 : 1;
+  appverSelectedApp.versions.sort((a, b) => {
+    if (k === 'version') return appverCmp(a.version, b.version) * dir;
+    if (k === 'isNewest') return ((a.version === appverSelectedApp.newest ? 1 : 0) - (b.version === appverSelectedApp.newest ? 1 : 0)) * dir;
+    return ((a[k] || 0) - (b[k] || 0)) * dir;
+  });
+}
+
+function renderAppverDrillRows() {
+  if (!appverSelectedApp) return;
+  sortAppverDrillRows();
+  const a = appverSelectedApp;
+  $('appverDrillCount').textContent = a.versions.length;
+  $('appverDrillRows').innerHTML = a.versions.map(v => {
+    const newest = v.version === a.newest;
+    const status = newest
+      ? `<td style="color:#1f7a3a; font-weight:700;">✓ newest</td>`
+      : `<td style="color:#8a2020;">old — cleanup target</td>`;
+    return `<tr>
+      <td class="version">${esc(v.version)}</td>
+      <td>${v.deviceCount}</td>
+      ${status}
+      <td><span class="appver-devbtn" data-appver-ids="${esc(v.ids.join(','))}" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;">Show devices ▾</span><div class="appver-devlist" style="display:none; margin-top:6px; font-size:12px; color:var(--muted);"></div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadAppverVersionDevices(ids, btn, listEl) {
+  if (listEl.dataset.loaded === '1') { // toggle visibility
+    const showing = listEl.style.display !== 'none';
+    listEl.style.display = showing ? 'none' : '';
+    btn.textContent = showing ? 'Show devices ▾' : 'Hide devices ▴';
+    return;
+  }
+  btn.textContent = 'Loading…';
+  try {
+    const idList = ids.split(',').filter(Boolean);
+    const all = [];
+    for (const id of idList) {
+      const devs = await graphGetAll(`beta/deviceManagement/detectedApps/${encodeURIComponent(id)}/managedDevices?$select=id,deviceName`);
+      for (const d of devs) if (d.deviceName) all.push(d.deviceName);
+    }
+    const names = [...new Set(all)].sort((a, b) => a.localeCompare(b));
+    listEl.dataset.loaded = '1';
+    listEl.dataset.names = names.join('\n');
+    listEl.innerHTML = names.length
+      ? `<div style="margin-bottom:4px;"><span class="appver-devcopy" style="cursor:pointer; color:var(--accent); font-weight:600;">⧉ Copy ${names.length} device name${names.length === 1 ? '' : 's'}</span></div>` +
+        names.map(n => esc(n)).join('<br>')
+      : '(no devices returned)';
+    listEl.style.display = '';
+    btn.textContent = 'Hide devices ▴';
+  } catch (e) {
+    btn.textContent = 'Show devices ▾';
+    listEl.innerHTML = `<span style="color:#8a2020;">Failed: ${esc(e.message || String(e))}</span>`;
+    listEl.style.display = '';
+  }
+}
+
+function exportAppverCSV() {
+  const blob = (text, filename) => {
+    const b = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (appverSelectedApp) {
+    const header = ['App', 'Version', 'Devices', 'IsNewest'];
+    const lines = [header.join(',')];
+    for (const v of appverSelectedApp.versions) {
+      lines.push([appverSelectedApp.app, v.version, v.deviceCount, v.version === appverSelectedApp.newest ? 'yes' : 'no'].map(escCsv).join(','));
+    }
+    blob(lines.join('\n'), 'app-versions-' + appverSelectedApp.app.replace(/[^a-z0-9-]/gi, '_').slice(0, 40) + '.csv');
+  } else {
+    const header = ['App', 'Publisher', 'Versions', 'Newest seen', 'Installs', 'Stale installs', 'Platform'];
+    const lines = [header.join(',')];
+    for (const a of appverFiltered) {
+      lines.push([a.app, a.publisher, a.versionCount, a.newest, a.installs, a.staleInstalls, a.platform].map(escCsv).join(','));
+    }
+    blob(lines.join('\n'), 'app-versions.csv');
+  }
+}
+
+$('btnAppverRefresh').addEventListener('click', () => loadAppversions(true));
+$('btnAppverExport').addEventListener('click', exportAppverCSV);
+$('appverFilter').addEventListener('input', applyAppverFilter);
+$('appverHideNoise').addEventListener('change', renderAppverTab);
+$('btnAppverDrillBack').addEventListener('click', showAppverAppsView);
+
+$('kAppverMultiTile').addEventListener('click', () => {
+  appverTileFilter = appverTileFilter === 'multi' ? null : 'multi';
+  renderAppverTab();
+});
+$('kAppverStaleTile').addEventListener('click', () => {
+  appverTileFilter = appverTileFilter === 'stale' ? null : 'stale';
+  renderAppverTab();
+});
+$('btnAppverClearKpi').addEventListener('click', () => {
+  appverTileFilter = null;
+  renderAppverTab();
+});
+$('kAppverWorstTile').addEventListener('click', () => {
+  const key = $('kAppverWorstTile').dataset.appverKey;
+  if (key) openAppverDrilldown(key);
+});
+
+$('appverAppRows').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-appver-key]');
+  if (!tr) return;
+  openAppverDrilldown(tr.dataset.appverKey);
+});
+
+$('appverDrillRows').addEventListener('click', e => {
+  const copy = e.target.closest('.appver-devcopy');
+  if (copy) {
+    const list = copy.closest('.appver-devlist');
+    navigator.clipboard.writeText(list.dataset.names || '').then(() => {
+      const orig = copy.textContent;
+      copy.textContent = '✓ Copied';
+      setTimeout(() => { copy.textContent = orig; }, 1500);
+    });
+    return;
+  }
+  const btn = e.target.closest('.appver-devbtn');
+  if (!btn) return;
+  loadAppverVersionDevices(btn.dataset.appverIds, btn, btn.nextElementSibling);
+});
+
+document.querySelectorAll('[data-sort-appver]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sortAppver;
+    if (appverSortKey === k) {
+      appverSortDir = appverSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      appverSortKey = k;
+      appverSortDir = ['versionCount', 'installs', 'staleInstalls', 'newest'].includes(k) ? 'desc' : 'asc';
+    }
+    sortAppverRows();
+    renderAppverRows();
+  });
+});
+
+document.querySelectorAll('[data-sort-appver-drill]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sortAppverDrill;
+    if (appverDrillSortKey === k) {
+      appverDrillSortDir = appverDrillSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      appverDrillSortKey = k;
+      appverDrillSortDir = ['deviceCount', 'isNewest'].includes(k) ? 'desc' : 'asc';
+    }
+    renderAppverDrillRows();
   });
 });
 

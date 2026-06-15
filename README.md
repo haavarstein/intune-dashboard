@@ -3,7 +3,7 @@
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Nineteen sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, Cert health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -21,7 +21,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all eighteen sub-tabs share the same session.
+Sign in once with MSAL — all twenty sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -179,6 +179,15 @@ Because the preview's hunting schema is in flux, the tab **cascades through four
 - **⬇ Export CSV** for the current filtered view.
 - Uses the existing `DeviceManagementManagedDevices.Read.All` scope — **no new consent**. Self-contained Graph call (`beta/deviceManagement/managedDevices` with a slim `$select` filtered to `operatingSystem eq 'Windows'`) so the tab loads fast even if Hardware hasn't been opened yet.
 
+**App versions** — version-sprawl hygiene from Intune's **discovered-apps inventory** (`detectedApps`). Intune reports discovered software one row per *(name, version)*; this tab groups those rows back into apps, counts how many distinct versions exist across the fleet, and flags installs sitting on anything older than the newest version Intune has seen — the classic "eleven copies of Notepad++" mess. The actionable output is a clean target list for a PatchMyPC "keep newest N versions" auto-uninstall rule or a homegrown uninstall remediation.
+
+- **KPI tiles**: **Multi-version apps** (apps seen in >1 version, click to filter) · **Worst offender** (most distinct versions, click to open it) · **Stale installs** (device-installs not on the newest version, click to filter) · **On-latest rate** — a gauge ring showing the share of detected installs sitting on the newest version of their app (green ≥ 85%, yellow ≥ 60%, red below).
+- **Hide runtimes & drivers** toggle (on by default) suppresses the version churn you don't manage — VC++ redistributables, .NET runtimes, OS servicing updates, and GPU/audio drivers — by name and publisher pattern, so the cleanup-worthy apps surface first. Untoggle to see the full inventory; the footer reports how many were hidden.
+- Sortable app table (App · Publisher · Versions · Newest seen · Installs · Stale installs · Platform); version count is colour-coded (≥ 10 red, ≥ 5 amber). Click any app to drill into its **per-version breakdown** with device counts and a newest/old-cleanup-target flag; expand any version to lazily fetch and copy the exact **device list** (`detectedApps/{id}/managedDevices`) for that version — the hand-off for a targeted uninstall.
+- Grouping collapses architecture markers and trailing version tails, so versions match whether the version lives in Intune's separate `version` field (Notepad++) or is baked into the display name (redistributables, Python). Apps whose version is embedded in the name still group correctly.
+- **⬇ Export CSV** of the current view (app summary, or the per-version breakdown when drilled in). Lazy-loaded on first open; **↻ Refresh** forces a re-fetch.
+- Uses the existing `DeviceManagementManagedDevices.Read.All` scope — **no new consent**. No per-device calls on load (only the paginated `detectedApps` list); device lists are fetched on demand when you expand a version.
+
 **Assignments** — group-centric reverse lookup *plus* tenant-wide hygiene. Pick an Entra group → see every policy targeting it, across seven types: apps, configuration profiles (legacy), settings catalog, compliance policies, PowerShell scripts, proactive remediation scripts, and Windows Update profiles (feature, quality, and driver).
 
 **Hygiene panel** (top of the tab) surfaces operational cruft computed from the same cache:
@@ -295,6 +304,8 @@ Everything requested at sign-in is read-only; all seven write scopes are just-in
 - `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)
 - `POST /beta/deviceManagement/operationApprovalRequests/{id}/approve` and `…/reject` — inline Approve/Reject actions from the Approvals sub-tab (no new scope; `DeviceManagementConfiguration.Read.All` covers both)
 - `GET /v1.0/informationProtection/bitlocker/recoveryKeys` — recovery key metadata (no key material) for the BitLocker sub-tab's escrow-gap audit; joined to `managedDevices.azureADDeviceId`
+- `GET /beta/deviceManagement/detectedApps?$select=id,displayName,version,publisher,platform,deviceCount` — discovered-apps inventory (paginated) for the App versions sub-tab's version-sprawl aggregation
+- `GET /beta/deviceManagement/detectedApps/{id}/managedDevices?$select=id,deviceName` — devices carrying a specific discovered app/version, fetched lazily when a version row is expanded in the App versions sub-tab
 - `GET /v1.0/devices?$select=deviceId` — Entra device IDs joined to `managedDevices.azureADDeviceId` for the Hardware tab's "Missing from Entra" hygiene tile
 - `GET /beta/deviceManagement/windowsAutopilotDeviceIdentities` — Autopilot device records for the Autopilot sub-tab; joined to `managedDevices` by `managedDeviceId` for orphan detection and to Entra `/devices` by ZTDID (extracted from `physicalIds`) for duplicate-Entra detection
 - `GET /v1.0/deviceManagement/auditEvents?$filter=activityDateTime ge <180d>` — per-device action history for the Hardware tab's 📋 History modal; scans up to 8 pages of 500 and matches `resources[].resourceId` client-side (server-side `resources/any` filter on this endpoint is unreliable)
