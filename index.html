@@ -6,7 +6,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f0f10'/><rect x='6' y='18' width='4' height='8' rx='1' fill='%23e8743b'/><rect x='14' y='12' width='4' height='14' rx='1' fill='%23e8743b'/><rect x='22' y='6' width='4' height='20' rx='1' fill='%23e8743b'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #faf7f2;
@@ -20,10 +20,9 @@
     --dark: #0f0f10;
     --danger: #b42318;
     --danger-soft: #fdecec;
-    /* Type pairing: Fraunces (display serif) for headings, Hanken Grotesk
-       (humanist sans) for body/UI/numbers. */
-    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    /* Single typeface across the entire app — headings and body alike. */
     --font-body: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: var(--font-body);
     /* Soft elevation tokens — replaces ad-hoc flat shadows for cohesive depth. */
     --shadow-sm: 0 1px 2px rgba(28,18,6,.04), 0 1px 3px rgba(28,18,6,.03);
     --shadow-md: 0 6px 22px rgba(28,18,6,.07);
@@ -98,6 +97,7 @@
     opacity: .03;
   }
   .container { max-width: 2100px; margin: 0 auto; padding: 40px 32px; position: relative; z-index: 1; }
+  #themeToggle:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 
   .eyebrow {
     color: var(--accent);
@@ -110,7 +110,7 @@
     gap: 12px;
   }
   .eyebrow::after { content: ''; width: 80px; height: 1px; background: var(--accent); opacity: .4; }
-  h1 { font-family: var(--font-display); font-size: 46px; font-weight: 600; margin: 12px 0 8px; letter-spacing: -0.015em; }
+  h1 { font-family: var(--font-display); font-size: 44px; font-weight: 800; margin: 12px 0 8px; letter-spacing: -0.02em; }
   .subtitle { color: var(--ink-2); margin: 0 0 32px; }
 
   .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
@@ -252,7 +252,7 @@
     gap: 16px;
     flex-wrap: wrap;
   }
-  .table-toolbar h2 { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .table-toolbar h2 { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
   .table-toolbar .controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .search {
     border: 1px solid var(--line);
@@ -331,7 +331,7 @@
   /* Audit modal: 6 columns + long actor lines benefit from a wider footprint */
   #auditModal .modal { max-width: 1400px; }
   .modal-header { padding: 24px 28px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 16px; }
-  .modal-header h3 { font-family: var(--font-display); margin: 0; font-size: 23px; font-weight: 600; letter-spacing: -0.01em; }
+  .modal-header h3 { font-family: var(--font-display); margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
   .panel-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .close-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); padding: 0; line-height: 1; }
   .close-btn:hover { color: var(--ink); }
@@ -456,10 +456,9 @@
     border: none;
     padding: 9px 10px;
     font-family: var(--font-body);
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    letter-spacing: 0;
     color: var(--muted);
     cursor: pointer;
     border-radius: 9px;
@@ -756,11 +755,13 @@
 <body>
 
 <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark / light"
-  style="position:fixed; top:16px; right:18px; z-index:300; width:40px; height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-size:17px; line-height:1; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, transform .15s;">🌙</button>
+  style="position:fixed; top:16px; right:18px; z-index:300; width:40px; height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink-2); cursor:pointer; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, color .15s, border-color .15s;"></button>
 <script>
   (function () {
     var btn = document.getElementById('themeToggle');
-    function sync() { btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙'; }
+    var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.8" y2="4.2"/></svg>';
+    function sync() { btn.innerHTML = document.documentElement.getAttribute('data-theme') === 'dark' ? SUN : MOON; }
     sync();
     btn.addEventListener('click', function () {
       var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
