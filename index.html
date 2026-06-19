@@ -574,13 +574,16 @@
   }
   .btn-danger:hover:not(:disabled) { background: #8a1a12; border-color: #8a1a12; }
 
-  /* ---------- Sign-in screen (first impression) ---------- */
-  .signin { display: flex; justify-content: center; padding: 16px 0 64px; }
+  /* ---------- Sign-in screen (first impression) ----------
+     Goal: maximum information, compact footprint. Left panel enumerates the
+     dashboard's full breadth in a dense two-column capability grid; right
+     panel is the action. */
+  .signin { display: flex; justify-content: center; padding: 16px 0 56px; }
   .signin-card {
     display: grid;
-    grid-template-columns: 1.05fr 1fr;
+    grid-template-columns: 1.15fr 1fr;
     width: 100%;
-    max-width: 980px;
+    max-width: 1080px;
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 22px;
@@ -588,19 +591,16 @@
     box-shadow: var(--shadow-md);
     animation: riseIn .5s cubic-bezier(.22,1,.36,1) both;
   }
-  /* Left: atmospheric brand / value panel */
+  /* Left: atmospheric brand / capability panel */
   .signin-brand {
-    position: relative;
-    overflow: hidden;
-    padding: 44px 40px;
+    position: relative; overflow: hidden;
+    padding: 44px 46px;
     color: #fff;
     background:
       radial-gradient(130% 120% at 88% 4%, rgba(232,116,59,.30), transparent 52%),
       radial-gradient(95% 90% at 4% 104%, rgba(120,142,205,.16), transparent 58%),
       var(--dark);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    display: flex; flex-direction: column; justify-content: center;
   }
   .signin-brand::before {
     content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -613,32 +613,46 @@
     letter-spacing: 0.16em; text-transform: uppercase;
   }
   .signin-eyebrow::after { content: ''; width: 46px; height: 1px; background: var(--accent); opacity: .5; }
-  .signin-brand-title { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin: 14px 0 12px; }
-  .signin-brand-sub { color: rgba(255,255,255,.68); font-size: 14px; line-height: 1.6; margin: 0 0 28px; max-width: 38ch; }
-  .signin-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-  .signin-points li { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.9); }
-  .signin-points svg { flex: none; margin-top: 1px; color: var(--accent); }
+  .signin-brand-title { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin: 13px 0 10px; }
+  .signin-brand-sub { color: rgba(255,255,255,.66); font-size: 14px; line-height: 1.55; margin: 0 0 26px; max-width: 48ch; }
+  .signin-covers-label { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,.4); margin-bottom: 15px; }
+  /* Dense capability grid — name + one-line description, two columns */
+  .signin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px 26px; }
+  .signin-feat { font-size: 13px; line-height: 1.25; }
+  .signin-feat-name { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #fff; }
+  .signin-feat-name::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .signin-feat-desc { color: rgba(255,255,255,.5); font-size: 11.5px; margin-top: 3px; padding-left: 14px; }
+  .signin-trust { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.12); }
+  .signin-trust span { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.72); }
+  .signin-trust svg { flex: none; color: var(--accent); }
   /* Right: action panel */
-  .signin-action { padding: 46px 42px; display: flex; flex-direction: column; align-items: flex-start; }
+  .signin-action { padding: 44px 46px; display: flex; flex-direction: column; align-items: flex-start; }
   .signin-badge {
     width: 54px; height: 54px; border-radius: 16px;
     display: flex; align-items: center; justify-content: center;
     color: #fff; background: linear-gradient(155deg, var(--accent), #c2541f);
     box-shadow: 0 10px 24px rgba(232,116,59,.32);
-    margin-bottom: 22px;
+    margin-bottom: 20px;
   }
-  .signin-title { font-size: 23px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 6px; }
-  .signin-desc { color: var(--ink-2); font-size: 14px; line-height: 1.5; margin: 0 0 26px; }
+  .signin-title { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .signin-desc { color: var(--ink-2); font-size: 14.5px; line-height: 1.5; margin: 0 0 24px; }
   .signin-msbtn {
     display: inline-flex; align-items: center; gap: 11px;
     background: var(--card); color: var(--ink);
     border: 1px solid var(--line); box-shadow: var(--shadow-sm);
-    border-radius: 10px; padding: 12px 22px; font-size: 14px; font-weight: 700;
+    border-radius: 10px; padding: 13px 24px; font-size: 14.5px; font-weight: 700;
     cursor: pointer; font-family: inherit; transition: border-color .15s, background .15s, transform .15s;
   }
   .signin-msbtn:hover { border-color: var(--accent); background: var(--bg); transform: translateY(-1px); }
-  @media (max-width: 820px) {
-    .signin-card { grid-template-columns: 1fr; max-width: 460px; }
+  /* Compact spec table — facts at a glance */
+  .signin-specs { width: 100%; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 16px 22px; }
+  .signin-spec-k { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .signin-spec-v { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 3px; }
+  .signin-action-foot { margin-top: auto; padding-top: 24px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+  .signin-action-foot a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .signin-action-foot a:hover { text-decoration: underline; }
+  @media (max-width: 860px) {
+    .signin-card { grid-template-columns: 1fr; max-width: 540px; }
     .signin-brand { padding: 34px 30px; }
     .signin-action { padding: 34px 30px; }
   }
@@ -995,21 +1009,25 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div class="signin-brand">
           <span class="signin-eyebrow">Microsoft Intune</span>
           <div class="signin-brand-title">See your whole fleet,<br>not just one device.</div>
-          <p class="signin-brand-sub">Triage app install failures, hardware, BitLocker escrow, configuration drift, stale users and more — across every managed device, straight from your browser.</p>
-          <ul class="signin-points">
-            <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              <span>Read-only by default — write access is requested only the moment you need it.</span>
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <span>No app registration to set up — sign in and you're in.</span>
-            </li>
-            <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              <span>Runs entirely client-side — nothing is stored on a server.</span>
-            </li>
-          </ul>
+          <p class="signin-brand-sub">One read-only sign-in turns Intune's scattered reports into a single, fast operations console — right in your browser.</p>
+          <div class="signin-covers-label">Everything in one place</div>
+          <div class="signin-grid">
+            <div class="signin-feat"><div class="signin-feat-name">App failures</div><div class="signin-feat-desc">Install errors + AI diagnosis</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Hardware</div><div class="signin-feat-desc">Fleet inventory &amp; health</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">BitLocker</div><div class="signin-feat-desc">Recovery-key escrow</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Config drift</div><div class="signin-feat-desc">Baseline compliance</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Autopilot</div><div class="signin-feat-desc">Enrollment status</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Remediation</div><div class="signin-feat-desc">Proactive scripts</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Stale users</div><div class="signin-feat-desc">Dormant accounts</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Vulnerabilities</div><div class="signin-feat-desc">CVE exposure</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">AI agents</div><div class="signin-feat-desc">Endpoint discovery</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Metering</div><div class="signin-feat-desc">Real software usage</div></div>
+          </div>
+          <div class="signin-trust">
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Read-only by default</span>
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>No app registration</span>
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>100% client-side</span>
+          </div>
         </div>
         <div class="signin-action">
           <div class="signin-badge">
@@ -1021,6 +1039,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <svg width="18" height="18" viewBox="0 0 23 23" aria-hidden="true"><rect x="1"  y="1"  width="10" height="10" fill="#f25022"/><rect x="12" y="1"  width="10" height="10" fill="#7fba00"/><rect x="1"  y="12" width="10" height="10" fill="#00a4ef"/><rect x="12" y="12" width="10" height="10" fill="#ffb900"/></svg>
             Sign in with Microsoft
           </button>
+          <div class="signin-specs">
+            <div><div class="signin-spec-k">Reports</div><div class="signin-spec-v">20+ views</div></div>
+            <div><div class="signin-spec-k">Tenants</div><div class="signin-spec-v">Multi / MSP</div></div>
+            <div><div class="signin-spec-k">Sign-in</div><div class="signin-spec-v">Microsoft Entra</div></div>
+            <div><div class="signin-spec-k">License</div><div class="signin-spec-v">Open source</div></div>
+          </div>
+          <div class="signin-action-foot">
+            <span>Read-only · client-side · open source</span>
+            <a href="https://github.com/haavarstein/intune-dashboard" target="_blank" rel="noopener">View the project on GitHub ↗</a>
+          </div>
         </div>
       </div>
     </div>
