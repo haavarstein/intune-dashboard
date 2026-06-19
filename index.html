@@ -779,13 +779,13 @@
   <p class="subtitle">Triage Intune app failures faster — in your browser, with AI on tap.</p>
 
   <div class="tabs">
-    <button class="tab active" data-tab="local">Local</button>
-    <button class="tab" data-tab="intune">Intune</button>
+    <button class="tab" data-tab="local">Local</button>
+    <button class="tab active" data-tab="intune">Intune</button>
     <button class="tab" data-tab="analyze">Analyze</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
 
-  <div id="viewLocal">
+  <div id="viewLocal" style="display:none;">
   <div class="tab-hint">Audit one Windows machine's uninstall registry — 32/64-bit, install dates, publishers, and copyable silent uninstall strings.</div>
   <div id="dashboard" style="display:none;">
     <div class="tiles">
@@ -920,7 +920,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
   </div><!-- /viewLocal -->
 
-  <div id="viewIntune" style="display:none;">
+  <div id="viewIntune">
     <div id="intuneSignedOut" class="signin-prompt">
       <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
       <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
@@ -3246,6 +3246,10 @@ function platformFromOdataType(t) {
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+
+// Open straight to the Intune tab (HTML defaults already show it; this also
+// kicks off initIntune() so sign-in / data load starts immediately).
+switchTab(TAB_INTUNE);
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
