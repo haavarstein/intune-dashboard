@@ -574,15 +574,85 @@
   }
   .btn-danger:hover:not(:disabled) { background: #8a1a12; border-color: #8a1a12; }
 
-  .signin-prompt {
+  /* ---------- Sign-in screen (first impression) ---------- */
+  .signin { display: flex; justify-content: center; padding: 16px 0 64px; }
+  .signin-card {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    width: 100%;
+    max-width: 980px;
     background: var(--card);
-    border: 2px dashed var(--line);
-    border-radius: 14px;
-    padding: 60px 20px;
-    text-align: center;
-    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    animation: riseIn .5s cubic-bezier(.22,1,.36,1) both;
   }
-  .signin-prompt .btn { margin-top: 16px; }
+  /* Left: atmospheric brand / value panel */
+  .signin-brand {
+    position: relative;
+    overflow: hidden;
+    padding: 44px 40px;
+    color: #fff;
+    background:
+      radial-gradient(130% 120% at 88% 4%, rgba(232,116,59,.30), transparent 52%),
+      radial-gradient(95% 90% at 4% 104%, rgba(120,142,205,.16), transparent 58%),
+      var(--dark);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .signin-brand::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image: var(--grain); opacity: .08; mix-blend-mode: overlay;
+  }
+  .signin-brand > * { position: relative; z-index: 1; }
+  .signin-eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    color: var(--accent); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .signin-eyebrow::after { content: ''; width: 46px; height: 1px; background: var(--accent); opacity: .5; }
+  .signin-brand-title { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin: 14px 0 12px; }
+  .signin-brand-sub { color: rgba(255,255,255,.68); font-size: 14px; line-height: 1.6; margin: 0 0 28px; max-width: 38ch; }
+  .signin-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .signin-points li { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.9); }
+  .signin-points svg { flex: none; margin-top: 1px; color: var(--accent); }
+  /* Right: action panel */
+  .signin-action { padding: 46px 42px; display: flex; flex-direction: column; align-items: flex-start; }
+  .signin-badge {
+    width: 54px; height: 54px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; background: linear-gradient(155deg, var(--accent), #c2541f);
+    box-shadow: 0 10px 24px rgba(232,116,59,.32);
+    margin-bottom: 22px;
+  }
+  .signin-title { font-size: 23px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .signin-desc { color: var(--ink-2); font-size: 14px; line-height: 1.5; margin: 0 0 26px; }
+  .signin-msbtn {
+    display: inline-flex; align-items: center; gap: 11px;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+    border-radius: 10px; padding: 12px 22px; font-size: 14px; font-weight: 700;
+    cursor: pointer; font-family: inherit; transition: border-color .15s, background .15s, transform .15s;
+  }
+  .signin-msbtn:hover { border-color: var(--accent); background: var(--bg); transform: translateY(-1px); }
+  .signin-scopes { width: 100%; margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--line); }
+  .signin-scopes-head { font-size: 10px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); margin-bottom: 13px; }
+  .signin-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .signin-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 12px 5px 10px; cursor: default;
+  }
+  .signin-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--good-border); flex: none; }
+  .signin-foot { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 16px 0 0; }
+  @media (max-width: 820px) {
+    .signin-card { grid-template-columns: 1fr; max-width: 460px; }
+    .signin-brand { padding: 34px 30px; }
+    .signin-action { padding: 34px 30px; }
+  }
 
   .app-picker { margin-bottom: 24px; }
   .app-picker-bar {
@@ -921,11 +991,51 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div><!-- /viewLocal -->
 
   <div id="viewIntune">
-    <div id="intuneSignedOut" class="signin-prompt">
-      <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
-      <div>Sign in to your Microsoft tenant to load Intune install reports.</div>
-      <button class="btn" id="btnSignIn">Sign in with Microsoft</button>
-      <div style="font-size: 11px; margin-top: 16px;">Sign-in requests read-only scopes (DeviceManagementManagedDevices.Read.All · DeviceManagementApps.Read.All · DeviceManagementServiceConfig.Read.All · BitlockerKey.ReadBasic.All · Device.Read.All · User.Read · …). Write scopes are requested only when you first use a write action.</div>
+    <div id="intuneSignedOut" class="signin">
+      <div class="signin-card">
+        <div class="signin-brand">
+          <span class="signin-eyebrow">Microsoft Intune</span>
+          <div class="signin-brand-title">See your whole fleet,<br>not just one device.</div>
+          <p class="signin-brand-sub">Triage app install failures, hardware, BitLocker escrow, configuration drift, stale users and more — across every managed device, straight from your browser.</p>
+          <ul class="signin-points">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>Read-only by default — write access is requested only the moment you need it.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>No app registration to set up — sign in and you're in.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>Runs entirely client-side — nothing is stored on a server.</span>
+            </li>
+          </ul>
+        </div>
+        <div class="signin-action">
+          <div class="signin-badge">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div class="signin-title">Sign in to continue</div>
+          <p class="signin-desc">Connect your Microsoft tenant to load Intune reports.</p>
+          <button class="signin-msbtn" id="btnSignIn">
+            <svg width="18" height="18" viewBox="0 0 23 23" aria-hidden="true"><rect x="1"  y="1"  width="10" height="10" fill="#f25022"/><rect x="12" y="1"  width="10" height="10" fill="#7fba00"/><rect x="1"  y="12" width="10" height="10" fill="#00a4ef"/><rect x="12" y="12" width="10" height="10" fill="#ffb900"/></svg>
+            Sign in with Microsoft
+          </button>
+          <div class="signin-scopes">
+            <div class="signin-scopes-head">Read-only access requested</div>
+            <div class="signin-chips">
+              <span class="signin-chip" title="DeviceManagementManagedDevices.Read.All">Managed devices</span>
+              <span class="signin-chip" title="DeviceManagementApps.Read.All">Apps &amp; assignments</span>
+              <span class="signin-chip" title="DeviceManagementConfiguration.Read.All">Device configuration</span>
+              <span class="signin-chip" title="BitlockerKey.ReadBasic.All">BitLocker keys</span>
+              <span class="signin-chip" title="Group.Read.All · User.Read.All · Device.Read.All">Directory</span>
+              <span class="signin-chip" title="AuditLog.Read.All">Audit logs</span>
+            </div>
+            <p class="signin-foot">Write scopes are requested just-in-time — only when you first perform a write action.</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="intuneSignedIn" style="display:none;">
