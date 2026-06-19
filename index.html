@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <title>THE Intune Dashboard</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f0f10'/><rect x='6' y='18' width='4' height='8' rx='1' fill='%23e8743b'/><rect x='14' y='12' width='4' height='14' rx='1' fill='%23e8743b'/><rect x='22' y='6' width='4' height='20' rx='1' fill='%23e8743b'/></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #faf7f2;
@@ -18,17 +20,84 @@
     --dark: #0f0f10;
     --danger: #b42318;
     --danger-soft: #fdecec;
+    /* Type pairing: Fraunces (display serif) for headings, Hanken Grotesk
+       (humanist sans) for body/UI/numbers. */
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    /* Soft elevation tokens — replaces ad-hoc flat shadows for cohesive depth. */
+    --shadow-sm: 0 1px 2px rgba(28,18,6,.04), 0 1px 3px rgba(28,18,6,.03);
+    --shadow-md: 0 6px 22px rgba(28,18,6,.07);
+    /* Reusable fine-grain paper texture (fractal noise data URI). */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    /* Semantic tokens — components reference these so a theme swap flips them. */
+    --row-hover: #fcf9f4;
+    --btn-solid-bg: #0f0f10;
+    --btn-solid-bg-hover: #2a2a2e;
+    --btn-solid-fg: #ffffff;
+    --good-border:#1f7a3a; --good-bg:#eaf6ee; --good-ink:#14512a;
+    --watch-border:#d4a017; --watch-bg:#fff8d6; --watch-ink:#6a5314;
+    --warn-border:#c97a1f; --warn-bg:#fff0db; --warn-ink:#7a4500;
+    --bad-border:#c0392b; --bad-bg:#fde6e6; --bad-ink:#8a2020;
+    color-scheme: light;
+  }
+  /* ---------- Dark theme: overrides the token layer only ---------- */
+  [data-theme="dark"] {
+    --bg:#15140f;
+    --card:#1e1c17;
+    --ink:#f3efe7;
+    --ink-2:#c6c1b6;
+    --muted:#8f897d;
+    --line:#2d2a23;
+    --accent:#f0894f;
+    --accent-soft:#3a2615;
+    --dark:#0d0d0e;
+    --danger:#e3685d;
+    --danger-soft:#2e1413;
+    --row-hover:#26221b;
+    --btn-solid-bg:var(--accent);
+    --btn-solid-bg-hover:#f59a66;
+    --btn-solid-fg:#1b1206;
+    --good-border:#2f9e54; --good-bg:#11271a; --good-ink:#86d8a1;
+    --watch-border:#cda52a; --watch-bg:#2a2410; --watch-ink:#ebc95e;
+    --warn-border:#d98a33; --warn-bg:#2c2010; --warn-ink:#f0b277;
+    --bad-border:#d9544a; --bad-bg:#2d1413; --bad-ink:#f1a59d;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
+    --shadow-md: 0 6px 22px rgba(0,0,0,.50);
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  /* THE FIX for the "dancing menu": the page scrollbar must never toggle.
+     Switching from a short tab (Installed picker) to a tall one (Overview)
+     used to make the vertical scrollbar appear, stealing ~15px of width; the
+     centered .container then recentred and the whole page — nav included —
+     slid sideways. `overflow-y: scroll` forces the scrollbar track to be
+     permanently present (works on every browser, unlike scrollbar-gutter
+     alone), so available width is constant and nothing shifts between tabs. */
+  html { overflow-y: scroll; scrollbar-gutter: stable; }
   body {
     margin: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: var(--bg);
+    font-family: var(--font-body);
+    /* Faint warm glow behind the masthead lifts the flat cream into atmosphere. */
+    background:
+      radial-gradient(80% 55% at 50% -8%, rgba(232,116,59,.06), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
     color: var(--ink);
     font-size: 14px;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
-  .container { max-width: 2100px; margin: 0 auto; padding: 40px 32px; }
+  /* Whisper-quiet paper grain over the whole page (non-interactive). */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image: var(--grain);
+    opacity: .03;
+  }
+  .container { max-width: 2100px; margin: 0 auto; padding: 40px 32px; position: relative; z-index: 1; }
 
   .eyebrow {
     color: var(--accent);
@@ -41,18 +110,32 @@
     gap: 12px;
   }
   .eyebrow::after { content: ''; width: 80px; height: 1px; background: var(--accent); opacity: .4; }
-  h1 { font-size: 44px; font-weight: 800; margin: 12px 0 8px; letter-spacing: -0.02em; }
+  h1 { font-family: var(--font-display); font-size: 46px; font-weight: 600; margin: 12px 0 8px; letter-spacing: -0.015em; }
   .subtitle { color: var(--ink-2); margin: 0 0 32px; }
 
   .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
+  /* Overview bento — asymmetric hierarchy: fleet total anchors (tall, left),
+     alerts fill the rest, drift runs wide along the bottom. */
+  .tiles.ov-bento {
+    grid-template-columns: 1.5fr 1fr 1fr;
+    grid-template-rows: auto auto;
+    grid-template-areas: "a b c" "a d d";
+    margin-bottom: 24px;
+  }
+  .ov-anchor { background: linear-gradient(180deg, var(--accent-soft), var(--card) 70%); border-color: var(--accent); }
+  .ov-anchor .tile-value { color: var(--accent); letter-spacing: -0.03em; line-height: 1; }
+  @media (max-width: 900px) {
+    .tiles.ov-bento { grid-template-columns: 1fr 1fr; grid-template-areas: "a a" "b c" "d d"; }
+  }
   .tile {
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 14px;
     padding: 20px;
+    box-shadow: var(--shadow-sm);
     transition: transform .15s, box-shadow .15s;
   }
-  .tile:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.04); }
+  .tile:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
   .tile.clickable { cursor: pointer; }
   .tile.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   /* Stoplight KPI tiles — full 2px border + light tinted background + colored value.
@@ -61,24 +144,24 @@
   .tile.tile-watch,
   .tile.tile-warn,
   .tile.tile-bad { border-width: 2px; padding: 19px; }
-  .tile.tile-good  { border-color: #1f7a3a; background: #eaf6ee; }
-  .tile.tile-watch { border-color: #d4a017; background: #fff8d6; }
-  .tile.tile-warn  { border-color: #c97a1f; background: #fff0db; }
-  .tile.tile-bad   { border-color: #c0392b; background: #fde6e6; }
-  .tile.tile-good  .tile-value { color: #14512a; }
-  .tile.tile-watch .tile-value { color: #6a5314; }
-  .tile.tile-warn  .tile-value { color: #7a4500; }
-  .tile.tile-bad   .tile-value { color: #8a2020; }
+  .tile.tile-good  { border-color: var(--good-border);  background: var(--good-bg); }
+  .tile.tile-watch { border-color: var(--watch-border); background: var(--watch-bg); }
+  .tile.tile-warn  { border-color: var(--warn-border);  background: var(--warn-bg); }
+  .tile.tile-bad   { border-color: var(--bad-border);   background: var(--bad-bg); }
+  .tile.tile-good  .tile-value { color: var(--good-ink); }
+  .tile.tile-watch .tile-value { color: var(--watch-ink); }
+  .tile.tile-warn  .tile-value { color: var(--warn-ink); }
+  .tile.tile-bad   .tile-value { color: var(--bad-ink); }
   .tile.tile-good.active,
   .tile.tile-watch.active,
   .tile.tile-warn.active,
   .tile.tile-bad.active {
     box-shadow: 0 0 0 2px var(--accent);
   }
-  .tile.tile-good.active  { border-color: #1f7a3a; }
-  .tile.tile-watch.active { border-color: #d4a017; }
-  .tile.tile-warn.active  { border-color: #c97a1f; }
-  .tile.tile-bad.active   { border-color: #c0392b; }
+  .tile.tile-good.active  { border-color: var(--good-border); }
+  .tile.tile-watch.active { border-color: var(--watch-border); }
+  .tile.tile-warn.active  { border-color: var(--warn-border); }
+  .tile.tile-bad.active   { border-color: var(--bad-border); }
   .tile-label {
     font-size: 10px;
     font-weight: 600;
@@ -91,8 +174,36 @@
   .tile-value.accent { color: var(--accent); }
   .tile-sub { font-size: 12px; color: var(--muted); margin-top: 10px; }
 
+  /* Orchestrated reveal — hero + KPI tiles rise in with a short stagger on
+     each render. Kept subtle; fully disabled under prefers-reduced-motion. */
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .hero { animation: riseIn .5s cubic-bezier(.22,1,.36,1) both; }
+  .tiles .tile { animation: riseIn .45s cubic-bezier(.22,1,.36,1) both; }
+  .tiles .tile:nth-child(1) { animation-delay: .04s; }
+  .tiles .tile:nth-child(2) { animation-delay: .08s; }
+  .tiles .tile:nth-child(3) { animation-delay: .12s; }
+  .tiles .tile:nth-child(4) { animation-delay: .16s; }
+  .tiles .tile:nth-child(5) { animation-delay: .20s; }
+  .tiles .tile:nth-child(6) { animation-delay: .24s; }
+  .tiles .tile:nth-child(7) { animation-delay: .28s; }
+  .tiles .tile:nth-child(8) { animation-delay: .32s; }
+  .tiles .tile:nth-child(n+9) { animation-delay: .36s; }
+  @media (prefers-reduced-motion: reduce) {
+    .hero, .tiles .tile { animation: none; }
+  }
+
   .hero {
-    background: var(--dark);
+    position: relative;
+    overflow: hidden;
+    /* Layered radial glows (warm top-right, cool bottom-left) turn the flat
+       dark panel into a lit surface; grain added via ::before below. */
+    background:
+      radial-gradient(130% 120% at 88% 6%, rgba(232,116,59,.22), transparent 52%),
+      radial-gradient(95% 90% at 6% 104%, rgba(120,142,205,.12), transparent 58%),
+      var(--dark);
     color: white;
     border: none;
     padding: 28px;
@@ -103,7 +214,18 @@
     gap: 40px;
     margin-bottom: 32px;
     min-height: 160px;
+    box-shadow: 0 14px 44px rgba(15,15,16,.20);
   }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: var(--grain);
+    opacity: .07;
+    mix-blend-mode: overlay;
+  }
+  .hero > * { position: relative; z-index: 1; }
   .hero .tile-label { color: rgba(255,255,255,.5); }
   .hero-left { flex: 0 0 auto; }
   .hero-value { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-top: 14px; }
@@ -119,6 +241,7 @@
     border: 1px solid var(--line);
     border-radius: 14px;
     overflow: hidden;
+    box-shadow: var(--shadow-sm);
   }
   .table-toolbar {
     display: flex;
@@ -129,7 +252,7 @@
     gap: 16px;
     flex-wrap: wrap;
   }
-  .table-toolbar h2 { font-size: 16px; font-weight: 700; margin: 0; }
+  .table-toolbar h2 { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
   .table-toolbar .controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .search {
     border: 1px solid var(--line);
@@ -182,7 +305,7 @@
     font-size: 13px;
   }
   tbody tr { cursor: pointer; transition: background .1s; }
-  tbody tr:hover { background: #fcf9f4; }
+  tbody tr:hover { background: var(--row-hover); }
   tbody tr:last-child td { border-bottom: none; }
   .app-name { font-weight: 600; color: var(--ink); }
   .pub { color: var(--ink-2); }
@@ -208,7 +331,7 @@
   /* Audit modal: 6 columns + long actor lines benefit from a wider footprint */
   #auditModal .modal { max-width: 1400px; }
   .modal-header { padding: 24px 28px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 16px; }
-  .modal-header h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .modal-header h3 { font-family: var(--font-display); margin: 0; font-size: 23px; font-weight: 600; letter-spacing: -0.01em; }
   .panel-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .close-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); padding: 0; line-height: 1; }
   .close-btn:hover { color: var(--ink); }
@@ -224,11 +347,11 @@
   .cmd-row { display: flex; gap: 8px; align-items: start; }
   .cmd-row .cmd { flex: 1; margin-bottom: 0; }
   .copy-btn {
-    background: var(--ink); color: white; border: none; border-radius: 8px;
+    background: var(--btn-solid-bg); color: var(--btn-solid-fg); border: none; border-radius: 8px;
     padding: 10px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
     font-family: inherit; white-space: nowrap;
   }
-  .copy-btn:hover { background: #2a2a2e; }
+  .copy-btn:hover { background: var(--btn-solid-bg-hover); }
   .cmd-label { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; font-weight: 600; }
   .dedup-note {
     margin-top: 12px;
@@ -250,8 +373,8 @@
   .upload-prompt input { display: none; }
   .upload-prompt label {
     display: inline-block;
-    background: var(--ink);
-    color: white;
+    background: var(--btn-solid-bg);
+    color: var(--btn-solid-fg);
     padding: 10px 20px;
     border-radius: 8px;
     cursor: pointer;
@@ -259,7 +382,7 @@
     font-size: 13px;
     margin-top: 12px;
   }
-  .upload-prompt label:hover { background: #2a2a2e; }
+  .upload-prompt label:hover { background: var(--btn-solid-bg-hover); }
 
   .ps-helper {
     margin-top: 32px;
@@ -313,37 +436,44 @@
   .tab:hover { color: var(--ink-2); }
   .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 
-  /* Sub-tabs — smaller than main tabs to convey hierarchy */
+  /* Sub-tabs — fixed-column grid (not wrapping flex) so tabs hold a stable
+     cell regardless of scrollbar width; pill active state reads cleanly
+     across the multi-row layout. Column count is fixed per breakpoint, so a
+     ~15px viewport change resizes cells but never reflows a tab to a new row. */
   .subtabs {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 2px 4px;
-    margin: 0 0 20px;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    margin: 0 0 28px;
+    padding-bottom: 14px;
     border-bottom: 1px solid var(--line);
   }
-  /* When two .subtabs rows stack (12 core + 3 specialty),
-     tighten the gap between them so they read as one control. */
-  .subtabs + .subtabs {
-    margin-top: -16px;
-  }
+  @media (max-width: 1500px) { .subtabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+  @media (max-width: 1180px) { .subtabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 760px)  { .subtabs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .subtab {
     background: none;
     border: none;
-    padding: 8px 14px;
-    font-family: inherit;
+    padding: 9px 10px;
+    font-family: var(--font-body);
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
     cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    transition: color .15s, border-color .15s;
+    border-radius: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color .15s, background .15s, box-shadow .15s;
   }
-  .subtab:hover { color: var(--ink-2); }
-  .subtab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .subtab:hover { color: var(--ink-2); background: rgba(232,116,59,.07); }
+  .subtab.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px rgba(232,116,59,.28);
+  }
 
   /* Hardware tab filter chips */
   .filter-bar {
@@ -429,11 +559,11 @@
   .auth-user strong { color: var(--ink); font-weight: 600; }
   .auth-bar .btn { padding: 6px 12px; font-size: 12px; }
   .btn {
-    background: var(--ink); color: white; border: none; border-radius: 8px;
+    background: var(--btn-solid-bg); color: var(--btn-solid-fg); border: none; border-radius: 8px;
     padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
     font-family: inherit;
   }
-  .btn:hover { background: #2a2a2e; }
+  .btn:hover { background: var(--btn-solid-bg-hover); }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   .btn-ghost {
     background: transparent; color: var(--ink-2);
@@ -542,7 +672,7 @@
     display: flex; justify-content: space-between; align-items: center; gap: 16px;
   }
   .app-row:last-child { border-bottom: none; }
-  .app-row:hover { background: #fcf9f4; }
+  .app-row:hover { background: var(--row-hover); }
   .app-row.selected { background: var(--accent-soft); }
   .app-row .name { font-weight: 600; font-size: 13px; }
   .app-row .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -612,8 +742,35 @@
   .session-pill strong { color: var(--ink); font-weight: 700; }
   .session-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 </style>
+<script>
+  /* Apply saved/system theme before first paint to avoid a flash. */
+  (function () {
+    try {
+      var t = localStorage.getItem('themePref');
+      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
+
+<button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark / light"
+  style="position:fixed; top:16px; right:18px; z-index:300; width:40px; height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-size:17px; line-height:1; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, transform .15s;">🌙</button>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    function sync() { btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙'; }
+    sync();
+    btn.addEventListener('click', function () {
+      var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      if (isDark) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', 'dark');
+      try { localStorage.setItem('themePref', isDark ? 'light' : 'dark'); } catch (e) {}
+      sync();
+    });
+  })();
+</script>
 
 <div class="container">
   <span class="eyebrow">Workspace</span>
@@ -783,6 +940,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
       </div>
 
+      <!-- Single fixed-column grid: every tab keeps a fixed cell, so a
+           scrollbar-width change can never reflow a tab onto another row. -->
       <div class="subtabs">
         <button class="subtab active" data-subtab="overview">Overview</button>
         <button class="subtab" data-subtab="installed">Installed</button>
@@ -793,8 +952,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="metering">Software Metering</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
-      </div>
-      <div class="subtabs">
         <button class="subtab" data-subtab="diskspace">Disk space</button>
         <button class="subtab" data-subtab="appversions">App versions</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
@@ -802,7 +959,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="certhealth">Cert health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
-        <button class="subtab" data-subtab="drift">Drift & Compliance (P2/E5)</button>
+        <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
         <button class="subtab" data-subtab="staleusers">Stale users (P1)</button>
         <button class="subtab" data-subtab="aiagents">AI agents (P2/E5)</button>
@@ -921,23 +1078,25 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div id="overviewLoading" class="loading" style="padding:24px;">Loading overview…</div>
         <div id="overviewError"></div>
         <div id="overviewContent" style="display:none;">
-          <div class="tiles" style="grid-template-columns: repeat(4, 1fr); margin-bottom:24px;">
-            <div class="tile clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
+          <!-- Bento: fleet total is the anchor (spans 2 rows), alert metrics
+               fill the rest; "drifted" runs wide along the bottom. -->
+          <div class="tiles ov-bento">
+            <div class="tile clickable ov-anchor" data-overview-jump="hardware" title="Open Hardware sub-tab" style="grid-area:a; display:flex; flex-direction:column; justify-content:center;">
               <div class="tile-label">Managed devices</div>
-              <div class="tile-value" id="ovTotalDevices">0</div>
+              <div class="tile-value" id="ovTotalDevices" style="font-size:64px;">0</div>
               <div class="tile-sub" id="ovTotalDevicesSub">across all platforms</div>
             </div>
-            <div class="tile tile-watch clickable" data-overview-jump="hardware" title="Open Hardware sub-tab">
+            <div class="tile tile-watch clickable" data-overview-jump="hardware" title="Open Hardware sub-tab" style="grid-area:b;">
               <div class="tile-label">Needing attention</div>
               <div class="tile-value" id="ovAttention">0</div>
               <div class="tile-sub" id="ovAttentionSub">stale 90+ days or Win 10</div>
             </div>
-            <div class="tile tile-warn clickable" data-overview-jump="failed" title="Open Failed Install sub-tab">
+            <div class="tile tile-warn clickable" data-overview-jump="failed" title="Open Failed Install sub-tab" style="grid-area:c;">
               <div class="tile-label">Apps with failures</div>
               <div class="tile-value" id="ovFailedApps">0</div>
               <div class="tile-sub" id="ovFailedAppsSub">FailedDeviceCount &gt; 0</div>
             </div>
-            <div class="tile tile-watch clickable" data-overview-jump="drift" title="Open Drift & Compliance sub-tab">
+            <div class="tile tile-watch clickable" data-overview-jump="drift" title="Open Drift & Compliance sub-tab" style="grid-area:d;">
               <div class="tile-label">Drifted software (P2/E5)</div>
               <div class="tile-value" id="ovDrift">0</div>
               <div class="tile-sub" id="ovDriftSub">components with &gt;20% drift</div>
@@ -2181,13 +2340,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubRemediation" style="display:none;">
         <div class="tab-hint">All proactive remediation scripts (<code>deviceHealthScripts</code>) with their schedules. Click a script to open its Intune admin-center blade.</div>
 
-        <div id="remediationImeCard" style="padding:14px 16px; background:#fcf9f4; border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
+        <div id="remediationImeCard" style="padding:14px 16px; background:var(--row-hover); border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
           <div style="font-weight:600; font-size:14px; margin-bottom:4px;">⚡ IME Required App Check-in — run on a device <span class="meta" style="font-weight:400; font-size:12px;">(Rudy Ooms / Call4Cloud)</span></div>
           <div style="font-size:12px; color:var(--muted); line-height:1.6; margin-bottom:10px;">Pick a Windows device and force an on-demand required-app check-in — triggers the IME <code>IStatusService.CheckInAsync</code> path, cutting the ~60-minute wait for required Win32 apps after Autopilot or a new assignment. The remediation runs as the <strong>logged-on user</strong>, so the device needs a signed-in user and to be online; otherwise Intune queues it. The same <strong>⚡ Check-in</strong> action also lives on every device row in the Hardware, Failed Install, and Cert health tabs.</div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; position:relative;">
             <input type="text" class="search" id="imePickerSearch" placeholder="Search device by name…" style="flex:1; min-width:240px;" autocomplete="off">
             <button class="btn" id="btnImeRun" disabled>⚡ Run check-in</button>
-            <div id="imePickerResults" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:20; max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:4px; background:white; box-shadow:0 6px 18px rgba(0,0,0,.12);"></div>
+            <div id="imePickerResults" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:20; max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:4px; background:var(--card); box-shadow:0 6px 18px rgba(0,0,0,.12);"></div>
           </div>
           <div id="imePickerSelected" style="display:none; margin-top:8px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
           <div id="remediationImeStatus" style="font-size:12px; margin-top:8px;"></div>
@@ -2226,7 +2385,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubMetering" style="display:none;">
         <div class="tab-hint">Real per-user application usage from Intune-managed Windows devices, agentless via Proactive Remediations. Surfaces "installed but never launched" and "idle 90+ days" candidates for licence reclamation. See <code>scripts/README.md</code> for the collection script. <strong>Privacy:</strong> usernames are reduced to a single initial; no window titles, document names, URLs, or file paths are collected.</div>
 
-        <div id="meteringEmpty" style="display:none; padding:20px 22px; background:#fcf9f4; border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
+        <div id="meteringEmpty" style="display:none; padding:20px 22px; background:var(--row-hover); border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
           <div style="font-weight:600; font-size:14px; margin-bottom:8px;">Software metering not configured for this customer</div>
           <div style="font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:14px;">The metering collection script is a Proactive Remediation that needs to be created in this tenant before this tab has data to show. Deploy it directly from here, or upload <code>scripts/software-metering-detect.ps1</code> manually and paste its script ID into <strong>Settings → Customers</strong>.</div>
           <button class="btn" id="btnMeteringDeploy" style="margin-right:8px;">⚡ Auto-deploy script…</button>
@@ -2472,7 +2631,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope, consent requested on first use).</div>
 
-        <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:#fcf9f4;"></div>
+        <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:var(--row-hover);"></div>
 
         <div style="display:grid; grid-template-columns: 90px 1fr auto; gap:8px; align-items:center;">
           <input type="text" id="customerCodeInput" placeholder="Code" maxlength="4" class="search" style="text-transform:uppercase;">
@@ -2501,7 +2660,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         </select>
       </div>
 
-      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:#fcf9f4;">
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
         <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Choosing a model</div>
         <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
           <strong>Haiku 4.5</strong> is the default — cheapest, fastest, and has its own rate-limit bucket so it won't conflict with other Anthropic API usage. Sufficient for error-code lookup and most MSI logs where the failure is a single obvious stack trace.
@@ -2639,7 +2798,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </label>
           <div id="mdGroupRow" style="padding-left:24px;">
             <input type="text" class="search" id="mdGroupSearch" placeholder="Type to search groups…" style="width:100%;">
-            <div id="mdGroupResults" style="display:none; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:6px; background:white;"></div>
+            <div id="mdGroupResults" style="display:none; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; margin-top:6px; background:var(--card);"></div>
             <div id="mdGroupSelected" style="display:none; margin-top:6px; padding:6px 10px; background:var(--accent-soft); border-radius:6px; font-size:12px;"></div>
           </div>
           <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
@@ -5824,8 +5983,8 @@ function renderHwDonut() {
   $('hwDonut').innerHTML = `
     <svg width="140" height="140" viewBox="0 0 140 140">
       ${segments}
-      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)" font-family="Inter, sans-serif">${scope.length}</text>
-      <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="var(--muted)" font-family="Inter, sans-serif" letter-spacing="1.4">DEVICES</text>
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" font-weight="800" fill="var(--ink)" font-family="Hanken Grotesk, sans-serif">${scope.length}</text>
+      <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="var(--muted)" font-family="Hanken Grotesk, sans-serif" letter-spacing="1.4">DEVICES</text>
     </svg>`;
   $('hwDonutLegend').innerHTML = buckets.map((b, i) => `
     <div class="breakdown-row">
