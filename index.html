@@ -97,7 +97,20 @@
     opacity: .03;
   }
   .container { max-width: 2100px; margin: 0 auto; padding: 40px 32px; position: relative; z-index: 1; }
-  #themeToggle:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .theme-toggle {
+    position: fixed; top: 16px; right: 16px; z-index: 300;
+    width: 44px; height: 44px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
+    cursor: pointer; box-shadow: var(--shadow-sm);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .theme-toggle:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  /* When docked inside the auth-bar pill, become an inline round icon — one unified control. */
+  .auth-bar .theme-toggle {
+    position: static; z-index: auto; width: 32px; height: 32px;
+    border-radius: 999px; box-shadow: none;
+  }
 
   .eyebrow {
     color: var(--accent);
@@ -543,7 +556,7 @@
   .auth-bar {
     position: fixed;
     top: 16px;
-    right: 72px;
+    right: 16px;
     z-index: 100;
     display: flex;
     align-items: center;
@@ -837,8 +850,7 @@
 </head>
 <body>
 
-<button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark / light"
-  style="position:fixed; top:16px; right:16px; z-index:300; width:44px; height:44px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink-2); cursor:pointer; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, color .15s, border-color .15s;"></button>
+<button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark / light"></button>
 <script>
   (function () {
     var btn = document.getElementById('themeToggle');
@@ -3379,6 +3391,18 @@ function switchTab(tab) {
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
+  placeThemeToggle();
+}
+
+// Dock the theme toggle inside the auth-bar pill when that pill is on screen
+// (signed-in Intune view); otherwise let it float in the top-right corner.
+function placeThemeToggle() {
+  const t = $('themeToggle');
+  const bar = document.querySelector('#intuneSignedIn .auth-bar');
+  const visible = bar && !document.documentElement.classList.contains('locked')
+    && $('viewIntune').style.display !== 'none';
+  const host = visible ? bar : document.body;
+  if (t.parentNode !== host) host.appendChild(t);
 }
 
 // --- MSAL ---
@@ -3455,6 +3479,7 @@ $('btnSignOut').addEventListener('click', async () => {
   document.documentElement.classList.add('locked'); // back to the gate
   $('intuneSignedIn').style.display = 'none';
   $('intuneSignedOut').style.display = '';
+  placeThemeToggle();
 });
 
 function onSignedIn(account) {
@@ -3462,6 +3487,7 @@ function onSignedIn(account) {
   $('intuneSignedOut').style.display = 'none';
   $('intuneSignedIn').style.display = '';
   $('userName').textContent = account.name || account.username;
+  placeThemeToggle();
   renderCustomerSwitcher();
   loadOverview();
 }
