@@ -106,6 +106,8 @@
     transition: background .15s, color .15s, border-color .15s;
   }
   .theme-toggle:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  /* No theme toggle on the sign-in gate (front page). */
+  html.locked .theme-toggle { display: none; }
   /* When docked inside the auth-bar pill, become an inline round icon — one unified control. */
   .auth-bar .theme-toggle {
     position: static; z-index: auto; width: 32px; height: 32px;
@@ -623,8 +625,9 @@
   /* "Microsoft Intune" is the H1; the tagline below is the H2 subhead. */
   .signin-eyebrow {
     display: block;
-    color: #fff; font-size: clamp(180px, 18vw, 240px); font-weight: 800;
-    letter-spacing: -0.03em; line-height: 0.92;
+    color: var(--accent); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    margin-bottom: 4px;
   }
   .signin-brand-title { font-size: 19px; font-weight: 600; color: rgba(255,255,255,.82); letter-spacing: -0.005em; line-height: 1.32; margin: 12px 0 12px; }
   .signin-brand-sub { color: rgba(255,255,255,.66); font-size: 14px; line-height: 1.55; margin: 0 0 26px; max-width: 48ch; }
