@@ -543,7 +543,7 @@
   .auth-bar {
     position: fixed;
     top: 16px;
-    right: 16px;
+    right: 72px;
     z-index: 100;
     display: flex;
     align-items: center;
@@ -607,13 +607,13 @@
     background-image: var(--grain); opacity: .08; mix-blend-mode: overlay;
   }
   .signin-brand > * { position: relative; z-index: 1; }
+  /* "Microsoft Intune" is the H1; the tagline below is the H2 subhead. */
   .signin-eyebrow {
-    display: inline-flex; align-items: center; gap: 10px;
-    color: var(--accent); font-size: 11px; font-weight: 700;
-    letter-spacing: 0.16em; text-transform: uppercase;
+    display: block;
+    color: #fff; font-size: clamp(180px, 18vw, 240px); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 0.92;
   }
-  .signin-eyebrow::after { content: ''; width: 46px; height: 1px; background: var(--accent); opacity: .5; }
-  .signin-brand-title { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin: 13px 0 10px; }
+  .signin-brand-title { font-size: 19px; font-weight: 600; color: rgba(255,255,255,.82); letter-spacing: -0.005em; line-height: 1.32; margin: 12px 0 12px; }
   .signin-brand-sub { color: rgba(255,255,255,.66); font-size: 14px; line-height: 1.55; margin: 0 0 26px; max-width: 48ch; }
   .signin-covers-label { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,.4); margin-bottom: 15px; }
   /* Dense capability grid — name + one-line description, two columns */
@@ -838,7 +838,7 @@
 <body>
 
 <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark / light"
-  style="position:fixed; top:16px; right:18px; z-index:300; width:40px; height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink-2); cursor:pointer; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, color .15s, border-color .15s;"></button>
+  style="position:fixed; top:16px; right:16px; z-index:300; width:44px; height:44px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink-2); cursor:pointer; box-shadow:var(--shadow-sm); display:flex; align-items:center; justify-content:center; transition:background .15s, color .15s, border-color .15s;"></button>
 <script>
   (function () {
     var btn = document.getElementById('themeToggle');
