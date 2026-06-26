@@ -331,6 +331,7 @@
   .badge-both { background: #e8f5e9; color: #2f7d3a; }
   .badge-hklm { background: #eef0f3; color: #4a5568; }
   .badge-hkcu { background: #fdf1e3; color: #b86b2f; }
+  .subtab-badge { display:inline-block; min-width:16px; padding:1px 5px; border-radius:8px; font-size:10px; font-weight:700; line-height:1.4; text-align:center; background:#c0392b; color:#fff; margin-left:5px; vertical-align:middle; }
   .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
   .footer-count { padding: 14px 24px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); background: var(--bg); }
 
@@ -1086,7 +1087,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div class="subtabs">
         <button class="subtab active" data-subtab="overview">Overview</button>
         <button class="subtab" data-subtab="installed">Installed</button>
-        <button class="subtab" data-subtab="approvals">Approvals</button>
+        <button class="subtab" data-subtab="approvals">Approvals <span id="approvalsBadge" class="subtab-badge" style="display:none;"></span></button>
         <button class="subtab" data-subtab="failed">Failed Install</button>
         <button class="subtab" data-subtab="required">Required Install</button>
         <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
@@ -3493,6 +3494,7 @@ function onSignedIn(account) {
   placeThemeToggle();
   renderCustomerSwitcher();
   loadOverview();
+  refreshApprovalsBadge(); // background — badge shows pending count without opening the tab
 }
 
 // ============================================================
@@ -3763,6 +3765,7 @@ function resetTenantState() {
   assignmentsSelectedGroup = null;
   // Approvals
   approvalsLoaded = false; approvalsRaw = [];
+  const _ab = $('approvalsBadge'); if (_ab) _ab.style.display = 'none';
   // Autopilot
   autopilotLoaded = false; autopilotRows = [];
   // BitLocker
@@ -3911,6 +3914,7 @@ async function graphGet(path, opts = {}) {
     const err = new Error('Graph ' + res.status + ': ' + bodyText);
     err.status = res.status;
     err.body = bodyText;
+    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
     throw err;
   }
   return res.json();
@@ -3930,6 +3934,7 @@ async function graphPost(path, body, opts = {}) {
     const err = new Error('Graph ' + res.status + ': ' + bodyText);
     err.status = res.status;
     err.body = bodyText;
+    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
     throw err;
   }
   // Some action endpoints (e.g. .../assign) return 204 No Content with an empty body.
@@ -3954,6 +3959,7 @@ async function graphPatch(path, body, opts = {}) {
     const err = new Error('Graph ' + res.status + ': ' + bodyText);
     err.status = res.status;
     err.body = bodyText;
+    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
     throw err;
   }
   if (res.status === 204) return null;
@@ -3975,6 +3981,7 @@ async function graphDelete(path, opts = {}) {
   const err = new Error('Graph ' + res.status + ': ' + body);
   err.status = res.status;
   err.body = body;
+  if (/x-msft-approval-justification/.test(body)) err.isMaa = true;
   throw err;
 }
 
@@ -8033,7 +8040,7 @@ async function confirmMeteringDeploy() {
       try {
         return { kind: 'ok', data: await graphPost(path, body, { token: writeToken }) };
       } catch (e) {
-        if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
+        if (e.isMaa || (e.status === 400 && /x-msft-approval-justification/.test(e.message))) {
           if (!maaJust) {
             maaJust = prompt(`Multi-Admin Approval is required in this tenant. Enter a justification for "${label}" (recorded in the audit log; ≤ 1024 chars):`);
             if (!maaJust) throw new Error('Justification cancelled.');
@@ -8121,7 +8128,7 @@ async function replaceExistingMeteringScript() {
   const original = btn.textContent;
   btn.textContent = 'Deleting…';
   try {
-    await graphDelete(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`, { token: await ensureMeteringWriteConsent() });
+    await deleteWithMaa(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(doomedId)}`, await ensureMeteringWriteConsent(), MD_MODES[mdMode].label);
     mdExistingScriptId = null;
     $('mdConflict').style.display = 'none';
     // Drop the stale GUID locally too — if it happened to match what we
@@ -8344,12 +8351,36 @@ function imeScriptBody() {
 async function imeWrite(doCall) {
   try { return await doCall({}); }
   catch (e) {
-    if (e.status === 400 && /x-msft-approval-justification/.test(e.message)) {
+    if (e.isMaa || (e.status === 400 && /x-msft-approval-justification/.test(e.message))) {
       const just = prompt('Multi-Admin Approval is required in this tenant for this change. Enter a justification (recorded in the audit log; ≤ 1024 chars):');
       if (!just) throw new Error('Justification cancelled.');
       try { return await doCall({ 'x-msft-approval-justification': btoa(just) }); }
       catch (e2) {
         if (e2.status === 412 || e2.status === 409) throw new Error('The change was submitted for Multi-Admin Approval — an admin must approve it under Tenant administration → Multi Admin Approval → Access requests, then run the check-in again.');
+        throw e2;
+      }
+    }
+    throw e;
+  }
+}
+
+// Delete a deviceHealthScript with Multi-Admin Approval handling. First attempt
+// has no justification header; if the tenant requires MAA (400 / isMaa), prompt
+// once and retry. A 412/409 on the retry means the request was queued — surface
+// a clear message so the admin knows to check the MAA queue.
+async function deleteWithMaa(path, token, label) {
+  const attempt = (extraHeaders = {}) => graphDelete(path, { headers: extraHeaders, token });
+  try {
+    return await attempt();
+  } catch (e) {
+    if (e.isMaa || (e.status === 400 && /x-msft-approval-justification/.test(e.message))) {
+      const just = prompt(`Multi-Admin Approval is required in this tenant. Enter a justification for deleting "${label}" (recorded in the audit log; ≤ 1024 chars):`);
+      if (!just) throw new Error('Justification cancelled.');
+      try {
+        return await attempt({ 'x-msft-approval-justification': btoa(just) });
+      } catch (e2) {
+        if (e2.status === 412 || e2.status === 409)
+          throw new Error('The delete was submitted for Multi-Admin Approval — an admin must approve it under Tenant administration → Multi Admin Approval → Access requests.');
         throw e2;
       }
     }
@@ -8622,6 +8653,36 @@ function approvalStatusBadge(status) {
   return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
 }
 
+function updateApprovalsBadge() {
+  const badge = $('approvalsBadge');
+  if (!badge) return;
+  const n = approvalsRaw.filter(r => (r.status || '').toLowerCase() === 'needsapproval').length;
+  if (n > 0) {
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function refreshApprovalsBadge() {
+  if (approvalsLoaded) { updateApprovalsBadge(); return; }
+  const badge = $('approvalsBadge');
+  if (!badge) return;
+  try {
+    const data = await graphGet('beta/deviceManagement/operationApprovalRequests?$top=999');
+    const n = (data.value || []).filter(r => (r.status || '').toLowerCase() === 'needsapproval').length;
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch {
+    badge.style.display = 'none'; // best-effort — don't interrupt sign-in flow
+  }
+}
+
 async function loadApprovals(force = false) {
   if (approvalsLoaded && !force) return;
   $('approvalsLoading').style.display = '';
@@ -8638,6 +8699,7 @@ async function loadApprovals(force = false) {
     }
     approvalsRaw = all;
     approvalsLoaded = true;
+    updateApprovalsBadge();
     populateApprovalsTypeFilter();
     $('approvalsLoading').style.display = 'none';
     $('approvalsContent').style.display = '';
