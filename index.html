@@ -1425,6 +1425,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <span style="cursor:pointer; color:#1f5d33; font-weight:600; font-size:13px; display:none;" id="btnApprovalsApproveSel" title="Approve all selected pending requests">✓ Approve selected</span>
               <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnApprovalsRejectSel" title="Reject all selected pending requests">✗ Reject selected</span>
               <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnApprovalsCancelSel" title="Cancel all selected pending requests">⊘ Cancel selected</span>
+              <span style="cursor:pointer; color:#1f5d33; font-weight:600; font-size:13px; display:none;" id="btnApprovalsCompleteSel" title="Mark all selected approved requests as complete">✔ Complete selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnApprovalsClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnApprovalsRefresh">↻ Refresh</span>
             </div>
@@ -9142,10 +9143,12 @@ function renderApprovalsTable() {
   const sa = $('apSelectAll');
   sa.checked = visibleIds.length > 0 && selVisible.length === visibleIds.length;
   sa.indeterminate = selVisible.length > 0 && selVisible.length < visibleIds.length;
-  const selPending = rows.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval').length;
-  $('btnApprovalsApproveSel').style.display = selPending ? '' : 'none';
-  $('btnApprovalsRejectSel').style.display  = selPending ? '' : 'none';
-  $('btnApprovalsCancelSel').style.display  = selPending ? '' : 'none';
+  const selPending  = rows.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval').length;
+  const selApproved = rows.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'approved').length;
+  $('btnApprovalsApproveSel').style.display  = selPending  ? '' : 'none';
+  $('btnApprovalsRejectSel').style.display   = selPending  ? '' : 'none';
+  $('btnApprovalsCancelSel').style.display   = selPending  ? '' : 'none';
+  $('btnApprovalsCompleteSel').style.display = selApproved ? '' : 'none';
 }
 
 function openApprovalActionModal(id, action) {
@@ -9259,7 +9262,8 @@ $('apSelectAll').addEventListener('change', () => {
 // Bulk actions — operate on the filtered pending selection
 async function bulkApprovalAction(action) {
   const filtered = applyApprovalsFilters(approvalsRaw);
-  const targets = filtered.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval');
+  const targetStatus = action === 'complete' ? 'approved' : 'needsapproval';
+  const targets = filtered.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === targetStatus);
   if (!targets.length) return;
   let just = '';
   if (action !== 'cancel') {
@@ -9298,9 +9302,10 @@ async function bulkApprovalAction(action) {
   loadApprovals(true);
 }
 
-$('btnApprovalsApproveSel').addEventListener('click', () => bulkApprovalAction('approve'));
-$('btnApprovalsRejectSel').addEventListener('click',  () => bulkApprovalAction('reject'));
-$('btnApprovalsCancelSel').addEventListener('click',  () => bulkApprovalAction('cancel'));
+$('btnApprovalsApproveSel').addEventListener('click',  () => bulkApprovalAction('approve'));
+$('btnApprovalsRejectSel').addEventListener('click',   () => bulkApprovalAction('reject'));
+$('btnApprovalsCancelSel').addEventListener('click',   () => bulkApprovalAction('cancel'));
+$('btnApprovalsCompleteSel').addEventListener('click', () => bulkApprovalAction('complete'));
 
 document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
   th.addEventListener('click', () => {
