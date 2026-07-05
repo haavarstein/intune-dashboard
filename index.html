@@ -1168,11 +1168,16 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
 
-        <div class="tiles" style="grid-template-columns: repeat(3, 1fr);">
-          <div class="tile tile-warn">
-            <div class="tile-label">Failed</div>
+        <div class="tiles" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="tile tile-bad">
+            <div class="tile-label">Failing devices</div>
             <div class="tile-value" id="kFailed">0</div>
-            <div class="tile-sub">devices with install failures</div>
+            <div class="tile-sub">no session reports installed</div>
+          </div>
+          <div class="tile tile-watch" title="The app is on these devices (≥1 session reports Installed) — the failure rows are per-user-session reporting noise, not missing installs">
+            <div class="tile-label">Installed w/ stale failures</div>
+            <div class="tile-value" id="kNoise">0</div>
+            <div class="tile-sub">on device — failures are session noise</div>
           </div>
           <div class="tile">
             <div class="tile-label">Unique error codes</div>
@@ -1182,7 +1187,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <div class="tile">
             <div class="tile-label">User failures</div>
             <div class="tile-value" id="kUsers">0</div>
-            <div class="tile-sub">distinct affected users</div>
+            <div class="tile-sub">distinct users on failed rows</div>
           </div>
         </div>
 
@@ -1194,6 +1199,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnRefresh">↻ Refresh</span>
             </div>
           </div>
+          <div id="fiModeHint" style="font-size:12px; color:var(--muted); padding:0 0 10px; line-height:1.5;"></div>
           <table>
             <thead>
               <tr>
@@ -1210,7 +1216,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             </thead>
             <tbody id="failedRows"></tbody>
           </table>
-          <div class="footer-count"><span id="failedCount">0</span> devices</div>
+          <div class="footer-count"><span id="failedCount">0</span></div>
         </div>
       </div>
       </div><!-- /intuneSubFailed -->
@@ -4658,6 +4664,16 @@ async function loadFailed() {
     };
     const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
     failedRows = parseReport(data);
+    // The report is per device+user session; whether "one Installed row means
+    // the app is on the machine" depends on the app's install context. Fetch it
+    // (win32 apps carry installExperience.runAsAccount) — a miss keeps null.
+    fiRunAsAccount = null;
+    try {
+      const appDetail = await graphGet('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(selectedApp.id));
+      fiRunAsAccount = appDetail?.installExperience?.runAsAccount || null;
+    } catch (_) { /* non-blocking — grouped view still works, just labelled as assumed */ }
+    fiGrouped = fiRunAsAccount !== 'user'; // system + unknown → device-scoped verdicts
+    fiExpanded.clear();
     renderFailedKPIs();
     renderFailed();
   } catch (e) {
@@ -4678,10 +4694,62 @@ function parseReport(data) {
   });
 }
 
+// --- Per-user-session status semantics --------------------------------------
+// Intune's report emits one row per device+user pair (every user who signs in
+// gets a status record). For a SYSTEM-context app the install is per-machine,
+// so a single Installed session means the app IS on the device and remaining
+// failure rows are session noise. Report InstallState enum: 1 Installed,
+// 2 Failed, 3 Not installed, 4 Not applicable, 5 Pending.
+let fiRunAsAccount = null;    // 'system' | 'user' | null — from installExperience
+let fiGrouped = true;         // grouped device view (default; user-context apps go flat)
+const fiExpanded = new Set(); // device keys expanded to show per-session rows
+
+const FI_STATE_LABELS = { 1: 'Installed', 2: 'Failed', 3: 'Not installed', 4: 'Not applicable', 5: 'Pending' };
+function fiIsInstalled(r) { return Number(r.InstallState) === 1; }
+function fiIsFailed(r) { return Number(r.InstallState) === 2 || (r.ErrorCode && String(r.ErrorCode) !== '0'); }
+function fiStateLabel(r) { return FI_STATE_LABELS[Number(r.InstallState)] || r.AppInstallState || String(r.InstallState ?? '—'); }
+function fiStateBadge(r) {
+  const c = fiIsInstalled(r) ? { bg: '#e7f6ec', bd: '#a7d7b5', fg: '#1f5d33' }
+    : fiIsFailed(r) ? { bg: '#fdecec', bd: '#f5b5b5', fg: '#8a2020' }
+    : { bg: '#fff8e6', bd: '#f0d090', fg: '#704500' };
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${c.bg}; border:1px solid ${c.bd}; color:${c.fg};">${esc(fiStateLabel(r))}</span>`;
+}
+
+// Fold session rows into one entry per device with an operational verdict.
+function fiGroupDevices(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = r.DeviceId || r.DeviceName || '—';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(r);
+  }
+  return [...map.values()].map(list => {
+    list.sort((a, b) => (b.LastModifiedDateTime || '').localeCompare(a.LastModifiedDateTime || ''));
+    const installed = list.filter(fiIsInstalled).length;
+    const failed = list.filter(fiIsFailed).length;
+    const verdict = installed ? (failed ? 'installedNoise' : 'installed') : (failed ? 'failing' : 'other');
+    return { key: list[0].DeviceId || list[0].DeviceName || '—', rows: list, installed, failed, verdict, latest: list[0] };
+  });
+}
+
+const FI_VERDICTS = {
+  installed:      { label: '🟢 Installed on device', bg: '#e7f6ec', bd: '#a7d7b5', fg: '#1f5d33', rank: 2 },
+  installedNoise: { label: '🟢 Installed on device', bg: '#e7f6ec', bd: '#a7d7b5', fg: '#1f5d33', rank: 1 },
+  failing:        { label: '🔴 Failing', bg: '#fdecec', bd: '#f5b5b5', fg: '#8a2020', rank: 0 },
+  other:          { label: '🟡 No definitive state', bg: '#fff8e6', bd: '#f0d090', fg: '#704500', rank: 3 }
+};
+function fiVerdictBadge(g) {
+  const v = FI_VERDICTS[g.verdict];
+  const suffix = g.verdict === 'installedNoise' ? ` <span style="font-weight:400;">· ${g.failed} stale failure${g.failed === 1 ? '' : 's'}</span>` : '';
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${v.bg}; border:1px solid ${v.bd}; color:${v.fg};">${v.label}${suffix}</span>`;
+}
+
 function renderFailedKPIs() {
-  $('kFailed').textContent = failedRows.length;
-  $('kErrCodes').textContent = new Set(failedRows.map(r => r.ErrorCode).filter(Boolean)).size;
-  $('kUsers').textContent = new Set(failedRows.map(r => r.UserPrincipalName).filter(Boolean)).size;
+  const groups = fiGroupDevices(failedRows);
+  $('kFailed').textContent = groups.filter(g => g.verdict === 'failing').length;
+  $('kNoise').textContent = groups.filter(g => g.verdict === 'installedNoise').length;
+  $('kErrCodes').textContent = new Set(failedRows.filter(fiIsFailed).map(r => r.ErrorCode).filter(Boolean)).size;
+  $('kUsers').textContent = new Set(failedRows.filter(fiIsFailed).map(r => r.UserPrincipalName).filter(Boolean)).size;
 }
 
 function renderFailed() {
@@ -4693,40 +4761,96 @@ function renderFailed() {
         || String(r.ErrorCode || '').includes(q)
         || String(r.HexErrorCode || '').toLowerCase().includes(q);
   });
-  filtered.sort((a, b) => {
-    const va = (a[failedSortKey] ?? '').toString().toLowerCase();
-    const vb = (b[failedSortKey] ?? '').toString().toLowerCase();
-    if (va < vb) return failedSortDir === 'asc' ? -1 : 1;
-    if (va > vb) return failedSortDir === 'asc' ? 1 : -1;
-    return 0;
-  });
+  // Stash flat rows so the AI-analyze click resolves in both view modes
+  window.__failedFiltered = filtered;
+
+  // Mode hint + toggle
+  const ctx = fiRunAsAccount === 'system'
+    ? 'This app installs in <strong>SYSTEM</strong> context'
+    : fiRunAsAccount === 'user' ? 'This app installs in <strong>user</strong> context' : 'Install context unknown — assuming device-scoped';
+  $('fiModeHint').innerHTML = fiGrouped
+    ? `Grouped by device. ${ctx}, so one Installed session means the app is on the machine — Intune records a status row for <em>every user who signs in</em>, which is why a device can show both Installed and Failed. Click ▸ for the per-session rows. <span data-fi-toggle="1" style="cursor:pointer; color:var(--accent); font-weight:600;">Show flat session rows</span>`
+    : `Flat view — one row per device + user session (Intune's native shape). ${ctx}. <span data-fi-toggle="1" style="cursor:pointer; color:var(--accent); font-weight:600;">Group by device</span>`;
 
   const tbody = $('failedRows');
+  const errCellFor = (r) => {
+    const hasErr = r.ErrorCode && String(r.ErrorCode) !== '0';
+    // Index into the stashed array — flat mode re-sorts a copy, so indexOf
+    // must run against the same array the click handler resolves from.
+    return hasErr
+      ? `<td class="err-code err-clickable" data-row-idx="${window.__failedFiltered.indexOf(r)}" title="Click to analyze with AI">${esc(r.ErrorCode)}</td>`
+      : `<td class="err-code">${esc(r.ErrorCode) || '—'}</td>`;
+  };
+  const checkinCell = (r) => `<td style="white-space:nowrap;">${r.DeviceId ? `<span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(r.DeviceId)}" data-ime-name="${esc(r.DeviceName || '')}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span>` : '—'}</td>`;
+
   if (!filtered.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty">No devices found.</td></tr>';
+    $('failedCount').textContent = '0 devices';
+  } else if (fiGrouped) {
+    let groups = fiGroupDevices(filtered);
+    const dir = failedSortDir === 'asc' ? 1 : -1;
+    groups.sort((a, b) => {
+      let va, vb;
+      if (failedSortKey === 'InstallState') { va = FI_VERDICTS[a.verdict].rank; vb = FI_VERDICTS[b.verdict].rank; }
+      else if (failedSortKey === 'UserPrincipalName') { va = a.rows.length; vb = b.rows.length; }
+      else if (failedSortKey === 'ErrorCode') { va = a.failed; vb = b.failed; }
+      else { va = (a.latest[failedSortKey] ?? '').toString().toLowerCase(); vb = (b.latest[failedSortKey] ?? '').toString().toLowerCase(); }
+      if (va < vb) return -dir;
+      if (va > vb) return dir;
+      return (a.latest.DeviceName || '').localeCompare(b.latest.DeviceName || '');
+    });
+    tbody.innerHTML = groups.map(g => {
+      const open = fiExpanded.has(g.key);
+      const latestFail = g.rows.find(fiIsFailed);
+      const primary = `
+      <tr data-fi-device="${esc(g.key)}" style="cursor:pointer;" title="Click to ${open ? 'collapse' : 'expand'} the per-session rows">
+        <td class="app-name"><span style="display:inline-block; width:14px; color:var(--muted);">${open ? '▾' : '▸'}</span>${esc(selectedApp.displayName) || '—'}</td>
+        <td class="version">${esc(g.latest.AppVersion) || '—'}</td>
+        <td><span class="badge platform-badge">${esc(g.latest.Platform) || '—'}</span></td>
+        <td style="font-weight:600;">${esc(g.latest.DeviceName) || '—'}</td>
+        <td class="pub">${g.rows.length} session${g.rows.length === 1 ? '' : 's'} · ${g.installed}✓ ${g.failed}✗</td>
+        <td>${fiVerdictBadge(g)}</td>
+        ${latestFail ? errCellFor(latestFail) : '<td class="err-code">—</td>'}
+        <td class="date">${esc(fmtIntuneDate(g.latest.LastModifiedDateTime))}</td>
+        ${checkinCell(g.latest)}
+      </tr>`;
+      const subs = open ? g.rows.map(r => `
+      <tr style="background:var(--row-hover);">
+        <td></td>
+        <td class="version">${esc(r.AppVersion) || '—'}</td>
+        <td></td>
+        <td style="color:var(--muted); font-size:11px;">↳ session</td>
+        <td class="pub">${esc(r.UserPrincipalName) || '<em>(no user — system)</em>'}</td>
+        <td>${fiStateBadge(r)}</td>
+        ${errCellFor(r)}
+        <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
+        <td></td>
+      </tr>`).join('') : '';
+      return primary + subs;
+    }).join('');
+    $('failedCount').textContent = `${groups.length} device${groups.length === 1 ? '' : 's'} · ${filtered.length} session rows`;
   } else {
-    tbody.innerHTML = filtered.map((r, i) => {
-      const hasErr = r.ErrorCode && String(r.ErrorCode) !== '0';
-      const errCell = hasErr
-        ? `<td class="err-code err-clickable" data-row-idx="${i}" title="Click to analyze with AI">${esc(r.ErrorCode)}</td>`
-        : `<td class="err-code">${esc(r.ErrorCode) || '—'}</td>`;
-      return `
+    filtered = filtered.slice().sort((a, b) => {
+      const va = (a[failedSortKey] ?? '').toString().toLowerCase();
+      const vb = (b[failedSortKey] ?? '').toString().toLowerCase();
+      if (va < vb) return failedSortDir === 'asc' ? -1 : 1;
+      if (va > vb) return failedSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    tbody.innerHTML = filtered.map(r => `
       <tr>
         <td class="app-name">${esc(selectedApp.displayName) || '—'}</td>
         <td class="version">${esc(r.AppVersion) || '—'}</td>
         <td><span class="badge platform-badge">${esc(r.Platform) || '—'}</span></td>
         <td>${esc(r.DeviceName) || '—'}</td>
         <td class="pub">${esc(r.UserPrincipalName) || '—'}</td>
-        <td>${esc(r.InstallState) || '—'}</td>
-        ${errCell}
+        <td>${fiStateBadge(r)}</td>
+        ${errCellFor(r)}
         <td class="date">${esc(fmtIntuneDate(r.LastModifiedDateTime))}</td>
-        <td style="white-space:nowrap;">${r.DeviceId ? `<span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(r.DeviceId)}" data-ime-name="${esc(r.DeviceName || '')}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span>` : '—'}</td>
-      </tr>`;
-    }).join('');
-    // Stash filtered rows so click handler can find the right record
-    window.__failedFiltered = filtered;
+        ${checkinCell(r)}
+      </tr>`).join('');
+    $('failedCount').textContent = `${filtered.length} session rows`;
   }
-  $('failedCount').textContent = filtered.length;
 
   document.querySelectorAll('#failedView thead th').forEach(th => {
     th.classList.remove('sort-asc', 'sort-desc');
@@ -4746,6 +4870,22 @@ function fmtIntuneDate(iso) {
 }
 
 $('failedFilter').addEventListener('input', renderFailed);
+
+// Grouped view: click a device row to expand/collapse its per-session rows.
+// Error-code and ⚡ Check-in clicks pass through to their own handlers.
+$('failedRows').addEventListener('click', e => {
+  if (e.target.closest('.err-clickable') || e.target.closest('[data-ime-checkin]')) return;
+  const tr = e.target.closest('[data-fi-device]');
+  if (!tr) return;
+  const key = tr.dataset.fiDevice;
+  if (fiExpanded.has(key)) fiExpanded.delete(key); else fiExpanded.add(key);
+  renderFailed();
+});
+$('fiModeHint').addEventListener('click', e => {
+  if (!e.target.closest('[data-fi-toggle]')) return;
+  fiGrouped = !fiGrouped;
+  renderFailed();
+});
 
 document.querySelectorAll('#failedView thead th').forEach(th => {
   th.addEventListener('click', () => {
