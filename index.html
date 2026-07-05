@@ -9174,8 +9174,9 @@ async function executeApprovalComplete(r, justification, approvalToken) {
 
   const types = (req.requiredOperationApprovalPolicyTypes || []).map(t => t.toLowerCase()).join(' ');
 
-  // Probe every plausible field name Graph might use for the target device
-  const deviceId = op.deviceId || op.managedDeviceId || op.resourceId || op.id
+  // payloadId is the managed device ID; payloadType confirms it's a device op
+  const deviceId = req.payloadId
+    || op.deviceId || op.managedDeviceId || op.resourceId || op.id
     || req.deviceId || req.managedDeviceId || null;
 
   // Log the full request structure — copy from browser console to report
@@ -9194,17 +9195,19 @@ async function executeApprovalComplete(r, justification, approvalToken) {
     );
   }
 
+  // actionName/payload give clean "Wipe"/"Retire"/"Delete"; fall back to policy type string
+  const action = (req.actionName || req.payload || '').toLowerCase();
   const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
-  if (/wipe/.test(types)) {
+  if (action === 'wipe' || /wipe/.test(types)) {
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
       { keepEnrollmentData: false, keepUserData: false }, { token: devToken });
-  } else if (/retire/.test(types)) {
+  } else if (action === 'retire' || /retire/.test(types)) {
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
       {}, { token: devToken });
-  } else if (/delete/.test(types)) {
+  } else if (action === 'delete' || /delete/.test(types)) {
     await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId), { token: devToken });
   } else {
-    throw new Error(`Device ID found (${deviceId}) but unknown operation type: "${types}". Check browser console.`);
+    throw new Error(`Device ID found (${deviceId}) but unknown operation type: action="${action}" types="${types}".`);
   }
 }
 
