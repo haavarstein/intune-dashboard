@@ -234,7 +234,7 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines (including negative and HRESULT-style decimal error codes) and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
 - **Size guard** — the prompt is capped under the model's 200k-token context. If a log is still too big after trimming, it is re-trimmed with tighter context (±3 lines), and as a last resort the oldest entries are dropped — the newest activity (usually the failure under investigation) is always kept. The status line tells you when this happens.
-- **Haiku 4.5 by default** — cheapest, fastest, separate rate-limit bucket. Switch to Sonnet 4.6 in Settings for tougher logs.
+- **Haiku 4.5 by default** — cheapest, fastest, separate rate-limit bucket. Switch to Sonnet 5 in Settings for tougher logs.
 - **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
 - **Session cost pill** — a small counter in the bottom-right shows total spend and call count for the current browser session across both error-code and log analyses. Click to reset. Resets automatically when the tab closes.
 
@@ -378,10 +378,11 @@ Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the s
 | Model | Price (per MTok) | Approx. cost per click | Good for |
 | --- | --- | --- | --- |
 | Haiku 4.5 *(default)* | $1 / $5 | ~$0.0025 | Most triage; cheapest, separate rate-limit bucket |
-| Sonnet 4.6 | $3 / $15 | ~$0.0075 | Escalate for longer logs or harder root-cause work |
-| Opus 4.7 | $5 / $25 | ~$0.0125 | Reserve for stuck cases |
+| Sonnet 5 | $3 / $15 *($2 / $10 intro through Aug 2026)* | ~$0.0075 | Escalate for longer logs or harder root-cause work |
+| Opus 4.8 | $5 / $25 | ~$0.0125 | Reserve for stuck cases |
+| Fable 5 | $10 / $50 | ~$0.025 | Anthropic's most capable model — last resort for the gnarliest logs |
 
-**A note on model choice.** Haiku 4.5 is the default for everything — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 4.6** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise. Reserve **Opus 4.7** for cases where Sonnet gives up; its new tokenizer uses up to 35% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
+**A note on model choice.** Haiku 4.5 is the default for everything — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 5** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise (and it's on $2/$10 introductory pricing through August 2026). Reserve **Opus 4.8** for cases where Sonnet gives up; the Opus 4.7+ tokenizer uses ~30% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. **Fable 5** sits above Opus at 2× the price with higher latency — a last resort for logs nothing else can untangle. (Previously saved Sonnet 4.6 / Opus 4.7 selections keep working — both models are still served — but the picker now offers the current generation.) The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
 
 **Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com` (Anthropic keys) or `openrouter.ai` (OpenRouter keys). Either way **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 

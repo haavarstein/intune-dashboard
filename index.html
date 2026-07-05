@@ -2798,8 +2798,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a model based on cost vs. depth of analysis. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
         <select id="claudeModel" class="search" style="width:100%; cursor:pointer;">
           <option value="claude-haiku-4-5-20251001" selected>Haiku 4.5 — $1/$5 per MTok — ~$0.0025/click — recommended default</option>
-          <option value="claude-sonnet-4-6">Sonnet 4.6 — $3/$15 per MTok — ~$0.0075/click — deeper reasoning</option>
-          <option value="claude-opus-4-7">Opus 4.7 — $5/$25 per MTok — ~$0.0125/click — reserve for stuck cases</option>
+          <option value="claude-sonnet-5">Sonnet 5 — $3/$15 per MTok ($2/$10 intro thru Aug 2026) — ~$0.0075/click — deeper reasoning</option>
+          <option value="claude-opus-4-8">Opus 4.8 — $5/$25 per MTok — ~$0.0125/click — reserve for stuck cases</option>
+          <option value="claude-fable-5">Fable 5 — $10/$50 per MTok — ~$0.025/click — most capable, slower</option>
         </select>
       </div>
 
@@ -2809,8 +2810,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <strong>Haiku 4.5</strong> is the default — cheapest, fastest, and has its own rate-limit bucket so it won't conflict with other Anthropic API usage. Sufficient for error-code lookup and most MSI logs where the failure is a single obvious stack trace.
           <ul style="margin:8px 0 0; padding-left:18px;">
             <li><strong>Haiku 4.5</strong> — default. Most error codes and routine logs.</li>
-            <li><strong>Sonnet 4.6</strong> — escalate when Haiku misses something. Better at correlating timestamps across long IME logs and isolating root cause from noise.</li>
-            <li><strong>Opus 4.7</strong> — reserve for cases where Sonnet gives up. New tokenizer uses up to 35% more tokens, so effective cost gap is wider than headline pricing.</li>
+            <li><strong>Sonnet 5</strong> — escalate when Haiku misses something. Better at correlating timestamps across long IME logs and isolating root cause from noise. Intro pricing ($2/$10) through Aug 2026.</li>
+            <li><strong>Opus 4.8</strong> — reserve for cases where Sonnet gives up. The Opus 4.7+ tokenizer uses ~30% more tokens for the same text, so the effective cost gap is wider than headline pricing.</li>
+            <li><strong>Fable 5</strong> — Anthropic's most capable model, at 2× Opus pricing and higher latency. Last resort for logs nothing else can untangle.</li>
           </ul>
           <div style="margin-top:8px;">Biggest cost lever: <strong>auto-trim logs before sending</strong> — grep for error/return-value lines + surrounding context cuts input tokens 80%+ with no quality loss.</div>
         </div>
@@ -5457,6 +5459,10 @@ function renderAnalysis(text, opts) {
 // separate setting. Returns { text, inputTokens, outputTokens }.
 const OPENROUTER_MODELS = {
   'claude-haiku-4-5-20251001': 'anthropic/claude-haiku-4.5',
+  'claude-sonnet-5': 'anthropic/claude-sonnet-5',
+  'claude-opus-4-8': 'anthropic/claude-opus-4.8',
+  'claude-fable-5': 'anthropic/claude-fable-5',
+  // Legacy — no longer in the picker, but previously saved settings may still reference them
   'claude-sonnet-4-6': 'anthropic/claude-sonnet-4.6',
   'claude-opus-4-7': 'anthropic/claude-opus-4.7'
 };
@@ -5561,8 +5567,12 @@ Be specific to Intune. No preamble.`;
 // --- Analyze tab: log file analysis ---
 const IME_LOG_PATH = 'C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs';
 const MODEL_PRICING = {
-  'claude-sonnet-4-6':         { in: 3, out: 15 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5 },
+  'claude-sonnet-5':           { in: 3, out: 15 }, // intro $2/$10 thru Aug 2026 — standard rate used so estimates stay conservative
+  'claude-opus-4-8':           { in: 5, out: 25 },
+  'claude-fable-5':            { in: 10, out: 50 },
+  // Legacy — keeps cost tracking working for previously saved settings
+  'claude-sonnet-4-6':         { in: 3, out: 15 },
   'claude-opus-4-7':           { in: 5, out: 25 }
 };
 function estimateCost(model, inTok, outTok) {
