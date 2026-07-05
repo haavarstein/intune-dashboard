@@ -10561,6 +10561,7 @@ async function deleteSelectedCerthealthDevices() {
 
 // Remote wipe the selected devices. POST managedDevices/{id}/wipe triggers a
 // factory reset; the device record stays in Intune (unlike delete/retire).
+// MAA tenants: same prompt→retry→queue pattern as deleteSelectedCerthealthDevices.
 async function wipeSelectedCerthealthDevices() {
   const targets = certhealthRows.filter(r => chSelected.has(r.id));
   if (!targets.length) return;
@@ -10581,23 +10582,89 @@ async function wipeSelectedCerthealthDevices() {
     return;
   }
 
-  const succeeded = [], failed = [];
+  let maaJustB64 = null;
+  let maaJust = null;
+  let cancelled = false;
+  const succeeded = [], queued = [], failed = [];
   for (let i = 0; i < targets.length; i++) {
     const r = targets[i];
     btn.textContent = `⚠ Wiping ${i + 1}/${targets.length}…`;
+    const attempt = (extraHeaders = {}) => graphPost(
+      'beta/deviceManagement/managedDevices/' + encodeURIComponent(r.id) + '/wipe',
+      { keepEnrollmentData: false, keepUserData: false },
+      { token, headers: extraHeaders }
+    );
     try {
-      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(r.id) + '/wipe', { keepEnrollmentData: false, keepUserData: false }, { token });
+      await attempt(maaJustB64 ? { 'x-msft-approval-justification': maaJustB64 } : {});
       succeeded.push(r);
     } catch (e) {
-      failed.push({ r, error: e.message || String(e) });
+      if (e.isMaa && !maaJustB64) {
+        const just = prompt(`Multi-Admin Approval is required. Enter justification for wiping ${targets.length === 1 ? `"${r.deviceName}"` : `these ${targets.length} devices`} (recorded in the audit log; ≤ 1024 chars):`);
+        if (!just) { cancelled = true; break; }
+        maaJust = just;
+        maaJustB64 = btoa(String.fromCharCode(...new TextEncoder().encode(just)));
+        try {
+          await attempt({ 'x-msft-approval-justification': maaJustB64 });
+          succeeded.push(r);
+        } catch (e2) {
+          if (e2.status === 412 || e2.status === 409) queued.push(r);
+          else failed.push({ r, error: e2.message || String(e2) });
+        }
+      } else if (e.status === 412 || e.status === 409) {
+        queued.push(r);
+      } else {
+        failed.push({ r, error: e.message || String(e) });
+      }
     }
   }
 
+  const skipped = targets.length - succeeded.length - queued.length - failed.length;
   const parts = [];
   if (succeeded.length) parts.push(`✓ Wipe issued to ${succeeded.length}: ${succeeded.map(r => r.deviceName || r.id).join(', ')}`);
+  if (queued.length) parts.push(`⏳ ${queued.length} submitted for Multi-Admin Approval — approve under Tenant administration → Multi Admin Approval: ${queued.map(r => r.deviceName || r.id).join(', ')}`);
   if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => `${f.r.deviceName || f.r.id} (${f.error})`).join('; ')}`);
-  const cls = failed.length ? 'error-banner' : 'notice-banner';
+  if (skipped > 0) parts.push(`${cancelled ? 'Justification cancelled — ' : ''}${skipped} device${skipped === 1 ? '' : 's'} not attempted.`);
+  const cls = (failed.length || cancelled) ? 'error-banner' : 'notice-banner';
   $('certhealthError').innerHTML = parts.length ? `<div class="${cls}">${parts.map(p => esc(p)).join('<br>')}</div>` : '';
+
+  if (queued.length) {
+    try {
+      const account = msalApp && msalApp.getActiveAccount();
+      const upn = (account?.username || '').toLowerCase();
+      const allCustomers = loadCustomers();
+      const customer = allCustomers.find(c => (c.email || '').toLowerCase() === upn) || null;
+      const approvers = (customer && customer.approvers) || [];
+      if (approvers.length) {
+        const mailToken = await ensureScopeToken('Mail.Send');
+        const deviceList = queued.map(r => `<li style="margin:2px 0;">${esc(r.deviceName || r.id)} <span style="font-family:ui-monospace,monospace;font-size:11px;color:#888;">${esc(r.id)}</span></li>`).join('');
+        const mailHtml = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;max-width:640px;">
+          <h2 style="margin:0 0 12px 0;font-size:18px;">Intune device wipe needs approval</h2>
+          <p>An Intune admin has submitted a remote wipe for ${queued.length === 1 ? 'a device' : `${queued.length} devices`}. Multi-admin approval is required — a second admin must approve before the wipe executes.</p>
+          <table style="border-collapse:collapse;margin:16px 0;font-size:14px;">
+            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Requester</strong></td><td style="padding:6px 0;">${esc(account?.name || upn)} &lt;${esc(upn)}&gt;</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Customer</strong></td><td style="padding:6px 0;">${customer ? esc(customer.code) : '—'}</td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#555;vertical-align:top;"><strong>Device${queued.length === 1 ? '' : 's'}</strong></td><td style="padding:6px 0;"><ul style="margin:0;padding-left:18px;">${deviceList}</ul></td></tr>
+            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Submitted</strong></td><td style="padding:6px 0;">${esc(new Date().toISOString())}</td></tr>
+          </table>
+          ${maaJust ? `<h3 style="margin:18px 0 6px 0;font-size:14px;">Justification</h3><blockquote style="margin:0;padding:12px 16px;background:#f5f3ee;border-left:3px solid #888;font-size:14px;white-space:pre-wrap;">${esc(maaJust)}</blockquote>` : ''}
+          <p style="margin-top:24px;"><a href="${MAA_BLADE_URL}" style="display:inline-block;background:#0b57a4;color:#ffffff;padding:11px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Review this request in Intune →</a></p>
+          <p style="font-size:12px;color:#555;">Find the pending request under Tenant administration → Multi Admin Approval → Access requests.</p>
+          <p style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#888;">Sent automatically by THE Intune Dashboard at the moment the wipe was submitted.</p>
+        </div>`;
+        const mailMsg = { message: {
+          subject: `[Intune MAA] Device wipe needs approval: ${queued.length === 1 ? (queued[0].deviceName || queued[0].id) : `${queued.length} devices`}`,
+          body: { contentType: 'HTML', content: mailHtml },
+          toRecipients: approvers.map(a => ({ emailAddress: { address: a } }))
+        }, saveToSentItems: true };
+        const mailRes = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + mailToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify(mailMsg)
+        });
+        logMailAttempt({ kind: 'device-wipe-maa', customer: customer?.code, approvers, result: mailRes.ok ? 'sent' : 'failed' });
+      }
+    } catch (_) { /* non-blocking */ }
+  }
 
   btn.style.pointerEvents = '';
   renderCerthealthTable();
