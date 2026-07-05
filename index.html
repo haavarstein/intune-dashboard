@@ -2772,7 +2772,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Customers</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope, consent requested on first use).</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">For MSPs managing multiple tenants. Add each customer with a short code (2–3 letters) — the code is what shows in the dashboard's tenant dropdown so customer names stay off your screenshots. Only the code, the login email, an optional approver list, and optional remediation script IDs (Software Metering and IME Required App Check-in) are stored; no tokens. The dropdown appears once you've added two or more. When you submit a delete on a Multi-Admin-Approval tenant, the dashboard emails the approver list from your own mailbox (uses the <code>Mail.Send</code> scope, consent requested on first use) — so the signed-in account needs an Exchange Online mailbox. Use <strong>✉ Send test</strong> next to an approver list to verify the mail path without deleting anything.</div>
 
         <div id="customersList" style="border:1px solid var(--line); border-radius:8px; margin-bottom:12px; background:var(--row-hover);"></div>
 
@@ -2785,6 +2785,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <input type="text" id="customerMeteringIdInput" placeholder="Software metering script ID — GUID from Intune (optional)" class="search" style="width:100%; margin-top:8px; font-family:ui-monospace, monospace;">
         <input type="text" id="customerImeIdInput" placeholder="IME Required App Check-in script ID — GUID from Intune (optional)" class="search" style="width:100%; margin-top:8px; font-family:ui-monospace, monospace;">
         <div id="customerAddStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+        <div id="mailLogBox"></div>
       </div>
 
       <div>
@@ -3583,12 +3584,23 @@ function renderCustomersList() {
   const box = $('customersList');
   if (!customers.length) {
     box.innerHTML = `<div class="meta" style="padding:14px 16px; font-size:12px;">No customers configured. Add one below.</div>`;
+    renderMailLog();
     return;
   }
-  box.innerHTML = customers.map((c, i) => {
+  // Duplicate login emails break the UPN → customer match: the first match
+  // wins, so MAA notifications may use the wrong approver list.
+  const emailCounts = {};
+  customers.forEach(c => { const e2 = (c.email || '').toLowerCase(); if (e2) emailCounts[e2] = (emailCounts[e2] || 0) + 1; });
+  const dups = Object.keys(emailCounts).filter(k => emailCounts[k] > 1);
+  const dupWarning = dups.length
+    ? `<div style="padding:10px 14px; border-bottom:1px solid var(--line); background:#fff7e6; color:#704500; font-size:12px;">⚠ Multiple customers share the login email ${dups.map(d => `<strong>${esc(d)}</strong>`).join(', ')}. MAA notifications match the signed-in account to the <em>first</em> customer with that email, so the wrong approver list may be used — give each customer a unique login email.</div>`
+    : '';
+  box.innerHTML = dupWarning + customers.map((c, i) => {
     const approvers = c.approvers || [];
     const approverLine = approvers.length
-      ? `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2);" title="Click to edit">📧 ${approvers.length} approver${approvers.length === 1 ? '' : 's'} — ${esc(approvers.join(', '))}</span>`
+      ? `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--ink-2);" title="Click to edit">📧 ${approvers.length} approver${approvers.length === 1 ? '' : 's'} — ${esc(approvers.join(', '))}</span>
+         <span data-test-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--accent); font-weight:600; margin-left:8px;" title="Send a test notification to these approvers from your mailbox — same Graph path as the real MAA email (requires sign-in; Mail.Send consent on first use)">✉ Send test</span>
+         <span id="testStatus_${esc(c.code)}" style="margin-left:6px;"></span>`
       : `<span data-customer-approvers="${esc(c.code)}" style="cursor:pointer; color:var(--muted);" title="Click to add">📧 No approvers (click to add)</span>`;
     const meteringId = c.meteringScriptId || '';
     const meteringLine = meteringId
@@ -3611,6 +3623,43 @@ function renderCustomersList() {
     </div>
   `;
   }).join('');
+  renderMailLog();
+}
+
+// Send a test approver notification through the exact same Graph path as a
+// real MAA submission, so the mail pipeline can be verified without deleting
+// anything. Surfaces the mapped error inline on failure.
+async function testApprovers(code) {
+  const customer = loadCustomers().find(c => c.code === code);
+  const approvers = (customer && customer.approvers) || [];
+  const status = $('testStatus_' + code);
+  if (!approvers.length || !status) return;
+  const account = msalApp && msalApp.getActiveAccount();
+  if (!account) {
+    status.innerHTML = `<span style="color:#8a2020;">Sign in first — the test email sends from your mailbox.</span>`;
+    return;
+  }
+  status.textContent = 'Sending…';
+  const upn = (account.username || '').toLowerCase();
+  try {
+    await sendApprovalNotification({
+      test: true,
+      app: { displayName: '(test — no app)', id: '—' },
+      approvalCode: null,
+      justification: 'Test notification triggered from Settings → Customers. No delete was submitted.',
+      approvers,
+      customer,
+      requester: { name: account.name || upn, email: upn }
+    });
+    logMailAttempt({ kind: 'test', customer: code, approvers, result: 'sent' });
+    status.innerHTML = `<span style="color:#1f5d33;">✓ Sent from ${esc(upn)} — check the recipients' inbox (and spam).</span>`;
+  } catch (e) {
+    const raw = e.message || String(e);
+    logMailAttempt({ kind: 'test', customer: code, approvers, result: 'failed', error: raw });
+    const hint = friendlyMailError(raw);
+    status.innerHTML = `<span style="color:#8a2020;">✗ ${esc(hint || raw)}</span>${hint ? `<span style="color:var(--muted); font-size:10px;"> — ${esc(raw.slice(0, 180))}</span>` : ''}`;
+  }
+  renderMailLog();
 }
 
 function editApprovers(code) {
@@ -3847,6 +3896,7 @@ $('customersList').addEventListener('click', e => {
   const ds = e.target.dataset || {};
   if (ds.customerDelete) { deleteCustomer(ds.customerDelete); return; }
   if (ds.customerApprovers) { editApprovers(ds.customerApprovers); return; }
+  if (ds.testApprovers) { testApprovers(ds.testApprovers); return; }
   if (ds.saveApprovers) { saveApprovers(ds.saveApprovers); return; }
   if (ds.cancelApprovers) { renderCustomersList(); return; }
   if (ds.customerMetering) { editMeteringId(ds.customerMetering); return; }
@@ -4003,7 +4053,10 @@ async function graphDelete(path, opts = {}) {
 
 // Microsoft Graph /me/sendMail returns 202 with empty body — use direct fetch
 // since graphPost calls .json() and would throw on the empty response.
-async function sendApprovalNotification({ app, approvalCode, justification, approvers, customer, requester }) {
+// test: true sends a clearly-marked test message through the identical path
+// (same scope, same endpoint) so the mail pipeline can be verified from
+// Settings without submitting a real MAA delete.
+async function sendApprovalNotification({ app, approvalCode, justification, approvers, customer, requester, test = false }) {
   const token = await ensureScopeToken('Mail.Send');
   const customerLine = customer
     ? esc(customer.code)
@@ -4011,10 +4064,14 @@ async function sendApprovalNotification({ app, approvalCode, justification, appr
   const codeBlock = approvalCode
     ? `<tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Approval code</strong></td><td style="padding:6px 0; font-family:ui-monospace,monospace;">${esc(approvalCode)}</td></tr>`
     : '';
+  const intro = test
+    ? `<h2 style="margin:0 0 12px 0; font-size:18px;">Test — Intune MAA approver notifications are working</h2>
+      <p>This is a <strong>test message</strong> sent from THE Intune Dashboard (Settings → Customers) to verify the approver notification path. <strong>No delete request was submitted.</strong> Real notifications will look like this, with the app name, approval code and justification filled in.</p>`
+    : `<h2 style="margin:0 0 12px 0; font-size:18px;">Intune app delete needs approval</h2>
+      <p>An Intune admin has submitted a request to delete an app. This tenant has multi-admin approval enabled, so a second admin must approve the request before Intune executes the delete.</p>`;
   const html = `
     <div style="font-family:Segoe UI, Arial, sans-serif; color:#222; max-width:640px;">
-      <h2 style="margin:0 0 12px 0; font-size:18px;">Intune app delete needs approval</h2>
-      <p>An Intune admin has submitted a request to delete an app. This tenant has multi-admin approval enabled, so a second admin must approve the request before Intune executes the delete.</p>
+      ${intro}
       <table style="border-collapse:collapse; margin:16px 0; font-size:14px;">
         <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Requester</strong></td><td style="padding:6px 0;">${esc(requester.name)} &lt;${esc(requester.email)}&gt;</td></tr>
         <tr><td style="padding:6px 12px 6px 0; color:#555;"><strong>Customer</strong></td><td style="padding:6px 0;">${customerLine}</td></tr>
@@ -4026,13 +4083,17 @@ async function sendApprovalNotification({ app, approvalCode, justification, appr
       </table>
       <h3 style="margin:18px 0 6px 0; font-size:14px;">Justification</h3>
       <blockquote style="margin:0; padding:12px 16px; background:#f5f3ee; border-left:3px solid #888; font-size:14px; white-space:pre-wrap;">${esc(justification)}</blockquote>
-      <p style="margin-top:20px;">Open <a href="https://intune.microsoft.com/">Intune admin center</a> → <strong>Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve or reject it. Once approved, Intune will execute the delete automatically.</p>
-      <p style="margin-top:24px; padding-top:12px; border-top:1px solid #eee; font-size:11px; color:#888;">Sent automatically by THE Intune Dashboard at the moment the delete was submitted. Reply directly to this email to reach the requester.</p>
+      ${test
+        ? `<p style="margin-top:20px;">Nothing to approve — this was only a connectivity test. If you received it, the notification path works.</p>`
+        : `<p style="margin-top:20px;">Open <a href="https://intune.microsoft.com/">Intune admin center</a> → <strong>Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve or reject it. Once approved, Intune will execute the delete automatically.</p>`}
+      <p style="margin-top:24px; padding-top:12px; border-top:1px solid #eee; font-size:11px; color:#888;">Sent automatically by THE Intune Dashboard${test ? '' : ' at the moment the delete was submitted'}. Reply directly to this email to reach the requester.</p>
     </div>
   `;
   const message = {
     message: {
-      subject: `[Intune MAA] App delete needs approval: ${app.displayName || app.id}`,
+      subject: test
+        ? '[Intune MAA] Test — approver notifications are working'
+        : `[Intune MAA] App delete needs approval: ${app.displayName || app.id}`,
       body: { contentType: 'HTML', content: html },
       toRecipients: approvers.map(addr => ({ emailAddress: { address: addr } }))
     },
@@ -4047,6 +4108,54 @@ async function sendApprovalNotification({ app, approvalCode, justification, appr
     const body = await res.text();
     throw new Error('sendMail ' + res.status + ': ' + body);
   }
+}
+
+// Map raw Graph/MSAL send errors to actionable guidance. Returns null when
+// the raw error is the best available story.
+function friendlyMailError(raw) {
+  if (/MailboxNotEnabledForRESTAPI|MailboxNotHostedInExchangeOnline|REST API is not yet supported/i.test(raw))
+    return 'The signed-in account has no Exchange Online mailbox. MAA emails send from your own mailbox, so the account you sign in with needs an Exchange Online license.';
+  if (/popup_window_error|monitor_window_timeout|user_cancelled/i.test(raw))
+    return 'The Mail.Send consent popup was blocked or closed. Allow popups for this site and retry — consent is only needed once.';
+  if (/Consent for Mail\.Send|consent_required|AADSTS65001/i.test(raw))
+    return 'Mail.Send consent was not granted — this tenant may require admin consent for the permission.';
+  if (/ErrorAccessDenied/i.test(raw))
+    return 'Exchange rejected the send (ErrorAccessDenied) — check the mailbox\'s send permissions and OWA policy.';
+  return null;
+}
+
+// Small localStorage audit trail so "the email never arrived" reports are
+// diagnosable after the fact. Rendered under Settings → Customers.
+const MAIL_LOG_KEY = 'maaMailLog';
+function loadMailLog() {
+  try { return JSON.parse(localStorage.getItem(MAIL_LOG_KEY) || '[]'); } catch (_) { return []; }
+}
+function logMailAttempt(entry) {
+  try {
+    const all = loadMailLog();
+    all.unshift({ at: new Date().toISOString(), ...entry });
+    localStorage.setItem(MAIL_LOG_KEY, JSON.stringify(all.slice(0, 10)));
+  } catch (_) { /* quota/parse issues must never block the submit flow */ }
+}
+function renderMailLog() {
+  const box = $('mailLogBox');
+  if (!box) return;
+  const log = loadMailLog();
+  if (!log.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div style="font-weight:600; font-size:12px; margin:12px 0 4px;">✉ Approver notification attempts (last ${log.length})</div>
+    <div style="border:1px solid var(--line); border-radius:8px; background:var(--row-hover); font-size:11px;">
+      ${log.map((l, i) => `
+        <div style="padding:6px 12px; ${i < log.length - 1 ? 'border-bottom:1px solid var(--line);' : ''} display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;">
+          <span class="date" style="white-space:nowrap;">${esc(new Date(l.at).toLocaleString())}</span>
+          <span style="font-weight:600;">${l.kind === 'test' ? 'TEST' : 'MAA'}</span>
+          <span>${esc(l.customer || '—')}</span>
+          <span style="flex:1; color:var(--ink-2); min-width:180px;">→ ${esc((l.approvers || []).join(', '))}</span>
+          ${l.result === 'sent'
+            ? '<span style="color:#1f5d33; font-weight:600;">✓ sent</span>'
+            : `<span style="color:#8a2020; font-weight:600;">✗ ${esc((friendlyMailError(l.error || '') || l.error || 'failed').slice(0, 200))}</span>`}
+        </div>`).join('')}
+    </div>`;
 }
 
 function showIntuneError(msg) {
@@ -5309,7 +5418,8 @@ async function confirmDelete(app, justification) {
       // not block the success panel — the delete request is already submitted server-side.
       const account = msalApp && msalApp.getActiveAccount();
       const upn = (account?.username || '').toLowerCase();
-      const customer = loadCustomers().find(c => (c.email || '').toLowerCase() === upn) || null;
+      const allCustomers = loadCustomers();
+      const customer = allCustomers.find(c => (c.email || '').toLowerCase() === upn) || null;
       const approvers = (customer && customer.approvers) || [];
       let notification = { status: 'none' };
       if (approvers.length) {
@@ -5323,9 +5433,16 @@ async function confirmDelete(app, justification) {
             requester: { name: account?.name || upn, email: upn }
           });
           notification = { status: 'sent', approvers };
+          logMailAttempt({ kind: 'maa', customer: customer.code, approvers, result: 'sent' });
         } catch (mailErr) {
           notification = { status: 'failed', approvers, error: mailErr.message || String(mailErr) };
+          logMailAttempt({ kind: 'maa', customer: customer.code, approvers, result: 'failed', error: notification.error });
         }
+      } else if (!customer && allCustomers.some(c => (c.approvers || []).length)) {
+        // Approvers ARE configured somewhere, but the signed-in UPN didn't
+        // match any customer's login email — say so instead of the misleading
+        // "no approvers configured".
+        notification = { status: 'nomatch', upn };
       }
       renderApprovalSubmitted(app, code, isAlreadyPending, notification);
       return;
@@ -5346,7 +5463,10 @@ function renderApprovalSubmitted(app, code, alreadyPending, notification) {
   if (notification?.status === 'sent') {
     notifBlock = `<div class="notice-banner" style="margin-top:16px;">✓ Notified ${esc(notification.approvers.join(', '))}.</div>`;
   } else if (notification?.status === 'failed') {
-    notifBlock = `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500; margin-top:16px;">⚠ Email notification failed: ${esc(notification.error)}. Notify ${esc(notification.approvers.join(', '))} manually.</div>`;
+    const hint = friendlyMailError(notification.error || '');
+    notifBlock = `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500; margin-top:16px;">⚠ Email notification failed: ${esc(hint || notification.error)}${hint ? `<br><span style="font-size:11px;">${esc(notification.error)}</span>` : ''}<br>Notify ${esc(notification.approvers.join(', '))} manually.</div>`;
+  } else if (notification?.status === 'nomatch') {
+    notifBlock = `<div class="error-banner" style="background:#fff7e6; border-color:#f0d090; color:#704500; margin-top:16px;">⚠ No notification sent: the signed-in account (${esc(notification.upn)}) doesn't match any customer's login email, so the dashboard couldn't pick an approver list. Fix the customer's login email in Settings → Customers, then use ✉ Send test to verify.</div>`;
   } else {
     notifBlock = `<p style="margin-top:16px; color:var(--muted); font-size:12px;">No approvers configured for this customer — set them in Settings → Customers to auto-notify on future submissions.</p>`;
   }
