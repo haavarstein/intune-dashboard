@@ -1094,17 +1094,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="metering">Software Metering</button>
         <button class="subtab" data-subtab="remediation">Remediation</button>
         <button class="subtab" data-subtab="hardware">Hardware</button>
-        <button class="subtab" data-subtab="diskspace">Disk space</button>
-        <button class="subtab" data-subtab="appversions">App versions</button>
+        <button class="subtab" data-subtab="diskspace">Disk Space</button>
+        <button class="subtab" data-subtab="appversions">App Versions</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
-        <button class="subtab" data-subtab="certhealth">Management health</button>
+        <button class="subtab" data-subtab="certhealth">Management Health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
-        <button class="subtab" data-subtab="softdeleted">Soft-deleted</button>
-        <button class="subtab" data-subtab="staleusers">Stale users (P1)</button>
-        <button class="subtab" data-subtab="aiagents">AI agents (P2/E5)</button>
+        <button class="subtab" data-subtab="softdeleted">Soft-Deleted</button>
+        <button class="subtab" data-subtab="staleusers">Stale Users (P1)</button>
+        <button class="subtab" data-subtab="aiagents">AI Agents (P2/E5)</button>
       </div>
 
       <div id="intuneError"></div>
@@ -10607,10 +10607,15 @@ async function wipeSelectedCerthealthDevices() {
           await attempt({ 'x-msft-approval-justification': maaJustB64 });
           succeeded.push(r);
         } catch (e2) {
-          if (e2.status === 412 || e2.status === 409) queued.push(r);
+          // wipe endpoint returns 400+isMaa on first attempt AND (unlike delete)
+          // may still return 400+isMaa on the retry — treat any isMaa response
+          // after justification is provided as "queued for approval".
+          if (e2.status === 412 || e2.status === 409 || e2.isMaa) queued.push(r);
           else failed.push({ r, error: e2.message || String(e2) });
         }
-      } else if (e.status === 412 || e.status === 409) {
+      } else if (e.status === 412 || e.status === 409 || (e.isMaa && maaJustB64)) {
+        // isMaa+justification-already-set: wipe was accepted by MAA but the
+        // endpoint kept returning 400 rather than promoting to 412.
         queued.push(r);
       } else {
         failed.push({ r, error: e.message || String(e) });
