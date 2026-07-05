@@ -1098,7 +1098,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="appversions">App versions</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
-        <button class="subtab" data-subtab="certhealth">Cert health</button>
+        <button class="subtab" data-subtab="certhealth">Management health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
@@ -1813,30 +1813,30 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubBitlocker -->
 
       <div id="intuneSubCerthealth" style="display:none;">
-        <div class="tab-hint">MDM device-cert renewal health. Surfaces Windows devices whose management certificate is expiring, already expired, or whose sync has gone stale relative to the cert lifecycle — the silent drop-off pattern Microsoft's CA rollover triggered in May 2026.</div>
+        <div class="tab-hint">Intune management health, derived from the MDM certificate lifecycle. A Windows device whose management certificate has expired can still look perfectly healthy in the Intune portal — compliant, recently synced, online — while Win32 apps, remediation scripts and every other IME-driven workload silently stop working. This tab translates <code>managementCertificateExpirationDate</code> into that operational signal. Click any status badge for the full assessment.</div>
         <div class="tiles">
           <div class="tile" data-ch-tile="" style="cursor:pointer;" title="Show all devices">
             <div class="tile-label">Windows devices</div>
             <div class="tile-value" id="chTileTotal">0</div>
             <div class="tile-sub">in scope</div>
           </div>
-          <div class="tile tile-warn" data-ch-tile="expiring" style="cursor:pointer;" title="Filter: expiring ≤ 30 days">
-            <div class="tile-label">Expiring</div>
-            <div class="tile-value" id="chTileExpiring">0</div>
-            <div class="tile-sub">≤ 30 days remaining</div>
-          </div>
-          <div class="tile tile-bad" data-ch-tile="expired" style="cursor:pointer;" title="Filter: already expired">
-            <div class="tile-label">Expired</div>
+          <div class="tile tile-bad" data-ch-tile="broken" style="cursor:pointer;" title="Filter: management certificate expired — these devices likely cannot install Win32 apps or run scripts, even if they still check in">
+            <div class="tile-label">Management broken</div>
             <div class="tile-value" id="chTileExpired">0</div>
-            <div class="tile-sub">already past expiry</div>
+            <div class="tile-sub">likely unable to run Win32 apps &amp; scripts</div>
           </div>
-          <div class="tile tile-watch" data-ch-tile="stale" style="cursor:pointer;" title="Filter: stale sync ≥ 14 days">
-            <div class="tile-label">Stale sync</div>
+          <div class="tile tile-warn" data-ch-tile="atrisk" style="cursor:pointer;" title="Filter: certificate expires ≤ 30 days — management will break if renewal fails">
+            <div class="tile-label">At risk</div>
+            <div class="tile-value" id="chTileExpiring">0</div>
+            <div class="tile-sub">cert expires ≤ 30 days</div>
+          </div>
+          <div class="tile tile-watch" data-ch-tile="stale" style="cursor:pointer;" title="Filter: stale sync ≥ 14 days — device not checking in, health unverifiable">
+            <div class="tile-label">Stale</div>
             <div class="tile-value" id="chTileStale">0</div>
             <div class="tile-sub">no check-in ≥ 14 days</div>
           </div>
-          <div class="tile" title="Share of Windows devices with no expiring / expired / stale-sync flag — green ≥ 95%, yellow ≥ 85%, red below">
-            <div class="tile-label">Cert health rate</div>
+          <div class="tile" title="Share of Windows devices with no broken / at-risk / stale flag — green ≥ 95%, yellow ≥ 85%, red below">
+            <div class="tile-label">Management health rate</div>
             <div style="display:flex; align-items:center; gap:14px;">
               <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
                 <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
@@ -1859,8 +1859,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <input type="text" class="search" id="certhealthFilter" placeholder="Search device, user, model…">
               <select class="filter-select" id="certhealthStateFilter">
                 <option value="" selected>All devices</option>
-                <option value="expired">Expired</option>
-                <option value="expiring">Expiring ≤ 30 days</option>
+                <option value="broken">Management broken</option>
+                <option value="atrisk">At risk (≤ 30 days)</option>
                 <option value="stale">Stale sync</option>
                 <option value="healthy">Healthy</option>
               </select>
@@ -1869,7 +1869,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthRefresh">↻ Refresh</span>
             </div>
           </div>
-          <div id="certhealthLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading device cert state…</div>
+          <div id="certhealthLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading management health…</div>
           <div id="certhealthError"></div>
           <div id="certhealthContent" style="display:none;">
             <table>
@@ -1881,7 +1881,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <th data-csort="daysRemaining">Days remaining <span class="arrow">▼</span></th>
                   <th data-csort="managementCertificateExpirationDate">Cert expires <span class="arrow">▼</span></th>
                   <th data-csort="daysSinceSync">Days since sync <span class="arrow">▼</span></th>
-                  <th data-csort="state">Status <span class="arrow">▼</span></th>
+                  <th data-csort="risk">Risk <span class="arrow">▼</span></th>
+                  <th data-csort="state">Health <span class="arrow">▼</span></th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -2484,7 +2485,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
         <div id="remediationImeCard" style="padding:14px 16px; background:var(--row-hover); border:1px solid var(--line); border-radius:8px; margin-bottom:16px;">
           <div style="font-weight:600; font-size:14px; margin-bottom:4px;">⚡ IME Required App Check-in — run on a device <span class="meta" style="font-weight:400; font-size:12px;">(Rudy Ooms / Call4Cloud)</span></div>
-          <div style="font-size:12px; color:var(--muted); line-height:1.6; margin-bottom:10px;">Pick a Windows device and force an on-demand required-app check-in — triggers the IME <code>IStatusService.CheckInAsync</code> path, cutting the ~60-minute wait for required Win32 apps after Autopilot or a new assignment. The remediation runs as the <strong>logged-on user</strong>, so the device needs a signed-in user and to be online; otherwise Intune queues it. The same <strong>⚡ Check-in</strong> action also lives on every device row in the Hardware, Failed Install, and Cert health tabs.</div>
+          <div style="font-size:12px; color:var(--muted); line-height:1.6; margin-bottom:10px;">Pick a Windows device and force an on-demand required-app check-in — triggers the IME <code>IStatusService.CheckInAsync</code> path, cutting the ~60-minute wait for required Win32 apps after Autopilot or a new assignment. The remediation runs as the <strong>logged-on user</strong>, so the device needs a signed-in user and to be online; otherwise Intune queues it. The same <strong>⚡ Check-in</strong> action also lives on every device row in the Hardware, Failed Install, and Management health tabs.</div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; position:relative;">
             <input type="text" class="search" id="imePickerSearch" placeholder="Search device by name…" style="flex:1; min-width:240px;" autocomplete="off">
             <button class="btn" id="btnImeRun" disabled>⚡ Run check-in</button>
@@ -3777,7 +3778,7 @@ function resetTenantState() {
   appverTileFilter = null; appverSelectedApp = null;
   if ($('appverAppsView')) $('appverAppsView').style.display = '';
   if ($('appverDrillView')) $('appverDrillView').style.display = 'none';
-  // Cert health
+  // Management health
   certhealthLoaded = false; certhealthRows = [];
   // Stale users
   staleusersLoaded = false; staleusersLoading = false; staleusersRows = [];
@@ -8464,7 +8465,7 @@ function ensurePrivilegedOpsToken() {
 
 // Run an on-demand IME required-app check-in on one chosen device. Auto-creates
 // the (unassigned) remediation on first use. Used by the Remediation-tab picker
-// and the per-row "⚡ Check-in" buttons (Hardware / Failed Install / Cert health).
+// and the per-row "⚡ Check-in" buttons (Hardware / Failed Install / Management health).
 async function forceImeCheckin(deviceId, deviceName, triggerEl) {
   if (!deviceId) { imeToast('This row has no Intune device ID, so on-demand check-in is unavailable.', 'bad'); return; }
   if (!loadCustomers().find(c => c.code === getActiveCustomerCode())) {
@@ -9717,9 +9718,11 @@ document.querySelectorAll('#intuneSubAutopilot th[data-apsort]').forEach(th => {
 });
 
 // ============================================================
-// Cert health sub-tab — MDM device-cert renewal risk
-// Surfaces Windows devices that may have silently dropped off due to
-// the Intune MDM intermediate CA rollover (around early May 2026).
+// Management health sub-tab — Intune management capability, derived
+// from the MDM device-cert lifecycle. An expired management cert means
+// IME can't authenticate: Win32 apps and remediation scripts silently
+// stop while the device still looks compliant and checks in (verified
+// 6/6 on tenant devices, Jun 2026 — RenewStatus=3 / 0x80180018).
 // Read-only — uses the existing DeviceManagementManagedDevices.Read.All
 // scope. No cross-Entra correlation in v1 (Intune's own UPN field is
 // authoritative for the dashboard's purposes).
@@ -9731,23 +9734,112 @@ let certhealthSortDir = 'asc';
 
 const CERT_EXPIRING_DAYS = 30;
 const CERT_STALE_SYNC_DAYS = 14;
+const CERT_RECENT_SYNC_DAYS = 7; // expired cert + sync this recent = the silent-failure signature
+
+const CH_STATE_RANK = { broken: 0, atrisk: 1, stale: 2, healthy: 3 };
+const CH_RISK_RANK  = { high: 0, medium: 1, low: 2, none: 3 };
 
 function certhealthStateOf(r) {
-  if (r.daysRemaining !== null && r.daysRemaining < 0) return 'expired';
-  if (r.daysRemaining !== null && r.daysRemaining <= CERT_EXPIRING_DAYS) return 'expiring';
+  if (r.daysRemaining !== null && r.daysRemaining < 0) return 'broken';
+  if (r.daysRemaining !== null && r.daysRemaining <= CERT_EXPIRING_DAYS) return 'atrisk';
   if (r.daysSinceSync !== null && r.daysSinceSync >= CERT_STALE_SYNC_DAYS) return 'stale';
   return 'healthy';
 }
 
-function certhealthStateBadge(state) {
+// Operational risk. High = expired cert AND recent sync: the device still
+// checks in and looks healthy in the portal while IME can't authenticate —
+// the most dangerous state because admins assume it's fine.
+function certhealthRiskOf(r) {
+  const s = certhealthStateOf(r);
+  if (s === 'broken') return (r.daysSinceSync !== null && r.daysSinceSync <= CERT_RECENT_SYNC_DAYS) ? 'high' : 'medium';
+  if (s === 'atrisk') return 'medium';
+  if (s === 'stale') return 'low';
+  return 'none';
+}
+
+function certhealthStateBadge(state, deviceId) {
   const map = {
-    'expired':  { label: 'Expired',  bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
-    'expiring': { label: 'Expiring', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
-    'stale':    { label: 'Stale sync', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
-    'healthy':  { label: 'OK', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' }
+    'broken':  { label: '🔴 Management broken', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    'atrisk':  { label: '🟠 At risk', bg: '#fff1e6', border: '#f0c090', color: '#7a3e00' },
+    'stale':   { label: '🟡 Stale', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
+    'healthy': { label: '🟢 Healthy', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' }
   };
   const m = map[state] || map['healthy'];
-  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${esc(m.label)}</span>`;
+  const click = deviceId ? ` data-ch-why="${esc(deviceId)}" title="Why? Click for the management assessment"` : '';
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};${deviceId ? ' cursor:pointer;' : ''}"${click}>${m.label}</span>`;
+}
+
+function certhealthRiskBadge(risk) {
+  const map = {
+    'high':   { label: 'High', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
+    'medium': { label: 'Medium', bg: '#fff1e6', border: '#f0c090', color: '#7a3e00' },
+    'low':    { label: 'Low', bg: '#fff8e6', border: '#f0d090', color: '#704500' }
+  };
+  const m = map[risk];
+  if (!m) return '<span style="color:var(--muted);">—</span>';
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${m.label}</span>`;
+}
+
+// Expandable per-device "Why?" assessment — turns the badge into a
+// troubleshooting assistant instead of a bare cert date.
+function certhealthAssessmentHtml(r) {
+  const state = certhealthStateOf(r);
+  const risk = certhealthRiskOf(r);
+  const syncTxt = r.daysSinceSync === null ? 'has never synced'
+    : r.daysSinceSync === 0 ? 'synced today'
+    : `last synced ${r.daysSinceSync} day${r.daysSinceSync === 1 ? '' : 's'} ago`;
+  let why = '', confidence = '', symptoms = [], investigate = [];
+
+  if (state === 'broken') {
+    const overdue = -r.daysRemaining;
+    const silent = risk === 'high';
+    why = `Management certificate expired ${overdue} day${overdue === 1 ? '' : 's'} ago` +
+      (silent
+        ? `, yet the device ${syncTxt}. It still appears compliant and healthy in the Intune portal, but IME can no longer authenticate — management is silently broken.`
+        : `; the device ${syncTxt}, so it may also simply be offline or retired.`);
+    confidence = silent
+      ? 'High (~95%) — matches the expired-cert + recent-sync signature verified 6/6 on tenant devices (ClientCertCheck: 0 MDM certs in LocalMachine; registry RenewStatus = 3, RenewErrorCode = 0x80180018).'
+      : 'Medium — the certificate is expired, but without recent check-ins the failure mode can\'t be distinguished from a decommissioned device.';
+    symptoms = [
+      'Win32 apps stay "pending" and never install',
+      'Remediation / platform scripts never execute',
+      'IME retries hourly but cannot authenticate',
+      'ClientCertCheck reports 0 MDM certificates in LocalMachine'
+    ];
+    investigate = [
+      'Review <code>ClientCertCheck.log</code> — look for "MDM certs found in LocalMachine count: 0"',
+      'Review <code>IntuneManagementExtension.log</code> — look for "Found 0 MDM certificates"',
+      'Check <code>HKLM\\SOFTWARE\\Microsoft\\Enrollments\\…</code> — RenewStatus = 3 with RenewErrorCode = 0x80180018 confirms failed renewal',
+      'Verify the Microsoft Intune MDM Device CA certificate in certlm.msc → Personal',
+      'If confirmed, re-enroll the device (renewal cannot recover from this state)'
+    ];
+  } else if (state === 'atrisk') {
+    why = `Management certificate expires in ${r.daysRemaining} day${r.daysRemaining === 1 ? '' : 's'}; the device ${syncTxt}. Intune renews automatically at check-in, but if renewal fails (as observed in this tenant) management breaks silently at expiry.`;
+    confidence = 'N/A — nothing is broken yet; this is a renewal watch-list.';
+    symptoms = ['None yet — Win32 apps and scripts should still work'];
+    investigate = ['Confirm the device keeps syncing so auto-renewal can occur', 'Re-check after the expiry date: if it moves to Management broken, follow that runbook'];
+  } else if (state === 'stale') {
+    why = `Device ${syncTxt} (≥ ${CERT_STALE_SYNC_DAYS} days). Certificate state can't be verified for a device that isn't checking in — it may be off, offline, or abandoned.`;
+    confidence = 'Low — no recent telemetry to classify against.';
+    symptoms = ['All Intune management is inert until the device checks in'];
+    investigate = ['Confirm the device is still in use', 'If in use: check connectivity / MDM enrollment on the device', 'If retired: clean it up from Intune'];
+  } else if (r.daysRemaining === null) {
+    why = `Graph reports no management-certificate data for this device (typical for co-managed or non-MDM-enrolled devices) and the device ${syncTxt}. No expired-cert risk signal applies.`;
+    confidence = 'N/A — certificate lifecycle not tracked for this enrollment type.';
+  } else {
+    why = `Management certificate is valid for ${r.daysRemaining} more day${r.daysRemaining === 1 ? '' : 's'} and the device ${syncTxt}. IME authentication, Win32 apps, scripts and remediations should all be functioning.`;
+    confidence = 'High — valid cert + recent sync matched 3/3 healthy control devices.';
+  }
+
+  const list = items => `<ul style="margin:4px 0 0; padding-left:18px;">${items.map(s => `<li>${s}</li>`).join('')}</ul>`;
+  return `
+    <div style="padding:12px 16px; font-size:12.5px; line-height:1.6;">
+      <div style="font-weight:600; margin-bottom:6px;">Management assessment — ${esc(r.deviceName || '')}</div>
+      <div><strong>Why:</strong> ${why}</div>
+      <div style="margin-top:4px;"><strong>Operational risk:</strong> ${certhealthRiskBadge(risk)} &nbsp; <strong>Confidence:</strong> ${confidence}</div>
+      ${symptoms.length ? `<div style="margin-top:8px;"><strong>Expected symptoms</strong>${list(symptoms)}</div>` : ''}
+      ${investigate.length ? `<div style="margin-top:8px;"><strong>Suggested investigation</strong>${list(investigate)}</div>` : ''}
+    </div>`;
 }
 
 async function loadCerthealth(force = false) {
@@ -9789,28 +9881,28 @@ async function loadCerthealth(force = false) {
     renderCerthealthTiles();
     renderCerthealthTable();
   } catch (e) {
-    console.error('Cert health load failed', e);
+    console.error('Management health load failed', e);
     $('certhealthLoading').style.display = 'none';
-    $('certhealthError').innerHTML = `<div class="error-banner">Failed to load cert health: ${esc(e.message || String(e))}</div>`;
+    $('certhealthError').innerHTML = `<div class="error-banner">Failed to load management health: ${esc(e.message || String(e))}</div>`;
   }
 }
 
 function renderCerthealthTiles() {
-  let total = 0, expiring = 0, expired = 0, stale = 0;
+  let total = 0, atrisk = 0, broken = 0, stale = 0;
   for (const r of certhealthRows) {
     total++;
     const s = certhealthStateOf(r);
-    if (s === 'expiring') expiring++;
-    else if (s === 'expired') expired++;
+    if (s === 'atrisk') atrisk++;
+    else if (s === 'broken') broken++;
     else if (s === 'stale') stale++;
   }
   $('chTileTotal').textContent = total;
-  $('chTileExpiring').textContent = expiring;
-  $('chTileExpired').textContent = expired;
+  $('chTileExpiring').textContent = atrisk;
+  $('chTileExpired').textContent = broken;
   $('chTileStale').textContent = stale;
   // certhealthStateOf returns one tier per device, so the three counts
   // are mutually exclusive — subtracting their sum gives "no flag".
-  const healthy = total - expiring - expired - stale;
+  const healthy = total - atrisk - broken - stale;
   const rate = total === 0 ? null : (healthy / total) * 100;
   setGaugeKpi('chHealthRing', 'chHealthRate', rate, { thresholds: { good: 95, watch: 85 } });
 }
@@ -9830,8 +9922,8 @@ function applyCerthealthFilters(rows) {
 
 const chTileMap = {
   chTileTotal: '',
-  chTileExpiring: 'expiring',
-  chTileExpired: 'expired',
+  chTileExpiring: 'atrisk',
+  chTileExpired: 'broken',
   chTileStale: 'stale'
 };
 
@@ -9859,7 +9951,8 @@ function renderCerthealthTable() {
   const dir = certhealthSortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
     let av, bv;
-    if (certhealthSortKey === 'state') { av = certhealthStateOf(a); bv = certhealthStateOf(b); }
+    if (certhealthSortKey === 'state') { av = CH_STATE_RANK[certhealthStateOf(a)]; bv = CH_STATE_RANK[certhealthStateOf(b)]; }
+    else if (certhealthSortKey === 'risk') { av = CH_RISK_RANK[certhealthRiskOf(a)]; bv = CH_RISK_RANK[certhealthRiskOf(b)]; }
     else { av = a[certhealthSortKey]; bv = b[certhealthSortKey]; if (av == null) av = dir > 0 ? Infinity : -Infinity; if (bv == null) bv = dir > 0 ? Infinity : -Infinity; if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toString().toLowerCase(); } }
     if (av < bv) return -dir;
     if (av > bv) return dir;
@@ -9868,7 +9961,7 @@ function renderCerthealthTable() {
 
   const body = $('certhealthRowsBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => {
       const state = certhealthStateOf(r);
@@ -9883,7 +9976,8 @@ function renderCerthealthTable() {
           <td>${r.daysRemaining == null ? '—' : (r.daysRemaining < 0 ? `<span style="color:#8a2020; font-weight:600;">${r.daysRemaining}</span>` : r.daysRemaining)}</td>
           <td class="date">${r.managementCertificateExpirationDate ? new Date(r.managementCertificateExpirationDate).toLocaleString() : '—'}</td>
           <td>${r.daysSinceSync == null ? '—' : r.daysSinceSync}</td>
-          <td>${certhealthStateBadge(state)}</td>
+          <td>${certhealthRiskBadge(certhealthRiskOf(r))}</td>
+          <td>${certhealthStateBadge(state, r.id)}</td>
           <td style="white-space:nowrap;">${r.id ? `<span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px;" data-ime-checkin="${esc(r.id)}" data-ime-name="${esc(r.deviceName || '')}" title="Force an IME required-app check-in on this device (on-demand)">⚡ Check-in</span>` : '—'}</td>
         </tr>
       `;
@@ -9894,19 +9988,34 @@ function renderCerthealthTable() {
 
 function exportCerthealthCsv() {
   const rows = applyCerthealthFilters(certhealthRows);
-  const header = ['DeviceName','User','OSVersion','Manufacturer','Model','CertExpiration','DaysRemaining','LastSync','DaysSinceSync','State'];
+  const header = ['DeviceName','User','OSVersion','Manufacturer','Model','CertExpiration','DaysRemaining','LastSync','DaysSinceSync','Health','Risk'];
   const lines = [header.join(',')].concat(rows.map(r => [
     r.deviceName, r.userPrincipalName, r.osVersion, r.manufacturer, r.model,
-    r.managementCertificateExpirationDate, r.daysRemaining, r.lastSyncDateTime, r.daysSinceSync, certhealthStateOf(r)
+    r.managementCertificateExpirationDate, r.daysRemaining, r.lastSyncDateTime, r.daysSinceSync, certhealthStateOf(r), certhealthRiskOf(r)
   ].map(escCsv).join(',')));
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `cert-health-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `management-health-${new Date().toISOString().slice(0,10)}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// Clickable status badge → toggle the per-device management assessment row
+$('certhealthRowsBody').addEventListener('click', e => {
+  const badge = e.target.closest('[data-ch-why]');
+  if (!badge) return;
+  const tr = badge.closest('tr');
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('ch-why-row')) { next.remove(); return; }
+  const r = certhealthRows.find(x => x.id === badge.dataset.chWhy);
+  if (!r) return;
+  const why = document.createElement('tr');
+  why.className = 'ch-why-row';
+  why.innerHTML = `<td colspan="9" style="background:var(--row-hover); border-left:3px solid var(--accent);">${certhealthAssessmentHtml(r)}</td>`;
+  tr.after(why);
+});
 
 $('certhealthFilter').addEventListener('input', renderCerthealthTable);
 $('certhealthStateFilter').addEventListener('change', renderCerthealthTable);

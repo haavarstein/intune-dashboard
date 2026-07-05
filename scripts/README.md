@@ -172,7 +172,7 @@ There's no API to push an arbitrary script to a single device ad-hoc, so on-dema
    - **Self-updating + self-healing:** the fingerprint is a hash of the local script content. Before every run the dashboard verifies the stored remediation still exists in Intune — if you deleted it manually it's **recreated**; if you edited either `.ps1` it's `PATCH`ed in place (drift detection); if it's unchanged it's used as-is. No manual delete/recreate needed.
 2. **Runs it on the device of your choice** via `POST /deviceManagement/managedDevices/{id}/initiateOnDemandProactiveRemediation` with the script's `scriptPolicyId` — the same on-demand path as *Run remediation* in the Intune portal. Needs **DeviceManagementManagedDevices.PrivilegedOperations.All** (requested just-in-time) and an Intune Administrator role.
 
-You pick the device either from the search box on the **Remediation** sub-tab or with the **⚡ Check-in** button on any row in the **Hardware**, **Failed Install**, or **Cert health** tabs. The created remediation carries no assignment and no schedule — it exists solely as the vehicle for these per-device runs.
+You pick the device either from the search box on the **Remediation** sub-tab or with the **⚡ Check-in** button on any row in the **Hardware**, **Failed Install**, or **Management health** tabs. The created remediation carries no assignment and no schedule — it exists solely as the vehicle for these per-device runs.
 
 ## Verifying a run on the device
 
