@@ -9105,10 +9105,13 @@ function renderApprovalsTable() {
     body.innerHTML = rows.map(r => {
       const s = (r.status || '').toLowerCase();
       const isPending = s === 'needsapproval';
+      const isApproved = s === 'approved';
       const justification = (r.requestJustification || '').trim();
       const truncated = justification.length > 80 ? justification.slice(0, 80) + '…' : justification;
       const actions = isPending
-        ? `<button class="btn" data-approve="${esc(r.id)}" style="padding:4px 10px; font-size:11px; margin-right:4px;">Approve</button><button class="btn btn-danger" data-reject="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Reject</button>`
+        ? `<button class="btn" data-approve="${esc(r.id)}" style="padding:4px 10px; font-size:11px; margin-right:4px;">Approve</button><button class="btn btn-danger" data-reject="${esc(r.id)}" style="padding:4px 10px; font-size:11px; margin-right:4px;">Reject</button><button class="btn btn-ghost" data-cancel-approval="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Cancel</button>`
+        : isApproved
+        ? `<button class="btn" data-complete-approval="${esc(r.id)}" style="padding:4px 10px; font-size:11px; margin-right:4px; background:#1f5d33; border-color:#1f5d33;">Complete</button><button class="btn btn-ghost" data-approval-details="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Details</button>`
         : `<button class="btn btn-ghost" data-approval-details="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Details</button>`;
       return `
         <tr>
@@ -9129,18 +9132,24 @@ function renderApprovalsTable() {
 function openApprovalActionModal(id, action) {
   const req = approvalsRaw.find(r => r.id === id);
   if (!req) return;
-  const isApprove = action === 'approve';
-  $('apaTitle').textContent = isApprove ? 'Approve request' : 'Reject request';
+  const META = {
+    approve:   { title: 'Approve request',  desc: 'Approve this request? Intune will execute the operation as soon as approval is recorded.',           placeholder: 'e.g. Reviewed change ticket CHG-12345',                     btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Approve'          },
+    reject:    { title: 'Reject request',   desc: 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.', placeholder: 'e.g. Out of policy — see governance doc',                  btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Reject'           },
+    cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The operation will not run and the request will be withdrawn.',               placeholder: 'e.g. No longer needed — superseded by a new change request', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request'   },
+    complete:  { title: 'Complete request', desc: 'Mark this approved request as complete? This confirms the approved operation has been carried out.',         placeholder: 'e.g. Confirmed completed in Intune portal',                 btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Mark complete'    },
+  };
+  const m = META[action] || META.approve;
+  $('apaTitle').textContent = m.title;
   $('apaSubtitle').textContent = `${approvalRequestor(req)} · ${approvalType(req)}`;
   $('apaBody').innerHTML = `
-    <p style="margin-top:0;">${isApprove ? 'Approve this request? Intune will execute the operation as soon as approval is recorded.' : 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.'}</p>
+    <p style="margin-top:0;">${m.desc}</p>
     ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote style="margin:0 0 16px 0; padding:10px 14px; background:#f5f3ee; border-left:3px solid #888; font-size:13px; white-space:pre-wrap;">${esc(req.requestJustification)}</blockquote>` : ''}
     <p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>
-    <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="e.g. ${isApprove ? 'Reviewed change ticket CHG-12345' : 'Out of policy — see governance doc'}"></textarea>
+    <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="${esc(m.placeholder)}"></textarea>
     <div id="apaError"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-      <button class="btn btn-ghost" onclick="closeApprovalActionModal()">Cancel</button>
-      <button class="btn ${isApprove ? '' : 'btn-danger'}" id="apaSubmitBtn" disabled style="${isApprove ? 'background:#1f5d33; border-color:#1f5d33;' : ''}">${isApprove ? 'Approve' : 'Reject'}</button>
+      <button class="btn btn-ghost" onclick="closeApprovalActionModal()">Dismiss</button>
+      <button class="${m.btnClass}" id="apaSubmitBtn" disabled style="${m.btnStyle}">${m.label}</button>
     </div>
   `;
   const input = $('apaJustification');
@@ -9160,7 +9169,7 @@ async function submitApprovalAction(id, action, justification) {
   const btn = $('apaSubmitBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = action === 'approve' ? 'Approving…' : 'Rejecting…';
+  btn.textContent = { approve: 'Approving…', reject: 'Rejecting…', cancel: 'Cancelling…', complete: 'Completing…' }[action] || 'Submitting…';
   $('apaError').innerHTML = '';
   try {
     await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, {
@@ -9202,6 +9211,8 @@ $('approvalsRowsBody').addEventListener('click', e => {
   const ds = e.target.dataset || {};
   if (ds.approve) openApprovalActionModal(ds.approve, 'approve');
   else if (ds.reject) openApprovalActionModal(ds.reject, 'reject');
+  else if (ds.cancelApproval) openApprovalActionModal(ds.cancelApproval, 'cancel');
+  else if (ds.completeApproval) openApprovalActionModal(ds.completeApproval, 'complete');
 });
 
 document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
