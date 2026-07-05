@@ -1368,13 +1368,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubApprovals" style="display:none;">
         <div class="tab-hint">Multi-Admin Approval queue for this tenant — every pending and recent approval request across apps, scripts, configurations, and device actions. Approve or reject inline; no admin-center context switch.</div>
         <div class="tiles">
-          <div class="tile tile-watch" data-approvals-tile="needsApproval" style="cursor:pointer;">
+          <div class="tile tile-watch" data-approvals-tile="pending" style="cursor:pointer;">
             <div class="tile-label">Pending</div>
             <div class="tile-value" id="apTilePending">0</div>
-            <div class="tile-sub">needs approval</div>
+            <div class="tile-sub">needs approval / completion</div>
           </div>
-          <div class="tile tile-good" data-approvals-tile="approved" style="cursor:pointer;">
-            <div class="tile-label">Approved</div>
+          <div class="tile tile-good" data-approvals-tile="completed" style="cursor:pointer;">
+            <div class="tile-label">Completed</div>
             <div class="tile-value" id="apTileApproved">0</div>
             <div class="tile-sub">last 7 days</div>
           </div>
@@ -1412,12 +1412,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <input type="text" class="search" id="approvalsFilter" placeholder="Search requestor, justification, type…">
               <select class="filter-select" id="approvalsStatusFilter">
                 <option value="" selected>All statuses</option>
-                <option value="needsApproval">Pending</option>
-                <option value="approved">Approved</option>
+                <option value="pending">Needs action</option>
+                <option value="needsApproval">Needs approval</option>
+                <option value="approved">Needs completion</option>
+                <option value="completed">Completed</option>
                 <option value="rejected">Rejected</option>
                 <option value="cancelled">Cancelled</option>
                 <option value="expired">Expired</option>
-                <option value="completed">Completed</option>
               </select>
               <select class="filter-select" id="approvalsTypeFilter">
                 <option value="">All types</option>
@@ -8943,7 +8944,7 @@ function approvalStatusBadge(status) {
   const s = (status || '').toLowerCase();
   const map = {
     needsapproval: { label: 'Pending', bg: '#fff8e6', border: '#f0d090', color: '#704500' },
-    approved:      { label: 'Approved', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
+    approved:      { label: 'Needs completion', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
     completed:     { label: 'Completed', bg: '#e7f6ec', border: '#a7d7b5', color: '#1f5d33' },
     rejected:      { label: 'Rejected', bg: '#fdecec', border: '#f5b5b5', color: '#8a2020' },
     cancelled:     { label: 'Cancelled', bg: '#f5f1ea', border: '#ece8e1', color: '#4a4a4f' },
@@ -9028,25 +9029,26 @@ function populateApprovalsTypeFilter() {
 function renderApprovalsTiles() {
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-  let pending = 0, approved = 0, rejected = 0, expired = 0;
+  let needsApproval = 0, needsCompletion = 0, completed = 0, rejected = 0, expired = 0;
   approvalsRaw.forEach(r => {
     const s = (r.status || '').toLowerCase();
     const lastMod = r.lastModifiedDateTime ? new Date(r.lastModifiedDateTime).getTime() : 0;
     const recent = lastMod >= sevenDaysAgo;
-    if (s === 'needsapproval') pending++;
-    else if (recent && (s === 'approved' || s === 'completed')) approved++;
+    if (s === 'needsapproval') needsApproval++;
+    else if (s === 'approved') needsCompletion++;    // approved by peer, requestor still needs to act
+    else if (recent && s === 'completed') completed++;
     else if (recent && s === 'rejected') rejected++;
     else if (recent && s === 'expired') expired++;
   });
+  const pending = needsApproval + needsCompletion;
   $('apTilePending').textContent = pending;
-  $('apTileApproved').textContent = approved;
+  $('apTileApproved').textContent = completed;
   $('apTileRejected').textContent = rejected;
   $('apTileExpired').textContent = expired;
-  // Resolution rate: pending is open-ended (still in flight), so we still
-  // count it in the denominator — a high pending share rightly drags the
-  // rate down. Null when nothing has come through in the last 7 days.
-  const seen = approved + rejected + pending + expired;
-  const decided = approved + rejected;
+  // Resolution rate: both needsApproval and needsCompletion are still in-flight
+  // (no terminal outcome yet), so they drag the rate down. Null when no data.
+  const seen = completed + rejected + pending + expired;
+  const decided = completed + rejected;
   const rate = seen === 0 ? null : (decided / seen) * 100;
   setGaugeKpi('aprResRing', 'aprResRate', rate, { thresholds: { good: 90, watch: 75 } });
 }
@@ -9057,7 +9059,9 @@ function applyApprovalsFilters(rows) {
   const typeFilter = $('approvalsTypeFilter').value || '';
   return rows.filter(r => {
     const s = (r.status || '').toLowerCase();
-    if (statusFilter && s !== statusFilter) return false;
+    if (statusFilter === 'pending') {
+      if (s !== 'needsapproval' && s !== 'approved') return false;
+    } else if (statusFilter && s !== statusFilter) return false;
     if (typeFilter && !(r.requiredOperationApprovalPolicyTypes || []).includes(typeFilter)) return false;
     if (q) {
       const hay = [approvalRequestor(r), approvalApprover(r), approvalType(r), r.requestJustification, r.approvalJustification, r.id]
@@ -9069,8 +9073,8 @@ function applyApprovalsFilters(rows) {
 }
 
 const aprTileMap = {
-  apTilePending: 'needsApproval',
-  apTileApproved: 'approved',
+  apTilePending: 'pending',
+  apTileApproved: 'completed',
   apTileRejected: 'rejected',
   apTileExpired: 'expired'
 };
@@ -10443,6 +10447,55 @@ function renderCerthealthTable() {
   wipeBtn.textContent = `⚠ Wipe selected (${totalSel})`;
 }
 
+function buildMaaDeviceEmailHtml({ action, devices, account, upn, customer, maaJust }) {
+  const count = devices.length;
+  const deviceRows = devices.map(r =>
+    `<div style="padding:5px 0;border-bottom:1px solid #eff0f2;font-size:14px;color:#222;">` +
+    `<span style="font-weight:500;">${esc(r.deviceName || r.id)}</span> ` +
+    `<span style="color:#aaa;font-size:11px;font-family:ui-monospace,Consolas,monospace;">${esc(r.id)}</span></div>`
+  ).join('');
+  const justBlock = maaJust
+    ? `<tr><td style="padding:20px 32px 0;">
+        <p style="margin:0 0 8px;color:#555;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;">Justification</p>
+        <div style="background:#fef9ec;border:1px solid #f0d090;border-left:4px solid #d4921a;border-radius:0 4px 4px 0;padding:14px 16px;color:#3c3010;font-size:14px;line-height:1.6;white-space:pre-wrap;">${esc(maaJust)}</div>
+      </td></tr>`
+    : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f1f3f4;font-family:Segoe UI,Helvetica Neue,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f3f4;padding:32px 16px;">
+<tr><td align="center"><table width="100%" cellpadding="0" cellspacing="0"
+  style="max-width:600px;background:#fff;border-radius:8px;border:1px solid #dde1e7;overflow:hidden;">
+  <tr><td style="background:#0b57a4;padding:24px 32px;">
+    <p style="margin:0 0 6px;color:rgba(255,255,255,0.75);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;">Microsoft Intune · Multi-Admin Approval</p>
+    <h1 style="margin:0;color:#fff;font-size:21px;font-weight:600;line-height:1.3;">Device ${action} needs approval</h1>
+  </td></tr>
+  <tr><td style="padding:24px 32px 0;">
+    <p style="margin:0;color:#3c4043;font-size:15px;line-height:1.6;">An Intune admin has submitted a <strong>remote ${action}</strong> for <strong>${count === 1 ? '1 device' : `${count} devices`}</strong>. Multi-admin approval is required — a second admin must approve before the ${action} executes.</p>
+  </td></tr>
+  <tr><td style="padding:20px 32px 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e0e3e8;border-radius:6px;font-size:14px;overflow:hidden;">
+      <tr><td style="padding:11px 16px;background:#f8f9fb;color:#666;font-weight:600;width:110px;white-space:nowrap;border-right:1px solid #e0e3e8;border-bottom:1px solid #e0e3e8;">Requester</td>
+          <td style="padding:11px 16px;color:#222;border-bottom:1px solid #e0e3e8;">${esc(account?.name || upn)}<br><span style="color:#888;font-size:12px;">${esc(upn)}</span></td></tr>
+      <tr><td style="padding:11px 16px;background:#f8f9fb;color:#666;font-weight:600;border-right:1px solid #e0e3e8;border-bottom:1px solid #e0e3e8;">Customer</td>
+          <td style="padding:11px 16px;color:#222;border-bottom:1px solid #e0e3e8;">${customer ? esc(customer.code) : '—'}</td></tr>
+      <tr><td style="padding:11px 16px;background:#f8f9fb;color:#666;font-weight:600;vertical-align:top;border-right:1px solid #e0e3e8;border-bottom:1px solid #e0e3e8;">Device${count === 1 ? '' : 's'}</td>
+          <td style="padding:11px 16px;border-bottom:1px solid #e0e3e8;">${deviceRows}</td></tr>
+      <tr><td style="padding:11px 16px;background:#f8f9fb;color:#666;font-weight:600;border-right:1px solid #e0e3e8;">Submitted</td>
+          <td style="padding:11px 16px;color:#222;">${new Date().toUTCString()}</td></tr>
+    </table>
+  </td></tr>
+  ${justBlock}
+  <tr><td style="padding:28px 32px 20px;">
+    <a href="${MAA_BLADE_URL}" style="display:inline-block;background:#0b57a4;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Review this request in Intune →</a>
+    <p style="margin:12px 0 0;color:#888;font-size:12px;">Tenant administration → Multi Admin Approval → Access requests</p>
+  </td></tr>
+  <tr><td style="padding:14px 32px;background:#f8f9fb;border-top:1px solid #e0e3e8;">
+    <p style="margin:0;color:#aaa;font-size:11px;">Sent automatically by THE Intune Dashboard at the moment the ${action} was submitted.</p>
+  </td></tr>
+</table></td></tr>
+</table></body></html>`;
+}
+
 // Bulk-delete the selected devices from Intune. DELETE managedDevices/{id}
 // removes the record; an enrolled device is retired on its next check-in.
 // MAA tenants: prompt for one justification and reuse it for the whole batch;
@@ -10527,21 +10580,7 @@ async function deleteSelectedCerthealthDevices() {
       const approvers = (customer && customer.approvers) || [];
       if (approvers.length) {
         const mailToken = await ensureScopeToken('Mail.Send');
-        const deviceList = queued.map(r => `<li style="margin:2px 0;">${esc(r.deviceName || r.id)} <span style="font-family:ui-monospace,monospace;font-size:11px;color:#888;">${esc(r.id)}</span></li>`).join('');
-        const mailHtml = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;max-width:640px;">
-          <h2 style="margin:0 0 12px 0;font-size:18px;">Intune device delete needs approval</h2>
-          <p>An Intune admin has submitted a request to delete ${queued.length === 1 ? 'a device' : `${queued.length} devices`}. This tenant has multi-admin approval enabled — a second admin must approve before the delete executes.</p>
-          <table style="border-collapse:collapse;margin:16px 0;font-size:14px;">
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Requester</strong></td><td style="padding:6px 0;">${esc(account?.name || upn)} &lt;${esc(upn)}&gt;</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Customer</strong></td><td style="padding:6px 0;">${customer ? esc(customer.code) : '—'}</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;vertical-align:top;"><strong>Device${queued.length === 1 ? '' : 's'}</strong></td><td style="padding:6px 0;"><ul style="margin:0;padding-left:18px;">${deviceList}</ul></td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Submitted</strong></td><td style="padding:6px 0;">${esc(new Date().toISOString())}</td></tr>
-          </table>
-          ${maaJust ? `<h3 style="margin:18px 0 6px 0;font-size:14px;">Justification</h3><blockquote style="margin:0;padding:12px 16px;background:#f5f3ee;border-left:3px solid #888;font-size:14px;white-space:pre-wrap;">${esc(maaJust)}</blockquote>` : ''}
-          <p style="margin-top:24px;"><a href="${MAA_BLADE_URL}" style="display:inline-block;background:#0b57a4;color:#ffffff;padding:11px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Review this request in Intune →</a></p>
-          <p style="font-size:12px;color:#555;">Find the pending request under Tenant administration → Multi Admin Approval → Access requests and approve or reject it.</p>
-          <p style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#888;">Sent automatically by THE Intune Dashboard at the moment the delete was submitted.</p>
-        </div>`;
+        const mailHtml = buildMaaDeviceEmailHtml({ action: 'delete', devices: queued, account, upn, customer, maaJust });
         const mailMsg = { message: {
           subject: `[Intune MAA] Device delete needs approval: ${queued.length === 1 ? (queued[0].deviceName || queued[0].id) : `${queued.length} devices`}`,
           body: { contentType: 'HTML', content: mailHtml },
@@ -10646,21 +10685,7 @@ async function wipeSelectedCerthealthDevices() {
       const approvers = (customer && customer.approvers) || [];
       if (approvers.length) {
         const mailToken = await ensureScopeToken('Mail.Send');
-        const deviceList = queued.map(r => `<li style="margin:2px 0;">${esc(r.deviceName || r.id)} <span style="font-family:ui-monospace,monospace;font-size:11px;color:#888;">${esc(r.id)}</span></li>`).join('');
-        const mailHtml = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;max-width:640px;">
-          <h2 style="margin:0 0 12px 0;font-size:18px;">Intune device wipe needs approval</h2>
-          <p>An Intune admin has submitted a remote wipe for ${queued.length === 1 ? 'a device' : `${queued.length} devices`}. Multi-admin approval is required — a second admin must approve before the wipe executes.</p>
-          <table style="border-collapse:collapse;margin:16px 0;font-size:14px;">
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Requester</strong></td><td style="padding:6px 0;">${esc(account?.name || upn)} &lt;${esc(upn)}&gt;</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Customer</strong></td><td style="padding:6px 0;">${customer ? esc(customer.code) : '—'}</td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;vertical-align:top;"><strong>Device${queued.length === 1 ? '' : 's'}</strong></td><td style="padding:6px 0;"><ul style="margin:0;padding-left:18px;">${deviceList}</ul></td></tr>
-            <tr><td style="padding:6px 12px 6px 0;color:#555;"><strong>Submitted</strong></td><td style="padding:6px 0;">${esc(new Date().toISOString())}</td></tr>
-          </table>
-          ${maaJust ? `<h3 style="margin:18px 0 6px 0;font-size:14px;">Justification</h3><blockquote style="margin:0;padding:12px 16px;background:#f5f3ee;border-left:3px solid #888;font-size:14px;white-space:pre-wrap;">${esc(maaJust)}</blockquote>` : ''}
-          <p style="margin-top:24px;"><a href="${MAA_BLADE_URL}" style="display:inline-block;background:#0b57a4;color:#ffffff;padding:11px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Review this request in Intune →</a></p>
-          <p style="font-size:12px;color:#555;">Find the pending request under Tenant administration → Multi Admin Approval → Access requests.</p>
-          <p style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#888;">Sent automatically by THE Intune Dashboard at the moment the wipe was submitted.</p>
-        </div>`;
+        const mailHtml = buildMaaDeviceEmailHtml({ action: 'wipe', devices: queued, account, upn, customer, maaJust });
         const mailMsg = { message: {
           subject: `[Intune MAA] Device wipe needs approval: ${queued.length === 1 ? (queued[0].deviceName || queued[0].id) : `${queued.length} devices`}`,
           body: { contentType: 'HTML', content: mailHtml },
