@@ -8957,7 +8957,7 @@ function approvalStatusBadge(status) {
 function updateApprovalsBadge() {
   const badge = $('approvalsBadge');
   if (!badge) return;
-  const n = approvalsRaw.filter(r => (r.status || '').toLowerCase() === 'needsapproval').length;
+  const n = approvalsRaw.filter(r => ['needsapproval', 'approved'].includes((r.status || '').toLowerCase())).length;
   if (n > 0) {
     badge.textContent = n > 99 ? '99+' : String(n);
     badge.style.display = '';
@@ -8972,7 +8972,7 @@ async function refreshApprovalsBadge() {
   if (!badge) return;
   try {
     const data = await graphGet('beta/deviceManagement/operationApprovalRequests?$top=999');
-    const n = (data.value || []).filter(r => (r.status || '').toLowerCase() === 'needsapproval').length;
+    const n = (data.value || []).filter(r => ['needsapproval', 'approved'].includes((r.status || '').toLowerCase())).length;
     if (n > 0) {
       badge.textContent = n > 99 ? '99+' : String(n);
       badge.style.display = '';
@@ -9155,6 +9155,41 @@ function renderApprovalsTable() {
   $('btnApprovalsCompleteSel').style.display = selApproved ? '' : 'none';
 }
 
+// Re-execute the device operation for an approved MAA request.
+// The list endpoint omits operationDetails, so we GET the individual record first.
+// Device wipe/retire/delete: re-submit the device action → Intune auto-closes the request.
+// Non-device ops (app config, scripts, etc.): fall back to POST .../complete.
+async function executeApprovalComplete(r, justification, approvalToken) {
+  let req = r;
+  try {
+    req = await graphGet('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token: approvalToken });
+  } catch (_) { /* fall back to list data */ }
+  console.log('[MAA Complete]', req.id, 'operationDetails:', req.operationDetails, 'types:', req.requiredOperationApprovalPolicyTypes);
+
+  const types = (req.requiredOperationApprovalPolicyTypes || []).map(t => t.toLowerCase()).join(' ');
+  const deviceId = req.operationDetails?.deviceId || null;
+
+  if (deviceId) {
+    const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
+    if (/wipe/.test(types)) {
+      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
+        { keepEnrollmentData: false, keepUserData: false }, { token: devToken });
+    } else if (/retire/.test(types)) {
+      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
+        {}, { token: devToken });
+    } else if (/delete/.test(types)) {
+      await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId), { token: devToken });
+    } else {
+      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(req.id) + '/complete',
+        { requestJustification: justification, approvalSource: 'adminConsole' }, { token: approvalToken });
+    }
+  } else {
+    // operationDetails absent or no deviceId — call /complete directly
+    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(req.id) + '/complete',
+      { requestJustification: justification, approvalSource: 'adminConsole' }, { token: approvalToken });
+  }
+}
+
 function openApprovalActionModal(id, action) {
   const req = approvalsRaw.find(r => r.id === id);
   if (!req) return;
@@ -9162,7 +9197,7 @@ function openApprovalActionModal(id, action) {
     approve:   { title: 'Approve request',  desc: 'Approve this request? Intune will execute the operation as soon as approval is recorded.',           placeholder: 'e.g. Reviewed change ticket CHG-12345',                     btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Approve'          },
     reject:    { title: 'Reject request',   desc: 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.', placeholder: 'e.g. Out of policy — see governance doc',                  btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Reject'           },
     cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The request will be deleted and the operation will not run.',                  placeholder: 'e.g. No longer needed — superseded by a new change request', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request', noJustification: true },
-    complete:  { title: 'Complete request', desc: 'Mark this approved request as complete? This confirms the approved operation has been carried out.',         placeholder: 'e.g. Confirmed completed in Intune portal',                 btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Mark complete'    },
+    complete:  { title: 'Complete request', desc: 'Re-execute the approved operation (wipe / retire / delete). Intune will carry out the action now that approval is granted.',  placeholder: 'e.g. Approved by Blue — proceeding with wipe',              btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Execute now'      },
   };
   const m = META[action] || META.approve;
   $('apaTitle').textContent = m.title;
@@ -9203,11 +9238,12 @@ async function submitApprovalAction(id, action, justification) {
     const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
     if (action === 'cancel') {
       await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id), { token });
+    } else if (action === 'complete') {
+      const req = approvalsRaw.find(r => r.id === id) || { id };
+      await executeApprovalComplete(req, justification, token);
     } else {
-      const body = ['approve', 'reject'].includes(action)
-        ? { justification, approvalSource: 'adminConsole' }
-        : { justification };
-      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, body, { token });
+      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action,
+        { justification, approvalSource: 'adminConsole' }, { token });
     }
     closeApprovalActionModal();
     loadApprovals(true);
@@ -9286,11 +9322,11 @@ async function bulkApprovalAction(action) {
     try {
       if (action === 'cancel') {
         await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token });
+      } else if (action === 'complete') {
+        await executeApprovalComplete(r, just.trim(), token);
       } else {
-        const body = ['approve', 'reject'].includes(action)
-          ? { justification: just.trim(), approvalSource: 'adminConsole' }
-          : { justification: just.trim() };
-        await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action, body, { token });
+        await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action,
+          { justification: just.trim(), approvalSource: 'adminConsole' }, { token });
       }
       succeeded.push(r);
       apSelected.delete(r.id);
