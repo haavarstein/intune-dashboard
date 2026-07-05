@@ -4051,6 +4051,11 @@ async function graphDelete(path, opts = {}) {
   throw err;
 }
 
+// Deep link straight to Intune's Multi Admin Approval blade (Tenant
+// administration → Multi Admin Approval), used in the approver email and the
+// post-submit panel so approvers land on the queue in one click.
+const MAA_BLADE_URL = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/TenantAdminMenu/~/multiAdminApproval';
+
 // Microsoft Graph /me/sendMail returns 202 with empty body — use direct fetch
 // since graphPost calls .json() and would throw on the empty response.
 // test: true sends a clearly-marked test message through the identical path
@@ -4085,7 +4090,8 @@ async function sendApprovalNotification({ app, approvalCode, justification, appr
       <blockquote style="margin:0; padding:12px 16px; background:#f5f3ee; border-left:3px solid #888; font-size:14px; white-space:pre-wrap;">${esc(justification)}</blockquote>
       ${test
         ? `<p style="margin-top:20px;">Nothing to approve — this was only a connectivity test. If you received it, the notification path works.</p>`
-        : `<p style="margin-top:20px;">Open <a href="https://intune.microsoft.com/">Intune admin center</a> → <strong>Tenant administration → Multi Admin Approval → Access requests</strong>, find this request, and approve or reject it. Once approved, Intune will execute the delete automatically.</p>`}
+        : `<p style="margin-top:24px;"><a href="${MAA_BLADE_URL}" style="display:inline-block; background:#0b57a4; color:#ffffff; padding:11px 20px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Review this request in Intune →</a></p>
+      <p style="font-size:12px; color:#555;">The button opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>. Find this request and approve or reject it — once approved, Intune executes the delete automatically. If the button doesn't work, copy this link: <a href="${MAA_BLADE_URL}" style="word-break:break-all;">${MAA_BLADE_URL}</a></p>`}
       <p style="margin-top:24px; padding-top:12px; border-top:1px solid #eee; font-size:11px; color:#888;">Sent automatically by THE Intune Dashboard${test ? '' : ' at the moment the delete was submitted'}. Reply directly to this email to reach the requester.</p>
     </div>
   `;
@@ -5480,7 +5486,7 @@ function renderApprovalSubmitted(app, code, alreadyPending, notification) {
     ` : ''}
     ${notifBlock}
     <div id="delStatusRow" style="margin-top:16px;"></div>
-    <p style="margin-top:16px;">An approver opens <strong>Intune admin center → Tenant administration → Multi Admin Approval → Access requests</strong>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. The dashboard polls Intune every 30 seconds — once approved, the picker auto-refreshes and the app disappears.</p>
+    <p style="margin-top:16px;">An approver opens <a href="${MAA_BLADE_URL}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600;">Intune admin center → Tenant administration → Multi Admin Approval → Access requests</a>, finds this request for <em>${esc(app.displayName || '')}</em>, and approves or rejects it. The dashboard polls Intune every 30 seconds — once approved, the picker auto-refreshes and the app disappears.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
       <button class="btn btn-danger" onclick="closeDeleteModal()">Close</button>
     </div>
