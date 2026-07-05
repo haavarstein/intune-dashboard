@@ -9154,7 +9154,7 @@ function openApprovalActionModal(id, action) {
   const META = {
     approve:   { title: 'Approve request',  desc: 'Approve this request? Intune will execute the operation as soon as approval is recorded.',           placeholder: 'e.g. Reviewed change ticket CHG-12345',                     btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Approve'          },
     reject:    { title: 'Reject request',   desc: 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.', placeholder: 'e.g. Out of policy — see governance doc',                  btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Reject'           },
-    cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The operation will not run and the request will be withdrawn.',               placeholder: 'e.g. No longer needed — superseded by a new change request', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request'   },
+    cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The request will be deleted and the operation will not run.',                  placeholder: 'e.g. No longer needed — superseded by a new change request', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request', noJustification: true },
     complete:  { title: 'Complete request', desc: 'Mark this approved request as complete? This confirms the approved operation has been carried out.',         placeholder: 'e.g. Confirmed completed in Intune portal',                 btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Mark complete'    },
   };
   const m = META[action] || META.approve;
@@ -9163,18 +9163,20 @@ function openApprovalActionModal(id, action) {
   $('apaBody').innerHTML = `
     <p style="margin-top:0;">${m.desc}</p>
     ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote style="margin:0 0 16px 0; padding:10px 14px; background:#f5f3ee; border-left:3px solid #888; font-size:13px; white-space:pre-wrap;">${esc(req.requestJustification)}</blockquote>` : ''}
-    <p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>
-    <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="${esc(m.placeholder)}"></textarea>
+    ${m.noJustification
+      ? `<p style="margin-bottom:6px; color:var(--muted); font-size:12px;">No justification is required — the request record will be deleted from Intune.</p>`
+      : `<p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>
+    <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="${esc(m.placeholder)}"></textarea>`}
     <div id="apaError"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
       <button class="btn btn-ghost" onclick="closeApprovalActionModal()">Dismiss</button>
-      <button class="${m.btnClass}" id="apaSubmitBtn" disabled style="${m.btnStyle}">${m.label}</button>
+      <button class="${m.btnClass}" id="apaSubmitBtn" ${m.noJustification ? '' : 'disabled'} style="${m.btnStyle}">${m.label}</button>
     </div>
   `;
   const input = $('apaJustification');
   const btn = $('apaSubmitBtn');
-  input.addEventListener('input', () => { btn.disabled = input.value.trim() === ''; });
-  btn.addEventListener('click', () => submitApprovalAction(id, action, input.value.trim()));
+  if (input) input.addEventListener('input', () => { btn.disabled = input.value.trim() === ''; });
+  btn.addEventListener('click', () => submitApprovalAction(id, action, input ? input.value.trim() : ''));
   attachSearchClearButtons($('apaBody'));
   $('approvalActionModal').classList.add('show');
   setTimeout(() => input.focus(), 0);
@@ -9191,10 +9193,15 @@ async function submitApprovalAction(id, action, justification) {
   btn.textContent = { approve: 'Approving…', reject: 'Rejecting…', cancel: 'Cancelling…', complete: 'Completing…' }[action] || 'Submitting…';
   $('apaError').innerHTML = '';
   try {
-    const body = ['approve', 'reject'].includes(action)
-      ? { justification, approvalSource: 'adminConsole' }
-      : { justification };
-    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, body, { token: await ensureScopeToken('DeviceManagementApps.ReadWrite.All') });
+    const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
+    if (action === 'cancel') {
+      await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id), { token });
+    } else {
+      const body = ['approve', 'reject'].includes(action)
+        ? { justification, approvalSource: 'adminConsole' }
+        : { justification };
+      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, body, { token });
+    }
     closeApprovalActionModal();
     loadApprovals(true);
   } catch (e) {
@@ -9254,9 +9261,13 @@ async function bulkApprovalAction(action) {
   const filtered = applyApprovalsFilters(approvalsRaw);
   const targets = filtered.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval');
   if (!targets.length) return;
-  const verb = action === 'approve' ? 'Approving' : action === 'reject' ? 'Rejecting' : 'Cancelling';
-  const just = prompt(`Enter justification for ${action}ing ${targets.length} request(s) (required, recorded in the audit log; max 1024 chars):`);
-  if (!just || !just.trim()) return;
+  let just = '';
+  if (action !== 'cancel') {
+    just = prompt(`Enter justification for ${action}ing ${targets.length} request(s) (required, recorded in the audit log; max 1024 chars):`);
+    if (!just || !just.trim()) return;
+  } else {
+    if (!confirm(`Cancel ${targets.length} pending request${targets.length === 1 ? '' : 's'}? The request records will be deleted from Intune.`)) return;
+  }
   let token;
   try { token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All'); } catch (e) {
     $('approvalsError').innerHTML = `<div class="error-banner">Consent not granted: ${esc(e.message || String(e))}</div>`; return;
@@ -9265,10 +9276,14 @@ async function bulkApprovalAction(action) {
   for (let i = 0; i < targets.length; i++) {
     const r = targets[i];
     try {
-      const body = ['approve', 'reject'].includes(action)
-        ? { justification: just.trim(), approvalSource: 'adminConsole' }
-        : { justification: just.trim() };
-      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action, body, { token });
+      if (action === 'cancel') {
+        await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token });
+      } else {
+        const body = ['approve', 'reject'].includes(action)
+          ? { justification: just.trim(), approvalSource: 'adminConsole' }
+          : { justification: just.trim() };
+        await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action, body, { token });
+      }
       succeeded.push(r);
       apSelected.delete(r.id);
     } catch (e) {
