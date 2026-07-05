@@ -1422,6 +1422,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <select class="filter-select" id="approvalsTypeFilter">
                 <option value="">All types</option>
               </select>
+              <span style="cursor:pointer; color:#1f5d33; font-weight:600; font-size:13px; display:none;" id="btnApprovalsApproveSel" title="Approve all selected pending requests">✓ Approve selected</span>
+              <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnApprovalsRejectSel" title="Reject all selected pending requests">✗ Reject selected</span>
+              <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnApprovalsCancelSel" title="Cancel all selected pending requests">⊘ Cancel selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnApprovalsClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnApprovalsRefresh">↻ Refresh</span>
             </div>
@@ -1432,6 +1435,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <table>
               <thead>
                 <tr>
+                  <th style="width:26px;"><input type="checkbox" id="apSelectAll" title="Select / deselect all filtered requests" style="cursor:pointer;"></th>
                   <th data-asort="requestor">Requestor <span class="arrow">▼</span></th>
                   <th data-asort="type">Type <span class="arrow">▼</span></th>
                   <th data-asort="status">Status <span class="arrow">▼</span></th>
@@ -1871,6 +1875,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <option value="healthy">Healthy</option>
               </select>
               <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnCerthealthDelete" title="Delete the selected devices from Intune — removes the record; each device is retired on its next check-in">🗑 Delete selected</span>
+              <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnCerthealthWipe" title="Remote wipe the selected devices — factory reset; device remains enrolled in Intune">⚠ Wipe selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnCerthealthClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthExport">⬇ Export CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthRefresh">↻ Refresh</span>
@@ -8906,6 +8911,7 @@ let approvalsLoaded = false;
 let approvalsRaw = [];
 let approvalsSortKey = 'requestDateTime';
 let approvalsSortDir = 'desc';
+const apSelected = new Set();
 const APPROVALS_TERMINAL = new Set(['approved', 'rejected', 'cancelled', 'expired', 'completed']);
 
 function approvalRequestor(r) {
@@ -8991,6 +8997,7 @@ async function loadApprovals(force = false) {
       path = next ? next.replace('https://graph.microsoft.com/', '') : null;
     }
     approvalsRaw = all;
+    apSelected.clear();
     approvalsLoaded = true;
     updateApprovalsBadge();
     populateApprovalsTypeFilter();
@@ -9100,7 +9107,7 @@ function renderApprovalsTable() {
 
   const body = $('approvalsRowsBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No approval requests match the current filters.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No approval requests match the current filters.</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => {
       const s = (r.status || '').toLowerCase();
@@ -9115,6 +9122,7 @@ function renderApprovalsTable() {
         : `<button class="btn btn-ghost" data-approval-details="${esc(r.id)}" style="padding:4px 10px; font-size:11px;">Details</button>`;
       return `
         <tr>
+          <td>${r.id ? `<input type="checkbox" data-ap-select="${esc(r.id)}" ${apSelected.has(r.id) ? 'checked' : ''} style="cursor:pointer;">` : ''}</td>
           <td>${approvalRequestorCell(r)}</td>
           <td><span style="font-family:ui-monospace,monospace; font-size:11px;">${esc(approvalType(r))}</span></td>
           <td>${approvalStatusBadge(r.status)}</td>
@@ -9127,6 +9135,17 @@ function renderApprovalsTable() {
     }).join('');
   }
   $('approvalsCount').textContent = rows.length;
+
+  // Select-all reflects the filtered view; bulk buttons reflect filtered pending selection
+  const visibleIds = rows.map(r => r.id).filter(Boolean);
+  const selVisible = visibleIds.filter(id => apSelected.has(id));
+  const sa = $('apSelectAll');
+  sa.checked = visibleIds.length > 0 && selVisible.length === visibleIds.length;
+  sa.indeterminate = selVisible.length > 0 && selVisible.length < visibleIds.length;
+  const selPending = rows.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval').length;
+  $('btnApprovalsApproveSel').style.display = selPending ? '' : 'none';
+  $('btnApprovalsRejectSel').style.display  = selPending ? '' : 'none';
+  $('btnApprovalsCancelSel').style.display  = selPending ? '' : 'none';
 }
 
 function openApprovalActionModal(id, action) {
@@ -9172,10 +9191,10 @@ async function submitApprovalAction(id, action, justification) {
   btn.textContent = { approve: 'Approving…', reject: 'Rejecting…', cancel: 'Cancelling…', complete: 'Completing…' }[action] || 'Submitting…';
   $('apaError').innerHTML = '';
   try {
-    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, {
-      justification,
-      approvalSource: 'adminConsole'
-    }, { token: await ensureScopeToken('DeviceManagementApps.ReadWrite.All') });
+    const body = ['approve', 'reject'].includes(action)
+      ? { justification, approvalSource: 'adminConsole' }
+      : { justification };
+    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action, body, { token: await ensureScopeToken('DeviceManagementApps.ReadWrite.All') });
     closeApprovalActionModal();
     loadApprovals(true);
   } catch (e) {
@@ -9214,6 +9233,59 @@ $('approvalsRowsBody').addEventListener('click', e => {
   else if (ds.cancelApproval) openApprovalActionModal(ds.cancelApproval, 'cancel');
   else if (ds.completeApproval) openApprovalActionModal(ds.completeApproval, 'complete');
 });
+
+// Checkbox row selection
+$('approvalsRowsBody').addEventListener('change', e => {
+  const cb = e.target.closest('[data-ap-select]');
+  if (!cb) return;
+  if (cb.checked) apSelected.add(cb.dataset.apSelect);
+  else apSelected.delete(cb.dataset.apSelect);
+  renderApprovalsTable();
+});
+$('apSelectAll').addEventListener('change', () => {
+  const rows = applyApprovalsFilters(approvalsRaw);
+  const all = $('apSelectAll').checked;
+  rows.forEach(r => { if (r.id) { if (all) apSelected.add(r.id); else apSelected.delete(r.id); } });
+  renderApprovalsTable();
+});
+
+// Bulk actions — operate on the filtered pending selection
+async function bulkApprovalAction(action) {
+  const filtered = applyApprovalsFilters(approvalsRaw);
+  const targets = filtered.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === 'needsapproval');
+  if (!targets.length) return;
+  const verb = action === 'approve' ? 'Approving' : action === 'reject' ? 'Rejecting' : 'Cancelling';
+  const just = prompt(`Enter justification for ${action}ing ${targets.length} request(s) (required, recorded in the audit log; max 1024 chars):`);
+  if (!just || !just.trim()) return;
+  let token;
+  try { token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All'); } catch (e) {
+    $('approvalsError').innerHTML = `<div class="error-banner">Consent not granted: ${esc(e.message || String(e))}</div>`; return;
+  }
+  const succeeded = [], failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = targets[i];
+    try {
+      const body = ['approve', 'reject'].includes(action)
+        ? { justification: just.trim(), approvalSource: 'adminConsole' }
+        : { justification: just.trim() };
+      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action, body, { token });
+      succeeded.push(r);
+      apSelected.delete(r.id);
+    } catch (e) {
+      failed.push({ r, error: e.message || String(e) });
+    }
+  }
+  const parts = [];
+  if (succeeded.length) parts.push(`✓ ${succeeded.length} ${action}d`);
+  if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => f.error).join('; ')}`);
+  const cls = failed.length ? 'error-banner' : 'notice-banner';
+  $('approvalsError').innerHTML = parts.length ? `<div class="${cls}">${esc(parts.join(' · '))}</div>` : '';
+  loadApprovals(true);
+}
+
+$('btnApprovalsApproveSel').addEventListener('click', () => bulkApprovalAction('approve'));
+$('btnApprovalsRejectSel').addEventListener('click',  () => bulkApprovalAction('reject'));
+$('btnApprovalsCancelSel').addEventListener('click',  () => bulkApprovalAction('cancel'));
 
 document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
   th.addEventListener('click', () => {
@@ -10346,6 +10418,9 @@ function renderCerthealthTable() {
   const delBtn = $('btnCerthealthDelete');
   delBtn.style.display = totalSel ? '' : 'none';
   delBtn.textContent = `🗑 Delete selected (${totalSel})`;
+  const wipeBtn = $('btnCerthealthWipe');
+  wipeBtn.style.display = totalSel ? '' : 'none';
+  wipeBtn.textContent = `⚠ Wipe selected (${totalSel})`;
 }
 
 // Bulk-delete the selected devices from Intune. DELETE managedDevices/{id}
@@ -10423,6 +10498,50 @@ async function deleteSelectedCerthealthDevices() {
   renderCerthealthTable();
 }
 
+// Remote wipe the selected devices. POST managedDevices/{id}/wipe triggers a
+// factory reset; the device record stays in Intune (unlike delete/retire).
+async function wipeSelectedCerthealthDevices() {
+  const targets = certhealthRows.filter(r => chSelected.has(r.id));
+  if (!targets.length) return;
+  const names = targets.map(r => r.deviceName || r.id);
+  const preview = names.slice(0, 10).map(n => '  • ' + n).join('\n');
+  const more = names.length > 10 ? `\n  …and ${names.length - 10} more` : '';
+  if (!confirm(`Remote wipe ${names.length} device${names.length === 1 ? '' : 's'}?\n\n${preview}${more}\n\nThis factory-resets the device OS. The device remains enrolled in Intune. This cannot be undone.`)) return;
+
+  const btn = $('btnCerthealthWipe');
+  btn.style.pointerEvents = 'none';
+  let token;
+  try {
+    token = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
+  } catch (e) {
+    $('certhealthError').innerHTML = `<div class="error-banner">Consent for wipe was not granted: ${esc(e.message || String(e))}</div>`;
+    btn.style.pointerEvents = '';
+    renderCerthealthTable();
+    return;
+  }
+
+  const succeeded = [], failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = targets[i];
+    btn.textContent = `⚠ Wiping ${i + 1}/${targets.length}…`;
+    try {
+      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(r.id) + '/wipe', { keepEnrollmentData: false, keepUserData: false }, { token });
+      succeeded.push(r);
+    } catch (e) {
+      failed.push({ r, error: e.message || String(e) });
+    }
+  }
+
+  const parts = [];
+  if (succeeded.length) parts.push(`✓ Wipe issued to ${succeeded.length}: ${succeeded.map(r => r.deviceName || r.id).join(', ')}`);
+  if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => `${f.r.deviceName || f.r.id} (${f.error})`).join('; ')}`);
+  const cls = failed.length ? 'error-banner' : 'notice-banner';
+  $('certhealthError').innerHTML = parts.length ? `<div class="${cls}">${parts.map(p => esc(p)).join('<br>')}</div>` : '';
+
+  btn.style.pointerEvents = '';
+  renderCerthealthTable();
+}
+
 function exportCerthealthCsv() {
   const rows = applyCerthealthFilters(certhealthRows);
   const header = ['DeviceName','User','OSVersion','Manufacturer','Model','CertExpiration','DaysRemaining','LastSync','DaysSinceSync','Health','Risk'];
@@ -10462,6 +10581,7 @@ $('chSelectAll').addEventListener('change', () => {
   renderCerthealthTable();
 });
 $('btnCerthealthDelete').addEventListener('click', deleteSelectedCerthealthDevices);
+$('btnCerthealthWipe').addEventListener('click', wipeSelectedCerthealthDevices);
 
 $('certhealthFilter').addEventListener('input', renderCerthealthTable);
 $('certhealthStateFilter').addEventListener('change', renderCerthealthTable);
