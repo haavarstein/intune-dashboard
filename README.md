@@ -129,8 +129,9 @@ Sign in once with MSAL — all twenty sub-tabs share the same session.
 - **KPI tiles**: Windows devices in scope · Management failure likely · At risk · Stale · Management health rate gauge. Tiles click-filter the table.
 - Sortable table with Device · User · Windows · Days remaining (negative for expired) · Cert expires · Days since sync · Risk · Health. Default sort is Days remaining ascending — devices closest to silent drop-off float to the top.
 - Device names deep-link to the device's Intune blade.
+- **🗑 Delete selected** — checkbox column with a filtered-view select-all lets you delete one or many devices from Intune in one action (e.g. clean out broken devices you've re-enrolled). Confirmation lists the device names and warns about impact; deletion removes the Intune record and retires the device on its next check-in. MAA-aware: one justification prompt covers the whole batch, and devices whose deletes are queued for approval (412/409) are reported separately from deleted/failed. Requests `DeviceManagementManagedDevices.ReadWrite.All` just-in-time.
 - **⬇ Export CSV** (includes Health + Risk) for a snapshot of the at-risk fleet.
-- Uses the existing `DeviceManagementManagedDevices.Read.All` scope — no new consent.
+- Viewing uses the existing `DeviceManagementManagedDevices.Read.All` scope — no new consent until you delete.
 
 **Soft-deleted** — Entra ID device recycle bin (preview). Lists soft-deleted Entra device objects with a per-row **↻ Restore** action so admins can recover accidentally deleted devices within the 30-day window without dropping to Microsoft Graph PowerShell. The recycle bin preserves BitLocker recovery keys, LAPS passwords, device identity, and key material — restoring the object brings all of that back and the Intune managed-device record auto-relinks within a few minutes.
 
@@ -287,6 +288,7 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `User.RevokeSessions.All` — the Stale users sub-tab's ↻ Revoke sessions button.
 - `User.EnableDisableAccount.All` — the Stale users sub-tab's ⊘ Disable account button. Confirm modal requires typing `DISABLE` before the button enables.
 - `DeviceManagementManagedDevices.PrivilegedOperations.All` — the per-device **⚡ Check-in** action (Hardware / Failed Install rows + the Management health assessment panel), which fires `initiateOnDemandProactiveRemediation` to force an IME required-app sync; requires an Intune Administrator role.
+- `DeviceManagementManagedDevices.ReadWrite.All` — the Management health tab's **🗑 Delete selected** bulk device delete
 
 Everything requested at sign-in is read-only; all seven write scopes are just-in-time. Stricter tenants may require admin consent for the write scopes; if you can't consent yourself, an Intune admin needs to grant it before 🗑 Delete from Intune, the approver-notification email, ⚡ Auto-deploy, ↻ Restore (Soft-deleted sub-tab), and ↻ Revoke / ⊘ Disable (Stale users sub-tab) will work.
 
@@ -302,6 +304,7 @@ Everything requested at sign-in is read-only; all seven write scopes are just-in
 - `GET /beta/deviceAppManagement/mobileApps/{id}?$expand=assignments` — assignments for the selected app in the Installed sub-tab
 - `GET /beta/deviceAppManagement/mobileApps/{id}` — full app object including the inline `rules` / `detectionRules` collection (Detection Rule Inspector modal, triggered from Installed and Failed sub-tabs)
 - `DELETE /beta/deviceAppManagement/mobileApps/{id}` — permanently delete an app from the tenant (Installed sub-tab → 🗑 Delete from Intune, and App versions sub-tab → per-package 🗑)
+- `DELETE /beta/deviceManagement/managedDevices/{id}` — the Management health tab's **🗑 Delete selected** bulk action; removes the Intune device record (the device retires on its next check-in). Multi-Admin-Approval aware — one justification is prompted for the whole batch and 412/409 responses are reported as queued for approval (needs the JIT `DeviceManagementManagedDevices.ReadWrite.All` scope)
 - `POST /v1.0/me/sendMail` — send the MAA approver-notification email from your mailbox when a delete submission triggers HTTP 412/409 and the active customer has approvers configured
 - `GET /beta/deviceManagement/operationApprovalRequests/{id}` — live status polling for an in-flight MAA delete request (30 s cadence while the modal is open; stops on approved/rejected/cancelled/expired/completed)
 - `GET /beta/deviceManagement/operationApprovalRequests` — full MAA queue (Approvals sub-tab; paginated)

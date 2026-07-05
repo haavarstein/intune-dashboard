@@ -1864,6 +1864,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <option value="stale">Stale sync</option>
                 <option value="healthy">Healthy</option>
               </select>
+              <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnCerthealthDelete" title="Delete the selected devices from Intune — removes the record; each device is retired on its next check-in">🗑 Delete selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnCerthealthClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthExport">⬇ Export CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnCerthealthRefresh">↻ Refresh</span>
@@ -1875,6 +1876,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <table>
               <thead>
                 <tr>
+                  <th style="width:26px;"><input type="checkbox" id="chSelectAll" title="Select / deselect all filtered devices" style="cursor:pointer;"></th>
                   <th data-csort="deviceName">Device <span class="arrow">▼</span></th>
                   <th data-csort="userPrincipalName">User <span class="arrow">▼</span></th>
                   <th data-csort="osVersion">Windows <span class="arrow">▼</span></th>
@@ -3843,7 +3845,7 @@ function resetTenantState() {
   if ($('appverAppsView')) $('appverAppsView').style.display = '';
   if ($('appverDrillView')) $('appverDrillView').style.display = 'none';
   // Management health
-  certhealthLoaded = false; certhealthRows = [];
+  certhealthLoaded = false; certhealthRows = []; chSelected.clear();
   // Stale users
   staleusersLoaded = false; staleusersLoading = false; staleusersRows = [];
   staleusersTileFilter = null; staleusersP1Gated = false;
@@ -9881,6 +9883,7 @@ let certhealthLoaded = false;
 let certhealthRows = [];
 let certhealthSortKey = 'daysRemaining';
 let certhealthSortDir = 'asc';
+const chSelected = new Set(); // device IDs ticked for bulk delete
 
 const CERT_EXPIRING_DAYS = 30;
 const CERT_STALE_SYNC_DAYS = 14;
@@ -10046,6 +10049,7 @@ async function loadCerthealth(force = false) {
     const filter = `operatingSystem eq 'Windows'`;
     const devices = await graphGetAll(`beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}`);
     const now = Date.now();
+    chSelected.clear();
     certhealthRows = devices.map(d => {
       // Graph returns "0001-01-01T00:00:00Z" for devices with no management certificate
       // (co-managed, intermediate enrollment, non-MDM). Treat sub-1900 as "no cert data".
@@ -10155,7 +10159,7 @@ function renderCerthealthTable() {
 
   const body = $('certhealthRowsBody');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--muted); padding:24px;">No devices match the current filters.</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => {
       const state = certhealthStateOf(r);
@@ -10164,6 +10168,7 @@ function renderCerthealthTable() {
         : (esc(r.deviceName) || '—');
       return `
         <tr>
+          <td>${r.id ? `<input type="checkbox" data-ch-select="${esc(r.id)}" ${chSelected.has(r.id) ? 'checked' : ''} style="cursor:pointer;">` : ''}</td>
           <td>${deviceCell}</td>
           <td>${esc(r.userPrincipalName) || '—'}</td>
           <td>${esc(r.osVersion) || '—'}</td>
@@ -10178,6 +10183,93 @@ function renderCerthealthTable() {
     }).join('');
   }
   $('certhealthCount').textContent = rows.length;
+
+  // Selection UI: select-all reflects the filtered view; the delete button
+  // counts every selected device, filtered or not.
+  const visibleIds = rows.map(r => r.id).filter(Boolean);
+  const selVisible = visibleIds.filter(id => chSelected.has(id));
+  const sa = $('chSelectAll');
+  sa.checked = visibleIds.length > 0 && selVisible.length === visibleIds.length;
+  sa.indeterminate = selVisible.length > 0 && selVisible.length < visibleIds.length;
+  const totalSel = certhealthRows.filter(r => chSelected.has(r.id)).length;
+  const delBtn = $('btnCerthealthDelete');
+  delBtn.style.display = totalSel ? '' : 'none';
+  delBtn.textContent = `🗑 Delete selected (${totalSel})`;
+}
+
+// Bulk-delete the selected devices from Intune. DELETE managedDevices/{id}
+// removes the record; an enrolled device is retired on its next check-in.
+// MAA tenants: prompt for one justification and reuse it for the whole batch;
+// 412/409 means the delete was queued for an approver, not executed.
+async function deleteSelectedCerthealthDevices() {
+  const targets = certhealthRows.filter(r => chSelected.has(r.id));
+  if (!targets.length) return;
+  const names = targets.map(r => r.deviceName || r.id);
+  const preview = names.slice(0, 10).map(n => '  • ' + n).join('\n');
+  const more = names.length > 10 ? `\n  …and ${names.length - 10} more` : '';
+  if (!confirm(`Delete ${names.length} device${names.length === 1 ? '' : 's'} from Intune?\n\n${preview}${more}\n\nThis removes the Intune record; each device is retired on its next check-in (company data and profiles removed where applicable). This cannot be undone from the dashboard.`)) return;
+
+  const btn = $('btnCerthealthDelete');
+  btn.style.pointerEvents = 'none';
+  let token;
+  try {
+    token = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
+  } catch (e) {
+    $('certhealthError').innerHTML = `<div class="error-banner">Consent for device deletion was not granted: ${esc(e.message || String(e))}</div>`;
+    btn.style.pointerEvents = '';
+    renderCerthealthTable();
+    return;
+  }
+
+  let maaJustB64 = null;
+  let cancelled = false;
+  const deleted = [], queued = [], failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = targets[i];
+    btn.textContent = `🗑 Deleting ${i + 1}/${targets.length}…`;
+    const attempt = (headers = {}) => graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(r.id), { token, headers });
+    try {
+      await attempt(maaJustB64 ? { 'x-msft-approval-justification': maaJustB64 } : {});
+      deleted.push(r);
+    } catch (e) {
+      if (e.isMaa && !maaJustB64) {
+        const just = prompt(`Multi-Admin Approval is required in this tenant. Enter one justification for deleting ${targets.length === 1 ? `"${r.deviceName}"` : `these ${targets.length} devices`} (recorded in the audit log; ≤ 1024 chars):`);
+        if (!just) { cancelled = true; break; }
+        maaJustB64 = btoa(String.fromCharCode(...new TextEncoder().encode(just)));
+        try {
+          await attempt({ 'x-msft-approval-justification': maaJustB64 });
+          deleted.push(r);
+        } catch (e2) {
+          if (e2.status === 412 || e2.status === 409) queued.push(r);
+          else failed.push({ r, error: e2.message || String(e2) });
+        }
+      } else if (e.status === 412 || e.status === 409) {
+        queued.push(r);
+      } else {
+        failed.push({ r, error: e.message || String(e) });
+      }
+    }
+  }
+
+  // Deleted rows leave the table; queued ones stay (the record still exists
+  // until an approver acts) but drop out of the selection.
+  const deletedIds = new Set(deleted.map(r => r.id));
+  if (deletedIds.size) certhealthRows = certhealthRows.filter(r => !deletedIds.has(r.id));
+  deleted.forEach(r => chSelected.delete(r.id));
+  queued.forEach(r => chSelected.delete(r.id));
+
+  const skipped = targets.length - deleted.length - queued.length - failed.length;
+  const parts = [];
+  if (deleted.length) parts.push(`✓ Deleted ${deleted.length}: ${deleted.map(r => r.deviceName || r.id).join(', ')}`);
+  if (queued.length) parts.push(`⏳ ${queued.length} submitted for Multi-Admin Approval — approve under Tenant administration → Multi Admin Approval: ${queued.map(r => r.deviceName || r.id).join(', ')}`);
+  if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => `${f.r.deviceName || f.r.id} (${f.error})`).join('; ')}`);
+  if (skipped > 0) parts.push(`${cancelled ? 'Justification cancelled — ' : ''}${skipped} device${skipped === 1 ? '' : 's'} not attempted.`);
+  const cls = (failed.length || cancelled) ? 'error-banner' : 'notice-banner';
+  $('certhealthError').innerHTML = parts.length ? `<div class="${cls}">${parts.map(p => esc(p)).join('<br>')}</div>` : '';
+
+  btn.style.pointerEvents = '';
+  renderCerthealthTiles();
+  renderCerthealthTable();
 }
 
 function exportCerthealthCsv() {
@@ -10201,6 +10293,24 @@ $('certhealthRowsBody').addEventListener('click', e => {
   const el = e.target.closest('[data-ch-why]');
   if (el) openChAssessModal(el.dataset.chWhy);
 });
+
+// Row checkboxes + select-all (select-all operates on the filtered view)
+$('certhealthRowsBody').addEventListener('change', e => {
+  const cb = e.target.closest('[data-ch-select]');
+  if (!cb) return;
+  if (cb.checked) chSelected.add(cb.dataset.chSelect);
+  else chSelected.delete(cb.dataset.chSelect);
+  renderCerthealthTable();
+});
+$('chSelectAll').addEventListener('change', () => {
+  const all = $('chSelectAll').checked;
+  applyCerthealthFilters(certhealthRows).forEach(r => {
+    if (!r.id) return;
+    if (all) chSelected.add(r.id); else chSelected.delete(r.id);
+  });
+  renderCerthealthTable();
+});
+$('btnCerthealthDelete').addEventListener('click', deleteSelectedCerthealthDevices);
 
 $('certhealthFilter').addEventListener('input', renderCerthealthTable);
 $('certhealthStateFilter').addEventListener('change', renderCerthealthTable);
