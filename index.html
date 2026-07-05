@@ -9195,17 +9195,24 @@ async function executeApprovalComplete(r, justification, approvalToken) {
     );
   }
 
+  // Intune still requires the MAA justification header on re-execution to match
+  // the approved request. Use the admin's completion note; fall back to the
+  // original request justification stored in the approval record.
+  const maaText = justification || req.requestJustification || 'Approved';
+  const maaHeader = { 'x-msft-approval-justification': btoa(unescape(encodeURIComponent(maaText))) };
+
   // actionName/payload give clean "Wipe"/"Retire"/"Delete"; fall back to policy type string
   const action = (req.actionName || req.payload || '').toLowerCase();
   const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
   if (action === 'wipe' || /wipe/.test(types)) {
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
-      { keepEnrollmentData: false, keepUserData: false }, { token: devToken });
+      { keepEnrollmentData: false, keepUserData: false }, { token: devToken, headers: maaHeader });
   } else if (action === 'retire' || /retire/.test(types)) {
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
-      {}, { token: devToken });
+      {}, { token: devToken, headers: maaHeader });
   } else if (action === 'delete' || /delete/.test(types)) {
-    await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId), { token: devToken });
+    await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId),
+      { token: devToken, headers: maaHeader });
   } else {
     throw new Error(`Device ID found (${deviceId}) but unknown operation type: action="${action}" types="${types}".`);
   }
