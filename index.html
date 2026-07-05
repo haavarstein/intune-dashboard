@@ -9163,30 +9163,48 @@ async function executeApprovalComplete(r, justification, approvalToken) {
   let req = r;
   try {
     req = await graphGet('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token: approvalToken });
-  } catch (_) { /* fall back to list data */ }
-  console.log('[MAA Complete]', req.id, 'operationDetails:', req.operationDetails, 'types:', req.requiredOperationApprovalPolicyTypes);
+  } catch (getErr) {
+    console.warn('[MAA Complete] GET failed, using list data:', getErr.message);
+  }
+
+  // operationDetails can be a JSON string in some beta API versions
+  let op = req.operationDetails;
+  if (typeof op === 'string') { try { op = JSON.parse(op); } catch (_) { op = {}; } }
+  op = op || {};
 
   const types = (req.requiredOperationApprovalPolicyTypes || []).map(t => t.toLowerCase()).join(' ');
-  const deviceId = req.operationDetails?.deviceId || null;
 
-  if (deviceId) {
-    const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
-    if (/wipe/.test(types)) {
-      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
-        { keepEnrollmentData: false, keepUserData: false }, { token: devToken });
-    } else if (/retire/.test(types)) {
-      await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
-        {}, { token: devToken });
-    } else if (/delete/.test(types)) {
-      await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId), { token: devToken });
-    } else {
-      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(req.id) + '/complete',
-        { requestJustification: justification, approvalSource: 'adminConsole' }, { token: approvalToken });
-    }
+  // Probe every plausible field name Graph might use for the target device
+  const deviceId = op.deviceId || op.managedDeviceId || op.resourceId || op.id
+    || req.deviceId || req.managedDeviceId || null;
+
+  // Log the full request structure — copy from browser console to report
+  console.log('[MAA Complete] full request:', JSON.stringify(req, null, 2));
+  console.log('[MAA Complete] id:', req.id, 'types:', types || '(none)', 'deviceId resolved:', deviceId);
+  console.log('[MAA Complete] operationDetails keys:', Object.keys(op));
+
+  if (!deviceId) {
+    // Surface the raw data so we can identify the correct field name
+    const opKeys = Object.keys(op).join(', ') || 'empty';
+    const reqKeys = Object.keys(req).filter(k => !['@odata.context', 'id'].includes(k)).join(', ');
+    throw new Error(
+      `Device ID not found in approval request. ` +
+      `types="${types || 'none'}" · operationDetails keys: [${opKeys}] · ` +
+      `request keys: [${reqKeys}] — check browser console (F12) for full JSON`
+    );
+  }
+
+  const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
+  if (/wipe/.test(types)) {
+    await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
+      { keepEnrollmentData: false, keepUserData: false }, { token: devToken });
+  } else if (/retire/.test(types)) {
+    await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
+      {}, { token: devToken });
+  } else if (/delete/.test(types)) {
+    await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId), { token: devToken });
   } else {
-    // operationDetails absent or no deviceId — call /complete directly
-    await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(req.id) + '/complete',
-      { requestJustification: justification, approvalSource: 'adminConsole' }, { token: approvalToken });
+    throw new Error(`Device ID found (${deviceId}) but unknown operation type: "${types}". Check browser console.`);
   }
 }
 
