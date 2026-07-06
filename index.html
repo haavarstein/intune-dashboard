@@ -9337,35 +9337,43 @@ async function executeApprovalComplete(r, approvalToken) {
   // learn.microsoft.com "Use Multi Admin Approval with the Microsoft Graph API".
   const maaHeader = { 'x-msft-approval-code': req.id || r.id };
 
-  // Device actions: payloadId is the managed device ID, actionName the op type
+  // payloadType names the API entity the request touches, e.g.
+  // "Microsoft.Management.Services.Api.ManagedDevice" or "…Api.MobileApp"
+  const typeKey = (req.payloadType || '').split('.').pop().toLowerCase();
+
+  // Device remote actions: payloadId is the managed device ID, actionName the
+  // op type. Gate on the payload type so an app/policy request whose
+  // actionName happens to be "Delete" can't be misrouted to managedDevices.
+  const isDeviceOp = typeKey === 'manageddevice' || types.includes('device');
   const deviceId = req.payloadId
     || op.deviceId || op.managedDeviceId || op.resourceId || op.id
     || req.deviceId || req.managedDeviceId || null;
   const action = (req.actionName || '').toLowerCase();
 
-  if (deviceId && (action === 'wipe' || /wipe/.test(types))) {
+  if (isDeviceOp && deviceId && (action === 'wipe' || /wipe/.test(types))) {
     const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
       { keepEnrollmentData: false, keepUserData: false }, { token: devToken, headers: maaHeader });
     return;
   }
-  if (deviceId && (action === 'retire' || /retire/.test(types))) {
+  if (isDeviceOp && deviceId && (action === 'retire' || /retire/.test(types))) {
     const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
       {}, { token: devToken, headers: maaHeader });
     return;
   }
-  if (deviceId && (action === 'delete' || /delete/.test(types))) {
+  if (isDeviceOp && deviceId && (action === 'delete' || /delete/.test(types))) {
     const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId),
       { token: devToken, headers: maaHeader });
     return;
   }
 
-  // Non-device Creates (access policies, scripts, compliance/config policies):
-  // the request stores the original body in payload — re-POST it to the
-  // collection for its payloadType with the approval-code header.
-  const CREATE_TARGETS = {
+  // Everything else: resolve the collection for the payload type and replay
+  // the original operation — Create re-POSTs the body stored in payload,
+  // Delete DELETEs /{payloadId}, Update PATCHes /{payloadId} with the payload.
+  const TYPE_TARGETS = {
+    mobileapp:                            { path: 'beta/deviceAppManagement/mobileApps',              scope: 'DeviceManagementApps.ReadWrite.All' },
     operationapprovalpolicy:              { path: 'beta/deviceManagement/operationApprovalPolicies',  scope: 'DeviceManagementRBAC.ReadWrite.All' },
     devicemanagementscript:               { path: 'beta/deviceManagement/deviceManagementScripts',    scope: 'DeviceManagementConfiguration.ReadWrite.All' },
     devicehealthscript:                   { path: 'beta/deviceManagement/deviceHealthScripts',        scope: 'DeviceManagementConfiguration.ReadWrite.All' },
@@ -9373,14 +9381,29 @@ async function executeApprovalComplete(r, approvalToken) {
     devicemanagementconfigurationpolicy:  { path: 'beta/deviceManagement/configurationPolicies',      scope: 'DeviceManagementConfiguration.ReadWrite.All' },
     devicecategory:                       { path: 'beta/deviceManagement/deviceCategories',           scope: 'DeviceManagementConfiguration.ReadWrite.All' },
   };
-  const typeKey = (req.payloadType || '').split('.').pop().toLowerCase();
-  const target = CREATE_TARGETS[typeKey];
-  if ((req.payloadOperation || '').toLowerCase() === 'create' && req.payload && target) {
-    let body;
-    try { body = JSON.parse(req.payload); }
+  let target = TYPE_TARGETS[typeKey];
+  // App requests can carry the concrete subtype (Win32LobApp, WinGetApp, …) —
+  // all live in the mobileApps collection.
+  if (!target && (/app$/.test(typeKey) || types === 'app')) target = TYPE_TARGETS.mobileapp;
+
+  const payloadOp = (req.payloadOperation || '').toLowerCase();
+  const parsePayload = () => {
+    try { return JSON.parse(req.payload); }
     catch (_) { throw new Error('Approval payload is not valid JSON — complete this request from the Intune portal instead.'); }
+  };
+  if (target && payloadOp === 'create' && req.payload) {
     const tok = await ensureScopeToken(target.scope);
-    await graphPost(target.path, body, { token: tok, headers: maaHeader });
+    await graphPost(target.path, parsePayload(), { token: tok, headers: maaHeader });
+    return;
+  }
+  if (target && payloadOp === 'delete' && req.payloadId) {
+    const tok = await ensureScopeToken(target.scope);
+    await graphDelete(target.path + '/' + encodeURIComponent(req.payloadId), { token: tok, headers: maaHeader });
+    return;
+  }
+  if (target && (payloadOp === 'update' || payloadOp === 'patch') && req.payloadId && req.payload) {
+    const tok = await ensureScopeToken(target.scope);
+    await graphPatch(target.path + '/' + encodeURIComponent(req.payloadId), parsePayload(), { token: tok, headers: maaHeader });
     return;
   }
 
