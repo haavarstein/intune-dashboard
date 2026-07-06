@@ -1368,10 +1368,15 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="intuneSubApprovals" style="display:none;">
         <div class="tab-hint">Multi-Admin Approval queue for this tenant — every pending and recent approval request across apps, scripts, configurations, and device actions. Approve or reject inline; no admin-center context switch.</div>
         <div class="tiles">
-          <div class="tile tile-watch" data-approvals-tile="pending" style="cursor:pointer;">
-            <div class="tile-label">Pending</div>
-            <div class="tile-value" id="apTilePending">0</div>
-            <div class="tile-sub">needs approval / completion</div>
+          <div class="tile tile-watch" data-approvals-tile="needsApproval" style="cursor:pointer;">
+            <div class="tile-label">Pending Approval</div>
+            <div class="tile-value" id="apTilePendingApproval">0</div>
+            <div class="tile-sub">awaiting an approver</div>
+          </div>
+          <div class="tile tile-warn" data-approvals-tile="approved" style="cursor:pointer;">
+            <div class="tile-label">Pending Completion</div>
+            <div class="tile-value" id="apTilePendingCompletion">0</div>
+            <div class="tile-sub">approved — requestor must complete</div>
           </div>
           <div class="tile tile-good" data-approvals-tile="completed" style="cursor:pointer;">
             <div class="tile-label">Completed</div>
@@ -9251,7 +9256,8 @@ function renderApprovalsTiles() {
     else if (recent && s === 'expired') expired++;
   });
   const pending = needsApproval + needsCompletion;
-  $('apTilePending').textContent = pending;
+  $('apTilePendingApproval').textContent = needsApproval;
+  $('apTilePendingCompletion').textContent = needsCompletion;
   $('apTileApproved').textContent = completed;
   $('apTileRejected').textContent = rejected;
   $('apTileExpired').textContent = expired;
@@ -9283,7 +9289,8 @@ function applyApprovalsFilters(rows) {
 }
 
 const aprTileMap = {
-  apTilePending: 'pending',
+  apTilePendingApproval: 'needsApproval',
+  apTilePendingCompletion: 'approved',
   apTileApproved: 'completed',
   apTileRejected: 'rejected',
   apTileExpired: 'expired'
