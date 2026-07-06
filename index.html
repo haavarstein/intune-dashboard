@@ -2727,10 +2727,12 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div style="padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px;">
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDrillBack">← Back to apps</span>
                 <span style="font-weight:600;" id="appverDrillTitle"></span>
+                <span style="cursor:pointer; color:#8a2020; font-weight:600; font-size:13px; display:none; margin-left:auto;" id="btnAppverDeleteSel" title="Permanently delete the selected packages from Intune">🗑 Delete Selected</span>
               </div>
               <table>
                 <thead>
                   <tr>
+                    <th style="width:28px;"><input type="checkbox" id="apvSelectAll" title="Select all packages"></th>
                     <th data-sort-appver-drill="version">Version <span class="arrow">▼</span></th>
                     <th data-sort-appver-drill="assigned">Assignment <span class="arrow">▼</span></th>
                     <th data-sort-appver-drill="created">Created <span class="arrow">▼</span></th>
@@ -7881,10 +7883,14 @@ function renderAppverRows() {
   }).join('');
 }
 
+// Selected package IDs for bulk delete in the drill view
+const apvSelected = new Set();
+
 function openAppverDrilldown(key) {
   const a = appverApps.find(x => x.key === key);
   if (!a) return;
   appverSelectedApp = a;
+  apvSelected.clear();
   $('appverAppsView').style.display = 'none';
   $('appverDrillView').style.display = '';
   $('appverDrillTitle').textContent = `${a.app} — ${a.versionCount} package${a.versionCount === 1 ? '' : 's'}, ${a.surplus} surplus, ${a.unassignedCount} unassigned`;
@@ -7894,6 +7900,7 @@ function openAppverDrilldown(key) {
 
 function showAppverAppsView() {
   appverSelectedApp = null;
+  apvSelected.clear();
   $('appverDrillView').style.display = 'none';
   $('appverAppsView').style.display = '';
   $('appverTableTitle').textContent = 'Apps';
@@ -7924,6 +7931,7 @@ function renderAppverDrillRows() {
       : `<td style="color:#8a2020; font-weight:600;">Unassigned</td>`;
     const url = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(p.id)}`;
     return `<tr>
+      <td><input type="checkbox" data-apv-select="${esc(p.id)}" ${apvSelected.has(p.id) ? 'checked' : ''}></td>
       ${verCell}
       ${assignCell}
       <td class="date">${esc(fmtIntuneDate(p.created))}</td>
@@ -7933,6 +7941,13 @@ function renderAppverDrillRows() {
       </td>
     </tr>`;
   }).join('');
+  const selCount = a.packages.filter(p => apvSelected.has(p.id)).length;
+  const sa = $('apvSelectAll');
+  sa.checked = a.packages.length > 0 && selCount === a.packages.length;
+  sa.indeterminate = selCount > 0 && selCount < a.packages.length;
+  const btn = $('btnAppverDeleteSel');
+  btn.style.display = selCount ? '' : 'none';
+  btn.textContent = `🗑 Delete Selected (${selCount})`;
 }
 
 function exportAppverCSV() {
@@ -8003,6 +8018,134 @@ $('appverDrillRows').addEventListener('click', e => {
   const pkg = appverSelectedApp.packages.find(p => p.id === del.dataset.appverPkg);
   if (pkg) openDeleteModal({ id: pkg.id, displayName: pkg.displayName, publisher: pkg.publisher });
 });
+
+// Checkbox selection in the drill view
+$('appverDrillRows').addEventListener('change', e => {
+  const cb = e.target.closest('[data-apv-select]');
+  if (!cb) return;
+  if (cb.checked) apvSelected.add(cb.dataset.apvSelect);
+  else apvSelected.delete(cb.dataset.apvSelect);
+  renderAppverDrillRows();
+});
+$('apvSelectAll').addEventListener('change', () => {
+  if (!appverSelectedApp) return;
+  const all = $('apvSelectAll').checked;
+  appverSelectedApp.packages.forEach(p => { if (all) apvSelected.add(p.id); else apvSelected.delete(p.id); });
+  renderAppverDrillRows();
+});
+$('btnAppverDeleteSel').addEventListener('click', deleteSelectedAppverPackages);
+
+// Bulk-delete the selected packages from the Intune catalog. Same MAA
+// prompt→retry→queue pattern as deleteSelectedCerthealthDevices: one
+// justification is reused for the whole batch; 412/409 means the delete was
+// queued for an approver, not executed. Existing installs on devices are not
+// uninstalled — Intune just stops managing the package.
+async function deleteSelectedAppverPackages() {
+  if (!appverSelectedApp) return;
+  const targets = appverSelectedApp.packages.filter(p => apvSelected.has(p.id));
+  if (!targets.length) return;
+  const names = targets.map(p => `${p.displayName}${p.version ? ' ' + p.version : ''}`);
+  const preview = names.slice(0, 10).map(n => '  • ' + n).join('\n');
+  const more = names.length > 10 ? `\n  …and ${names.length - 10} more` : '';
+  if (!confirm(`Permanently delete ${names.length} package${names.length === 1 ? '' : 's'} from Intune?\n\n${preview}${more}\n\nExisting installs on devices are not uninstalled, but Intune stops managing and reporting on them. This cannot be undone from the dashboard.`)) return;
+
+  const btn = $('btnAppverDeleteSel');
+  btn.style.pointerEvents = 'none';
+  let token;
+  try {
+    token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
+  } catch (e) {
+    $('appversionsError').innerHTML = `<div class="error-banner">Consent for app deletion was not granted: ${esc(e.message || String(e))}</div>`;
+    btn.style.pointerEvents = '';
+    return;
+  }
+
+  let maaJustB64 = null;
+  let maaJust = null;
+  let cancelled = false;
+  const deleted = [], queued = [], failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    const p = targets[i];
+    btn.textContent = `🗑 Deleting ${i + 1}/${targets.length}…`;
+    const attempt = (headers = {}) => graphDelete('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(p.id), { token, headers });
+    try {
+      await attempt(maaJustB64 ? { 'x-msft-approval-justification': maaJustB64 } : {});
+      deleted.push(p);
+    } catch (e) {
+      if (e.isMaa && !maaJustB64) {
+        const just = prompt(`Multi-Admin Approval is required in this tenant. Enter one justification for deleting ${targets.length === 1 ? `"${names[0]}"` : `these ${targets.length} packages`} (recorded in the audit log; ≤ 1024 chars):`);
+        if (!just) { cancelled = true; break; }
+        maaJust = just;
+        maaJustB64 = btoa(String.fromCharCode(...new TextEncoder().encode(just)));
+        try {
+          await attempt({ 'x-msft-approval-justification': maaJustB64 });
+          deleted.push(p);
+        } catch (e2) {
+          if (e2.status === 412 || e2.status === 409) queued.push({ ...p, approvalCode: extractApprovalCode(e2.body) });
+          else failed.push({ p, error: e2.message || String(e2) });
+        }
+      } else if (e.status === 412 || e.status === 409) {
+        queued.push({ ...p, approvalCode: extractApprovalCode(e.body) });
+      } else {
+        failed.push({ p, error: e.message || String(e) });
+      }
+    }
+  }
+
+  btn.style.pointerEvents = '';
+  apvSelected.clear();
+
+  // MAA approver notification for queued deletes — one combined email, same
+  // pattern as the single-app delete flow. Non-blocking: mail failure must
+  // not affect the result banner.
+  if (queued.length) {
+    const groupName = appverSelectedApp.app;
+    try {
+      const account = msalApp && msalApp.getActiveAccount();
+      const upn = (account?.username || '').toLowerCase();
+      const allCustomers = loadCustomers();
+      const customer = allCustomers.find(c => (c.email || '').toLowerCase() === upn) || null;
+      const approvers = (customer && customer.approvers) || [];
+      if (approvers.length) {
+        await sendApprovalNotification({
+          app: {
+            displayName: queued.length === 1
+              ? `${queued[0].displayName}${queued[0].version ? ' ' + queued[0].version : ''}`
+              : `${queued.length} packages of ${groupName}: ${queued.map(q => q.version || q.id).join(', ')}`,
+            publisher: queued[0].publisher,
+            id: queued.map(q => q.id).join(', ')
+          },
+          approvalCode: queued.length === 1 ? queued[0].approvalCode : null,
+          justification: maaJust || '',
+          approvers,
+          customer,
+          requester: { name: account?.name || upn, email: upn }
+        });
+        logMailAttempt({ kind: 'maa', customer: customer.code, approvers, result: 'sent' });
+      }
+    } catch (mailErr) {
+      try { logMailAttempt({ kind: 'maa', approvers: [], result: 'failed', error: mailErr.message || String(mailErr) }); } catch (_) {}
+    }
+  }
+
+  const label = p => `${p.displayName}${p.version ? ' ' + p.version : ''}`;
+  const skipped = targets.length - deleted.length - queued.length - failed.length;
+  const parts = [];
+  if (deleted.length) parts.push(`✓ Deleted ${deleted.length}: ${deleted.map(label).join(', ')}`);
+  if (queued.length) parts.push(`⏳ ${queued.length} submitted for Multi-Admin Approval — approve under Tenant administration → Multi Admin Approval: ${queued.map(label).join(', ')}`);
+  if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => `${label(f.p)} (${f.error})`).join('; ')}`);
+  if (skipped > 0) parts.push(`${cancelled ? 'Justification cancelled — ' : ''}${skipped} package${skipped === 1 ? '' : 's'} not attempted.`);
+  const cls = (failed.length || cancelled) ? 'error-banner' : 'notice-banner';
+
+  // Refresh the catalog for fresh truth (this returns to the apps list, same
+  // as the single-delete flow), then show the banner — loadAppversions clears
+  // the error div on entry, so the banner must be written after it finishes.
+  // Nothing hard-deleted (all queued/failed): stay in the drill view, just
+  // re-render to clear the checkboxes and reset the button label.
+  if (deleted.length) await loadAppversions(true);
+  else renderAppverDrillRows();
+  $('appversionsError').innerHTML = parts.length ? `<div class="${cls}">${parts.map(x => esc(x)).join('<br>')}</div>` : '';
+}
 
 document.querySelectorAll('[data-sort-appver]').forEach(th => {
   th.addEventListener('click', () => {
