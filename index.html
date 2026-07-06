@@ -9155,11 +9155,24 @@ function renderApprovalsTable() {
   $('btnApprovalsCompleteSel').style.display = selApproved ? '' : 'none';
 }
 
-// Re-execute the device operation for an approved MAA request.
-// The list endpoint omits operationDetails, so we GET the individual record first.
-// Device wipe/retire/delete: re-submit the device action → Intune auto-closes the request.
-// Non-device ops (app config, scripts, etc.): fall back to POST .../complete.
-async function executeApprovalComplete(r, justification, approvalToken) {
+// Cancelling an approval request is the collection-bound Graph action
+// cancelMyRequest with the request ID in the body; only the original requestor
+// can cancel. POST .../{id}/cancel has no OData route, and DELETE on the
+// request returns 404 (which graphDelete treats as success) without cancelling
+// anything — both earlier attempts failed silently or loudly for this reason.
+async function cancelApprovalRequest(id, token) {
+  try {
+    await graphPost('beta/deviceManagement/operationApprovalRequests/cancelMyRequest', { id }, { token });
+  } catch (e) {
+    // Instance-bound fallback, same signature as approve/reject
+    try {
+      await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/cancelApproval',
+        { justification: 'Cancelled from Intune Dashboard', approvalSource: 'adminConsole' }, { token });
+    } catch (_) { throw e; }
+  }
+}
+
+async function executeApprovalComplete(r, approvalToken) {
   let req = r;
   try {
     req = await graphGet('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token: approvalToken });
@@ -9179,11 +9192,6 @@ async function executeApprovalComplete(r, justification, approvalToken) {
     || op.deviceId || op.managedDeviceId || op.resourceId || op.id
     || req.deviceId || req.managedDeviceId || null;
 
-  // Log the full request structure — copy from browser console to report
-  console.log('[MAA Complete] full request:', JSON.stringify(req, null, 2));
-  console.log('[MAA Complete] id:', req.id, 'types:', types || '(none)', 'deviceId resolved:', deviceId);
-  console.log('[MAA Complete] operationDetails keys:', Object.keys(op));
-
   if (!deviceId) {
     // Surface the raw data so we can identify the correct field name
     const opKeys = Object.keys(op).join(', ') || 'empty';
@@ -9195,11 +9203,12 @@ async function executeApprovalComplete(r, justification, approvalToken) {
     );
   }
 
-  // Intune still requires the MAA justification header on re-execution to match
-  // the approved request. Use the admin's completion note; fall back to the
-  // original request justification stored in the approval record.
-  const maaText = justification || req.requestJustification || 'Approved';
-  const maaHeader = { 'x-msft-approval-justification': btoa(unescape(encodeURIComponent(maaText))) };
+  // Completion = resubmit the original operation with x-msft-approval-code
+  // (the approval request ID, plain text — not base64) REPLACING the
+  // justification header. Sending the justification header here makes the
+  // service treat it as a new submission and fail. Documented in
+  // learn.microsoft.com "Use Multi Admin Approval with the Microsoft Graph API".
+  const maaHeader = { 'x-msft-approval-code': req.id || r.id };
 
   // actionName/payload give clean "Wipe"/"Retire"/"Delete"; fall back to policy type string
   const action = (req.actionName || req.payload || '').toLowerCase();
@@ -9224,8 +9233,8 @@ function openApprovalActionModal(id, action) {
   const META = {
     approve:   { title: 'Approve request',  desc: 'Approve this request? Intune will execute the operation as soon as approval is recorded.',           placeholder: 'e.g. Reviewed change ticket CHG-12345',                     btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Approve'          },
     reject:    { title: 'Reject request',   desc: 'Reject this request? The requester will see the rejection in their queue, and the operation will not run.', placeholder: 'e.g. Out of policy — see governance doc',                  btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Reject'           },
-    cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The request will be deleted and the operation will not run.',                  placeholder: 'e.g. No longer needed — superseded by a new change request', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request', noJustification: true },
-    complete:  { title: 'Complete request', desc: 'Re-execute the approved operation (wipe / retire / delete). Intune will carry out the action now that approval is granted.',  placeholder: 'e.g. Approved by Blue — proceeding with wipe',              btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Execute now'      },
+    cancel:    { title: 'Cancel request',   desc: 'Cancel this pending request? The request will be marked as cancelled and the operation will not run.',       placeholder: '', btnClass: 'btn btn-danger', btnStyle: '',                                 label: 'Cancel request', noJustification: true, noJustNote: 'No justification is required — the request will be cancelled in Intune.' },
+    complete:  { title: 'Complete request', desc: 'Re-execute the approved operation (wipe / retire / delete). Intune will carry out the action now that approval is granted.',  placeholder: '', btnClass: 'btn',           btnStyle: 'background:#1f5d33; border-color:#1f5d33;', label: 'Execute now',    noJustification: true, noJustNote: 'No justification is needed — Intune executes the operation using the recorded approval.' },
   };
   const m = META[action] || META.approve;
   $('apaTitle').textContent = m.title;
@@ -9234,7 +9243,7 @@ function openApprovalActionModal(id, action) {
     <p style="margin-top:0;">${m.desc}</p>
     ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote style="margin:0 0 16px 0; padding:10px 14px; background:#f5f3ee; border-left:3px solid #888; font-size:13px; white-space:pre-wrap;">${esc(req.requestJustification)}</blockquote>` : ''}
     ${m.noJustification
-      ? `<p style="margin-bottom:6px; color:var(--muted); font-size:12px;">No justification is required — the request record will be deleted from Intune.</p>`
+      ? `<p style="margin-bottom:6px; color:var(--muted); font-size:12px;">${m.noJustNote}</p>`
       : `<p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>
     <textarea id="apaJustification" class="search" rows="3" style="width:100%; font-family:inherit; resize:vertical; margin-bottom:16px;" maxlength="1024" placeholder="${esc(m.placeholder)}"></textarea>`}
     <div id="apaError"></div>
@@ -9249,7 +9258,7 @@ function openApprovalActionModal(id, action) {
   btn.addEventListener('click', () => submitApprovalAction(id, action, input ? input.value.trim() : ''));
   attachSearchClearButtons($('apaBody'));
   $('approvalActionModal').classList.add('show');
-  setTimeout(() => input.focus(), 0);
+  if (input) setTimeout(() => input.focus(), 0);
 }
 
 function closeApprovalActionModal() {
@@ -9265,10 +9274,10 @@ async function submitApprovalAction(id, action, justification) {
   try {
     const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
     if (action === 'cancel') {
-      await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id), { token });
+      await cancelApprovalRequest(id, token);
     } else if (action === 'complete') {
       const req = approvalsRaw.find(r => r.id === id) || { id };
-      await executeApprovalComplete(req, justification, token);
+      await executeApprovalComplete(req, token);
     } else {
       await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(id) + '/' + action,
         { justification, approvalSource: 'adminConsole' }, { token });
@@ -9334,11 +9343,13 @@ async function bulkApprovalAction(action) {
   const targets = filtered.filter(r => r.id && apSelected.has(r.id) && (r.status || '').toLowerCase() === targetStatus);
   if (!targets.length) return;
   let just = '';
-  if (action !== 'cancel') {
+  if (action === 'cancel') {
+    if (!confirm(`Cancel ${targets.length} pending request${targets.length === 1 ? '' : 's'}? The operations will not run.`)) return;
+  } else if (action === 'complete') {
+    if (!confirm(`Execute ${targets.length} approved operation${targets.length === 1 ? '' : 's'} (wipe / retire / delete) now?`)) return;
+  } else {
     just = prompt(`Enter justification for ${action}ing ${targets.length} request(s) (required, recorded in the audit log; max 1024 chars):`);
     if (!just || !just.trim()) return;
-  } else {
-    if (!confirm(`Cancel ${targets.length} pending request${targets.length === 1 ? '' : 's'}? The request records will be deleted from Intune.`)) return;
   }
   let token;
   try { token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All'); } catch (e) {
@@ -9349,9 +9360,9 @@ async function bulkApprovalAction(action) {
     const r = targets[i];
     try {
       if (action === 'cancel') {
-        await graphDelete('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id), { token });
+        await cancelApprovalRequest(r.id, token);
       } else if (action === 'complete') {
-        await executeApprovalComplete(r, just.trim(), token);
+        await executeApprovalComplete(r, token);
       } else {
         await graphPost('beta/deviceManagement/operationApprovalRequests/' + encodeURIComponent(r.id) + '/' + action,
           { justification: just.trim(), approvalSource: 'adminConsole' }, { token });
@@ -9363,7 +9374,7 @@ async function bulkApprovalAction(action) {
     }
   }
   const parts = [];
-  if (succeeded.length) parts.push(`✓ ${succeeded.length} ${action}d`);
+  if (succeeded.length) parts.push(`✓ ${succeeded.length} ${{ approve: 'approved', reject: 'rejected', cancel: 'cancelled', complete: 'completed' }[action] || action}`);
   if (failed.length) parts.push(`✗ ${failed.length} failed: ${failed.map(f => f.error).join('; ')}`);
   const cls = failed.length ? 'error-banner' : 'notice-banner';
   $('approvalsError').innerHTML = parts.length ? `<div class="${cls}">${esc(parts.join(' · '))}</div>` : '';
