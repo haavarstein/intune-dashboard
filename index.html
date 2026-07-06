@@ -9187,22 +9187,6 @@ async function executeApprovalComplete(r, approvalToken) {
 
   const types = (req.requiredOperationApprovalPolicyTypes || []).map(t => t.toLowerCase()).join(' ');
 
-  // payloadId is the managed device ID; payloadType confirms it's a device op
-  const deviceId = req.payloadId
-    || op.deviceId || op.managedDeviceId || op.resourceId || op.id
-    || req.deviceId || req.managedDeviceId || null;
-
-  if (!deviceId) {
-    // Surface the raw data so we can identify the correct field name
-    const opKeys = Object.keys(op).join(', ') || 'empty';
-    const reqKeys = Object.keys(req).filter(k => !['@odata.context', 'id'].includes(k)).join(', ');
-    throw new Error(
-      `Device ID not found in approval request. ` +
-      `types="${types || 'none'}" · operationDetails keys: [${opKeys}] · ` +
-      `request keys: [${reqKeys}] — check browser console (F12) for full JSON`
-    );
-  }
-
   // Completion = resubmit the original operation with x-msft-approval-code
   // (the approval request ID, plain text — not base64) REPLACING the
   // justification header. Sending the justification header here makes the
@@ -9210,21 +9194,58 @@ async function executeApprovalComplete(r, approvalToken) {
   // learn.microsoft.com "Use Multi Admin Approval with the Microsoft Graph API".
   const maaHeader = { 'x-msft-approval-code': req.id || r.id };
 
-  // actionName/payload give clean "Wipe"/"Retire"/"Delete"; fall back to policy type string
-  const action = (req.actionName || req.payload || '').toLowerCase();
-  const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
-  if (action === 'wipe' || /wipe/.test(types)) {
+  // Device actions: payloadId is the managed device ID, actionName the op type
+  const deviceId = req.payloadId
+    || op.deviceId || op.managedDeviceId || op.resourceId || op.id
+    || req.deviceId || req.managedDeviceId || null;
+  const action = (req.actionName || '').toLowerCase();
+
+  if (deviceId && (action === 'wipe' || /wipe/.test(types))) {
+    const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/wipe',
       { keepEnrollmentData: false, keepUserData: false }, { token: devToken, headers: maaHeader });
-  } else if (action === 'retire' || /retire/.test(types)) {
+    return;
+  }
+  if (deviceId && (action === 'retire' || /retire/.test(types))) {
+    const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphPost('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId) + '/retire',
       {}, { token: devToken, headers: maaHeader });
-  } else if (action === 'delete' || /delete/.test(types)) {
+    return;
+  }
+  if (deviceId && (action === 'delete' || /delete/.test(types))) {
+    const devToken = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
     await graphDelete('beta/deviceManagement/managedDevices/' + encodeURIComponent(deviceId),
       { token: devToken, headers: maaHeader });
-  } else {
-    throw new Error(`Device ID found (${deviceId}) but unknown operation type: action="${action}" types="${types}".`);
+    return;
   }
+
+  // Non-device Creates (access policies, scripts, compliance/config policies):
+  // the request stores the original body in payload — re-POST it to the
+  // collection for its payloadType with the approval-code header.
+  const CREATE_TARGETS = {
+    operationapprovalpolicy:              { path: 'beta/deviceManagement/operationApprovalPolicies',  scope: 'DeviceManagementRBAC.ReadWrite.All' },
+    devicemanagementscript:               { path: 'beta/deviceManagement/deviceManagementScripts',    scope: 'DeviceManagementConfiguration.ReadWrite.All' },
+    devicehealthscript:                   { path: 'beta/deviceManagement/deviceHealthScripts',        scope: 'DeviceManagementConfiguration.ReadWrite.All' },
+    devicecompliancepolicy:               { path: 'beta/deviceManagement/deviceCompliancePolicies',   scope: 'DeviceManagementConfiguration.ReadWrite.All' },
+    devicemanagementconfigurationpolicy:  { path: 'beta/deviceManagement/configurationPolicies',      scope: 'DeviceManagementConfiguration.ReadWrite.All' },
+    devicecategory:                       { path: 'beta/deviceManagement/deviceCategories',           scope: 'DeviceManagementConfiguration.ReadWrite.All' },
+  };
+  const typeKey = (req.payloadType || '').split('.').pop().toLowerCase();
+  const target = CREATE_TARGETS[typeKey];
+  if ((req.payloadOperation || '').toLowerCase() === 'create' && req.payload && target) {
+    let body;
+    try { body = JSON.parse(req.payload); }
+    catch (_) { throw new Error('Approval payload is not valid JSON — complete this request from the Intune portal instead.'); }
+    const tok = await ensureScopeToken(target.scope);
+    await graphPost(target.path, body, { token: tok, headers: maaHeader });
+    return;
+  }
+
+  throw new Error(
+    `This request type isn't supported for dashboard completion yet ` +
+    `(${req.payloadType || 'unknown type'} · ${req.payloadOperation || '?'} · types="${types || 'none'}"). ` +
+    `Complete it from the Intune portal (Tenant administration → Multi Admin Approval → My requests).`
+  );
 }
 
 function openApprovalActionModal(id, action) {
