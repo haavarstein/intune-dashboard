@@ -4091,8 +4091,8 @@ function buildMaaEmailHtml({ tenantLine, heading, intro, button, rows, footer })
   const fontSemi = "'Segoe UI Semibold','Segoe UI',Tahoma,Arial,sans-serif";
   const rowHtml = (rows || []).filter(r => r && r[1]).map(([k, v]) => `
           <tr>
-            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:14px; line-height:20px; color:#11100F; white-space:nowrap;">${esc(k)}</td>
-            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:14px; line-height:20px; color:#11100F;">${v}</td>
+            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:16px; line-height:20px; color:#11100F; white-space:nowrap;">${esc(k)}</td>
+            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:16px; line-height:20px; color:#11100F;">${v}</td>
           </tr>`).join('');
   const section = (inner, pad) => `
       <tr><td style="padding:${pad || '12px 24px'};">${inner}</td></tr>`;
@@ -4102,9 +4102,9 @@ function buildMaaEmailHtml({ tenantLine, heading, intro, button, rows, footer })
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; background:#ffffff;">
   <tr><td align="center" style="padding:0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; border-collapse:collapse; background:#ffffff;">
-${section(`<span style="font-family:${font}; font-size:14px; line-height:22px; color:#11100F;">${esc(tenantLine)}</span>`, '24px 24px 12px')}
+${section(`<span style="font-family:${font}; font-size:16px; line-height:22px; color:#11100F;">${esc(tenantLine)}</span>`, '24px 24px 12px')}
 ${section(`<h1 style="margin:0; font-family:${fontSemi}; font-size:28px; line-height:36px; font-weight:600; letter-spacing:-0.13px; color:#11100F;">${esc(heading)}</h1>`)}
-${section(`<span style="font-family:${font}; font-size:14px; line-height:22px; color:#11100F;">${intro}</span>`)}
+${section(`<span style="font-family:${font}; font-size:16px; line-height:22px; color:#11100F;">${intro}</span>`)}
 ${button ? section(`
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
           <tr><td align="center" bgcolor="#000000" style="background:#000000; border-radius:2px;">
@@ -4114,8 +4114,8 @@ ${button ? section(`
 ${section(`
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
           <tr>
-            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:14px; line-height:20px; font-weight:600; color:#11100F;">Settings</td>
-            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:14px; line-height:20px; font-weight:600; color:#11100F;">Value</td>
+            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:16px; line-height:20px; font-weight:600; color:#11100F;">Settings</td>
+            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:16px; line-height:20px; font-weight:600; color:#11100F;">Value</td>
           </tr>${rowHtml}
         </table>`)}
     </table>

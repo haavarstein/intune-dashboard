@@ -209,7 +209,7 @@ Each tile clickable → drill-in panel listing the offending items with deep-lin
 # Multi-customer / MSP tenant switcher
 
 ## Goal
-MSP shortcut: configure a list of customers (code + email, optional label) in Settings, then switch between them from a dropdown in the top-right auth bar. No retyping emails. No persisted refresh tokens. Codes (e.g. "DB", "XB") are short on purpose so screenshots don't disclose customer names.
+MSP shortcut: configure a list of customers (code + email, optional label) in Settings, then switch between them from a dropdown in the top-right auth bar. No retyping emails. No persisted refresh tokens. Codes (e.g. "ACME", "FAB") are short on purpose so screenshots don't disclose customer names.
 
 ## Storage
 - `localStorage['intuneDashboard:customers']` = JSON array of `{ code, label?, email }`
