@@ -1,0 +1,5 @@
+# Local Claude Code settings
+.claude/
+
+# Exported real emails and local render previews (contain tenant/customer data)
+email/

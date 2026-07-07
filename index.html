@@ -4078,34 +4078,53 @@ async function graphDelete(path, opts = {}) {
 // post-submit panel so approvers land on the queue in one click.
 const MAA_BLADE_URL = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/TenantAdminMenu/~/multiAdminApproval';
 
-// Shared MAA email template, styled after Microsoft's own Entra/PIM
-// notifications: plain white body, small grey tenant line, large Segoe
-// heading, short intro, black rectangular button, and a minimal
-// Settings/Value table with thin row borders. Deliberately no colored
-// banners or rounded cards — Outlook renders this shape faithfully.
+// Shared MAA email template, rebuilt to mirror the markup of a real
+// Microsoft PIM notification (exported to email/email.htm.html). Outlook
+// renders mail with the Word engine, which ignores div max-width and
+// anchor padding — so the layout must be a full HTML document of nested
+// tables, and the black button an <a> padded via a solid black border
+// inside a black table cell, exactly as Microsoft's own template does it.
 // `rows` is [label, htmlValue] pairs (pass values pre-escaped); empty
 // values are skipped. `intro` and `footer` accept HTML.
 function buildMaaEmailHtml({ tenantLine, heading, intro, button, rows, footer }) {
+  const font = "'Segoe UI',Tahoma,Arial,sans-serif";
+  const fontSemi = "'Segoe UI Semibold','Segoe UI',Tahoma,Arial,sans-serif";
   const rowHtml = (rows || []).filter(r => r && r[1]).map(([k, v]) => `
-      <tr>
-        <td style="padding:10px 24px 10px 0; font-size:14px; color:#333; border-bottom:1px solid #e1e1e1; vertical-align:top; white-space:nowrap;">${esc(k)}</td>
-        <td style="padding:10px 0; font-size:14px; color:#333; border-bottom:1px solid #e1e1e1;">${v}</td>
-      </tr>`).join('');
-  return `
-  <div style="font-family:'Segoe UI',Segoe,Tahoma,Arial,sans-serif; color:#333; max-width:640px; margin:0 auto; padding:28px 20px; background:#ffffff;">
-    <p style="margin:0 0 32px; font-size:13px; color:#666;">${esc(tenantLine)}</p>
-    <h1 style="margin:0 0 20px; font-size:28px; line-height:1.3; font-weight:700; color:#000;">${esc(heading)}</h1>
-    <p style="margin:0 0 28px; font-size:14px; line-height:1.6; color:#333;">${intro}</p>
-    ${button ? `<a href="${button.url}" style="display:inline-block; background:#000000; color:#ffffff; padding:11px 24px; font-size:14px; font-weight:600; text-decoration:none;">${esc(button.text)} &gt;</a>` : ''}
-    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse; width:100%; margin:36px 0 0;">
-      <tr>
-        <th align="left" style="padding:0 24px 8px 0; font-size:14px; font-weight:700; color:#000; border-bottom:1px solid #666;">Settings</th>
-        <th align="left" style="padding:0 0 8px; font-size:14px; font-weight:700; color:#000; border-bottom:1px solid #666;">Value</th>
-      </tr>
-      ${rowHtml}
+          <tr>
+            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:14px; line-height:20px; color:#11100F; white-space:nowrap;">${esc(k)}</td>
+            <td valign="top" style="padding:5px; border-bottom:1px solid #DEDEDE; font-family:${font}; font-size:14px; line-height:20px; color:#11100F;">${v}</td>
+          </tr>`).join('');
+  const section = (inner, pad) => `
+      <tr><td style="padding:${pad || '12px 24px'};">${inner}</td></tr>`;
+  return `<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head>
+<body bgcolor="#ffffff" style="margin:0; padding:0; background:#ffffff; word-wrap:break-word;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; background:#ffffff;">
+  <tr><td align="center" style="padding:0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; border-collapse:collapse; background:#ffffff;">
+${section(`<span style="font-family:${font}; font-size:14px; line-height:22px; color:#11100F;">${esc(tenantLine)}</span>`, '24px 24px 12px')}
+${section(`<h1 style="margin:0; font-family:${fontSemi}; font-size:28px; line-height:36px; font-weight:600; letter-spacing:-0.13px; color:#11100F;">${esc(heading)}</h1>`)}
+${section(`<span style="font-family:${font}; font-size:14px; line-height:22px; color:#11100F;">${intro}</span>`)}
+${button ? section(`
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+          <tr><td align="center" bgcolor="#000000" style="background:#000000; border-radius:2px;">
+            <a href="${button.url}" style="display:inline-block; font-family:${fontSemi}; font-size:16px; font-weight:600; line-height:20px; color:#ffffff; background:#000000; border:8px solid #000000; text-decoration:none;">${esc(button.text)} &gt;</a>
+          </td></tr>
+        </table>`) : ''}
+${section(`
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+          <tr>
+            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:14px; line-height:20px; font-weight:600; color:#11100F;">Settings</td>
+            <td valign="top" style="padding:5px; border-bottom:2px solid #C9C9C9; font-family:${fontSemi}; font-size:14px; line-height:20px; font-weight:600; color:#11100F;">Value</td>
+          </tr>${rowHtml}
+        </table>`)}
     </table>
-    ${footer ? `<p style="margin:36px 0 0; font-size:12px; line-height:1.5; color:#999;">${footer}</p>` : ''}
-  </div>`;
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; border-collapse:collapse; background:#F0F0F0;">
+      <tr><td style="padding:16px 24px; font-family:${font}; font-size:12px; line-height:16px; color:#484644;">${footer || 'Sent automatically by THE Intune Dashboard.'}</td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
 }
 
 // Microsoft Graph /me/sendMail returns 202 with empty body — use direct fetch
