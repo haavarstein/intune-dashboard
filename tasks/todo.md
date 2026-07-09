@@ -2,6 +2,27 @@
 
 Completed designs (Software Metering, Autopilot, MSP switcher, app delete, MAA emails) live in [`tasks/done.md`](done.md). Do not resurrect their unchecked boxes as open work.
 
+**Skipped on purpose (do not re-open without a new request):**
+- Session-only Claude API key — operator prefers `localStorage` so the key survives reloads.
+
+---
+
+# Large-tenant hardening (backlog)
+
+## Goal
+Keep Hardware, Assignments, Installed, and Overview usable on tenants with thousands of devices/apps — prevent silent hangs and “works in the lab, dies in production” support load.
+
+## Scope (when scheduled)
+- [ ] Document tested / expected scale limits in README (devices, apps, Assignments policy fan-out)
+- [ ] Progress UI + cancel for long Graph walks (Hardware RAM fan-out, Assignments multi-endpoint load, install-status sweeps)
+- [ ] Extend Overview-style slim `$select` / catch-per-call patterns to remaining heavy tabs
+- [ ] Optional “slim mode” toggles where full inventory is not required for the review use case
+- [ ] Session cache notes: what is cached vs always re-fetched
+
+## Out of scope for this card
+- Backend aggregation / Log Analytics
+- Cross-tenant comparison views
+
 ---
 
 # Posture sub-tab (new)

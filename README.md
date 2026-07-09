@@ -23,7 +23,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all twenty sub-tabs share the same session.
+Sign in once with MSAL — all twenty sub-tabs share the same session. Sub-tabs are grouped in the UI as **Health**, **Apps**, **Identity**, **Security**, and **Admin** (same tabs as before, easier to scan).
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -429,7 +429,15 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
 ## Tech
 
-Single-file HTML. No build step. [PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. All via CDN. Inter font. Security model and data-handling notes: [SECURITY.md](SECURITY.md).
+Static site, no build step. Main UI logic still lives in `index.html`; shared pieces are starting to split out:
+
+- `css/dashboard.css` — styles
+- `js/msal-config.js` — MSAL public-client config + read scopes
+- `js/graph.js` — Graph `get` / `post` / `patch` / `delete` / paginate helpers (uses page `getToken()`)
+
+[PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. CDN for MSAL and PapaParse. Hanken Grotesk via Google Fonts. Security model and data-handling notes: [SECURITY.md](SECURITY.md).
+
+**Local serve:** open via `http://localhost` (not `file://`) so MSAL redirect URIs work — e.g. `python -m http.server 8080` from the repo root.
 
 ## Acknowledgements
 
