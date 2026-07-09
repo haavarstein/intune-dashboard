@@ -9,6 +9,8 @@ A clean, client-side dashboard with four tabs:
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)
 
+🔒 **Security:** client-side only — see [SECURITY.md](SECURITY.md) for auth, storage, scopes, and how to report issues.
+
 ## Features
 
 ### Local tab (CSV)
@@ -427,7 +429,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
 ## Tech
 
-Single-file HTML. No build step. [PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. All via CDN. Inter font.
+Single-file HTML. No build step. [PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. All via CDN. Inter font. Security model and data-handling notes: [SECURITY.md](SECURITY.md).
 
 ## Acknowledgements
 
