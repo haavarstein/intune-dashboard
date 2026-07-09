@@ -2676,6 +2676,7 @@ $('btnSignIn').addEventListener('click', async () => {
 });
 
 $('btnSignOut').addEventListener('click', async () => {
+  clearAccessTokenCache();
   await msalApp.logoutPopup();
   document.documentElement.classList.add('locked'); // back to the gate
   $('intuneSignedIn').style.display = 'none';
@@ -2987,6 +2988,8 @@ function deleteCustomer(code) {
 // Clear every sub-tab's cached state. Called when switching tenants
 // so the next tab open re-fetches against the new tenant.
 function resetTenantState() {
+  clearAccessTokenCache();
+  hwLoadGen++; // abandon any in-flight Hardware RAM fan-out
   // Hardware
   hwLoaded = false; hwDevices = []; hwTileFilter = null;
   // Installed
@@ -3110,12 +3113,28 @@ renderCustomersList();
 // Inject × clear buttons on every existing input.search; idempotent on re-runs.
 attachSearchClearButtons();
 
+// Cache the read-scope access token briefly so large fan-outs (Hardware RAM
+// GETs, error clustering) do not call acquireTokenSilent thousands of times.
+let _accessTokenCache = { token: null, expiresAt: 0 };
+function clearAccessTokenCache() { _accessTokenCache = { token: null, expiresAt: 0 }; }
+
 async function getToken() {
+  if (_accessTokenCache.token && Date.now() < _accessTokenCache.expiresAt) {
+    return _accessTokenCache.token;
+  }
   try {
     const r = await msalApp.acquireTokenSilent({ scopes: SCOPES, account: msalApp.getActiveAccount() });
+    const exp = r.expiresOn instanceof Date
+      ? r.expiresOn.getTime() - 60_000
+      : Date.now() + 4 * 60_000;
+    _accessTokenCache = { token: r.accessToken, expiresAt: exp };
     return r.accessToken;
   } catch (e) {
     const r = await msalApp.acquireTokenPopup({ scopes: SCOPES });
+    const exp = r.expiresOn instanceof Date
+      ? r.expiresOn.getTime() - 60_000
+      : Date.now() + 4 * 60_000;
+    _accessTokenCache = { token: r.accessToken, expiresAt: exp };
     return r.accessToken;
   }
 }
@@ -3676,53 +3695,51 @@ async function loadErrorCluster(force = false) {
       return;
     }
     const byCode = new Map(); // errorCode → { errorCode, hexErrorCode, deviceCount, apps: Map<appId,{name,count}> }
-    const BATCH = 5;
     let done = 0;
     let failures = 0;
     let lastErr = null;
-    for (let i = 0; i < apps.length; i += BATCH) {
-      const slice = apps.slice(i, i + BATCH);
-      await Promise.all(slice.map(async app => {
-        try {
-          // Match the existing per-app drill-in body shape from selectApp() —
-          // a compound filter with InstallState was being rejected by the
-          // report API. Filter to non-zero ErrorCode client-side instead.
-          const body = {
-            select: ['DeviceName', 'UserPrincipalName', 'AppVersion', 'Platform',
-                     'AssignmentFilterIdsExist', 'AssignmentFilterIdsList', 'DeviceId',
-                     'ErrorCode', 'HexErrorCode', 'InstallState', 'InstallStateDetail',
-                     'LastModifiedDateTime', 'UserName', 'UserId'],
-            orderBy: [],
-            search: '',
-            filter: `(ApplicationId eq '${app.id}')`
-          };
-          const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
-          const rows = parseReport(data);
-          for (const r of rows) {
-            const state = String(r.InstallState || '').toLowerCase();
-            // Only count actual failures (failed / installFail / uninstallFail).
-            // Some tenants surface "error" or "Failed" with leading caps too.
-            if (!state.includes('fail') && state !== 'error') continue;
-            const code = String(r.ErrorCode ?? '').trim();
-            if (!code || code === '0') continue;
-            if (!byCode.has(code)) {
-              byCode.set(code, { errorCode: code, hexErrorCode: r.HexErrorCode || '', deviceCount: 0, apps: new Map() });
-            }
-            const e = byCode.get(code);
-            e.deviceCount++;
-            if (!e.hexErrorCode && r.HexErrorCode) e.hexErrorCode = r.HexErrorCode;
-            if (!e.apps.has(app.id)) e.apps.set(app.id, { name: app.displayName, count: 0 });
-            e.apps.get(app.id).count++;
+    await mapPool(apps, 8, async (app) => {
+      try {
+        // Match the existing per-app drill-in body shape from selectApp() —
+        // a compound filter with InstallState was being rejected by the
+        // report API. Filter to non-zero ErrorCode client-side instead.
+        const body = {
+          select: ['DeviceName', 'UserPrincipalName', 'AppVersion', 'Platform',
+                   'AssignmentFilterIdsExist', 'AssignmentFilterIdsList', 'DeviceId',
+                   'ErrorCode', 'HexErrorCode', 'InstallState', 'InstallStateDetail',
+                   'LastModifiedDateTime', 'UserName', 'UserId'],
+          orderBy: [],
+          search: '',
+          filter: `(ApplicationId eq '${app.id}')`
+        };
+        const data = await graphPost('beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport', body);
+        const rows = parseReport(data);
+        for (const r of rows) {
+          const state = String(r.InstallState || '').toLowerCase();
+          // Only count actual failures (failed / installFail / uninstallFail).
+          // Some tenants surface "error" or "Failed" with leading caps too.
+          if (!state.includes('fail') && state !== 'error') continue;
+          const code = String(r.ErrorCode ?? '').trim();
+          if (!code || code === '0') continue;
+          if (!byCode.has(code)) {
+            byCode.set(code, { errorCode: code, hexErrorCode: r.HexErrorCode || '', deviceCount: 0, apps: new Map() });
           }
-        } catch (err) {
-          failures++;
-          lastErr = err;
-          console.warn('Error cluster: failed to fetch report for app', app.displayName || app.id, err);
+          const e = byCode.get(code);
+          e.deviceCount++;
+          if (!e.hexErrorCode && r.HexErrorCode) e.hexErrorCode = r.HexErrorCode;
+          if (!e.apps.has(app.id)) e.apps.set(app.id, { name: app.displayName, count: 0 });
+          e.apps.get(app.id).count++;
         }
-      }));
-      done += slice.length;
-      status.textContent = `Aggregating… ${done}/${apps.length} apps scanned${failures ? ` (${failures} failed)` : ''}`;
-    }
+      } catch (err) {
+        failures++;
+        lastErr = err;
+        console.warn('Error cluster: failed to fetch report for app', app.displayName || app.id, err);
+      }
+      done++;
+      if (done % 3 === 0 || done === apps.length) {
+        status.textContent = `Aggregating… ${done}/${apps.length} apps scanned${failures ? ` (${failures} failed)` : ''}`;
+      }
+    });
     errorClusterRows = [...byCode.values()].map(e => ({
       errorCode: e.errorCode,
       hexErrorCode: e.hexErrorCode,
@@ -4080,14 +4097,12 @@ async function loadInstalledApps() {
   clearIntuneError();
   $('installedAppList').innerHTML = '<div class="loading">Loading apps…</div>';
   try {
-    let path = 'beta/deviceAppManagement/mobileApps?$expand=assignments';
-    const all = [];
-    while (path) {
-      const data = await graphGet(path);
-      if (data.value) all.push(...data.value);
-      const next = data['@odata.nextLink'];
-      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
-    }
+    // Slim select + expand: only fields the picker/zero-install tile need.
+    // @odata.type is always returned by Graph for polymorphic collections.
+    const all = await graphGetAll(
+      'beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,createdDateTime,notes&$expand=assignments',
+      { onPage: (n) => { $('installedAppList').innerHTML = `<div class="loading">Loading apps… ${n} so far</div>`; } }
+    );
 
     // PMPC detection: the mobileApps response already includes `notes` —
     // populate the shared pmpcAppIds Set so Failed sub-tab can reuse it
@@ -5063,49 +5078,39 @@ document.querySelectorAll('.subtab').forEach(btn => {
   btn.addEventListener('click', () => switchSubtab(btn.dataset.subtab));
 });
 
+// Panel id + lazy loader per sub-tab (single source of truth for show/hide + first open).
+const SUBTAB_CFG = {
+  overview:        { panel: 'intuneSubOverview',        load: () => !overviewLoaded && loadOverview() },
+  installed:       { panel: 'intuneSubInstalled',       load: () => !installedAppsLoaded && loadInstalledApps() },
+  approvals:       { panel: 'intuneSubApprovals',       load: () => !approvalsLoaded && loadApprovals() },
+  failed:          { panel: 'intuneSubFailed',          load: () => !failedAppsLoaded && loadApps() },
+  required:        { panel: 'intuneSubRequired',        load: () => !requiredLoaded && loadRequiredApps() },
+  uninstall:       { panel: 'intuneSubUninstall',       load: () => !uninstallLoaded && loadUninstallApps() },
+  metering:        { panel: 'intuneSubMetering',        load: () => !meteringLoaded && loadMetering() },
+  remediation:     { panel: 'intuneSubRemediation',     load: () => !remediationLoaded && loadRemediation() },
+  hardware:        { panel: 'intuneSubHardware',        load: () => !hwLoaded && loadHardware() },
+  diskspace:       { panel: 'intuneSubDiskspace',       load: () => !diskspaceLoaded && loadDiskspace() },
+  appversions:     { panel: 'intuneSubAppversions',     load: () => !appversionsLoaded && loadAppversions() },
+  autopilot:       { panel: 'intuneSubAutopilot',       load: () => !autopilotLoaded && loadAutopilot() },
+  bitlocker:       { panel: 'intuneSubBitlocker',       load: () => !bitlockerLoaded && loadBitlocker() },
+  certhealth:      { panel: 'intuneSubCerthealth',      load: () => !certhealthLoaded && loadCerthealth() },
+  assignments:     { panel: 'intuneSubAssignments',     load: () => !assignmentsPoliciesLoaded && loadAssignmentsPolicies() },
+  vulnerabilities: { panel: 'intuneSubVulnerabilities', load: () => !vulnLoaded && loadVulnerabilities() },
+  drift:           { panel: 'intuneSubDrift',           load: () => !driftLoaded && loadDriftData() },
+  softdeleted:     { panel: 'intuneSubSoftdeleted',     load: () => !softdeletedLoaded && loadSoftdeleted() },
+  staleusers:      { panel: 'intuneSubStaleusers',      load: () => !staleusersLoaded && loadStaleUsers() },
+  aiagents:        { panel: 'intuneSubAiagents',        load: () => !aiagentsLoaded && loadAiAgents() }
+};
+
 function switchSubtab(name) {
   activeSubtab = name;
   document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
-  $('intuneSubFailed').style.display = name === 'failed' ? '' : 'none';
-  $('intuneSubRequired').style.display = name === 'required' ? '' : 'none';
-  $('intuneSubInstalled').style.display = name === 'installed' ? '' : 'none';
-  $('intuneSubApprovals').style.display = name === 'approvals' ? '' : 'none';
-  $('intuneSubUninstall').style.display = name === 'uninstall' ? '' : 'none';
-  $('intuneSubHardware').style.display = name === 'hardware' ? '' : 'none';
-  $('intuneSubAutopilot').style.display = name === 'autopilot' ? '' : 'none';
-  $('intuneSubBitlocker').style.display = name === 'bitlocker' ? '' : 'none';
-  $('intuneSubCerthealth').style.display = name === 'certhealth' ? '' : 'none';
-  $('intuneSubVulnerabilities').style.display = name === 'vulnerabilities' ? '' : 'none';
-  $('intuneSubDrift').style.display = name === 'drift' ? '' : 'none';
-  $('intuneSubSoftdeleted').style.display = name === 'softdeleted' ? '' : 'none';
-  $('intuneSubStaleusers').style.display = name === 'staleusers' ? '' : 'none';
-  $('intuneSubAiagents').style.display = name === 'aiagents' ? '' : 'none';
-  $('intuneSubDiskspace').style.display = name === 'diskspace' ? '' : 'none';
-  $('intuneSubAppversions').style.display = name === 'appversions' ? '' : 'none';
-  $('intuneSubRemediation').style.display = name === 'remediation' ? '' : 'none';
-  $('intuneSubMetering').style.display = name === 'metering' ? '' : 'none';
-  $('intuneSubAssignments').style.display = name === 'assignments' ? '' : 'none';
-  $('intuneSubOverview').style.display = name === 'overview' ? '' : 'none';
-  if (name === 'overview' && !overviewLoaded) loadOverview();
-  if (name === 'drift' && !driftLoaded) loadDriftData();
-  if (name === 'remediation' && !remediationLoaded) loadRemediation();
-  if (name === 'metering' && !meteringLoaded) loadMetering();
-  if (name === 'assignments' && !assignmentsPoliciesLoaded) loadAssignmentsPolicies();
-  if (name === 'failed' && !failedAppsLoaded) loadApps();
-  if (name === 'hardware' && !hwLoaded) loadHardware();
-  if (name === 'autopilot' && !autopilotLoaded) loadAutopilot();
-  if (name === 'bitlocker' && !bitlockerLoaded) loadBitlocker();
-  if (name === 'certhealth' && !certhealthLoaded) loadCerthealth();
-  if (name === 'required' && !requiredLoaded) loadRequiredApps();
-  if (name === 'uninstall' && !uninstallLoaded) loadUninstallApps();
-  if (name === 'installed' && !installedAppsLoaded) loadInstalledApps();
-  if (name === 'approvals' && !approvalsLoaded) loadApprovals();
-  if (name === 'vulnerabilities' && !vulnLoaded) loadVulnerabilities();
-  if (name === 'softdeleted' && !softdeletedLoaded) loadSoftdeleted();
-  if (name === 'staleusers' && !staleusersLoaded) loadStaleUsers();
-  if (name === 'aiagents' && !aiagentsLoaded) loadAiAgents();
-  if (name === 'diskspace' && !diskspaceLoaded) loadDiskspace();
-  if (name === 'appversions' && !appversionsLoaded) loadAppversions();
+  for (const [key, cfg] of Object.entries(SUBTAB_CFG)) {
+    const el = $(cfg.panel);
+    if (el) el.style.display = key === name ? '' : 'none';
+  }
+  const cfg = SUBTAB_CFG[name];
+  if (cfg && cfg.load) cfg.load();
 }
 
 // ============================================================
@@ -5241,10 +5246,14 @@ document.addEventListener('click', e => {
 
 const GB = 1024 * 1024 * 1024;
 const toGB = b => (!b || b <= 0) ? 0 : b / GB;
+// Bumped on refresh / tenant switch so in-flight RAM fan-outs exit early.
+let hwLoadGen = 0;
 
 async function loadHardware() {
+  const gen = ++hwLoadGen;
   hwLoaded = true;
   $('hwLoading').style.display = '';
+  $('hwLoading').textContent = 'Loading devices…';
   $('hwContent').style.display = 'none';
   $('hwError').innerHTML = '';
   try {
@@ -5255,9 +5264,14 @@ async function loadHardware() {
     // Entra fetch is wrapped — if the user denies Device.Read.All the hygiene
     // tiles fall back gracefully instead of failing the whole tab.
     const [all, entraIds] = await Promise.all([
-      graphGetAll('beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select)),
+      graphGetAll('beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select), {
+        onPage: (n) => {
+          if (gen === hwLoadGen) $('hwLoading').textContent = `Loading devices… ${n}`;
+        }
+      }),
       graphGetAll('v1.0/devices?$select=deviceId').then(arr => new Set(arr.map(d => (d.deviceId || '').toLowerCase()).filter(Boolean))).catch(e => { console.warn('Entra /devices fetch failed', e); return null; })
     ]);
+    if (gen !== hwLoadGen) return;
 
     // Pre-compute serial duplicates so each device knows whether it shares its serial with another record.
     const serialCounts = new Map();
@@ -5291,25 +5305,42 @@ async function loadHardware() {
       };
     });
 
-    // physicalMemoryInBytes is not populated by the managedDevices list endpoint;
-    // it requires a per-device GET. Fetch in chunks to avoid throttling.
-    const CHUNK = 20;
-    for (let i = 0; i < hwDevices.length; i += CHUNK) {
-      const slice = hwDevices.slice(i, i + CHUNK);
-      await Promise.all(slice.map(async dev => {
-        try {
-          const detail = await graphGet(
-            `beta/deviceManagement/managedDevices/${dev.id}?$select=physicalMemoryInBytes`
-          );
-          dev.ramGB = Math.round(toGB(detail.physicalMemoryInBytes));
-        } catch (_) { /* leave ramGB as 0 */ }
-      }));
-    }
+    // Show the table immediately (storage/OS/stale tiles are ready). RAM often
+    // needs a per-device GET — fill that in the background with progress.
     populateHwFilterOptions();
     renderHardware();
-    $('hwLoading').style.display = 'none';
     $('hwContent').style.display = '';
+
+    const needRam = hwDevices.filter(d => !d.ramGB);
+    if (!needRam.length) {
+      $('hwLoading').style.display = 'none';
+      return;
+    }
+
+    $('hwLoading').textContent = `Fetching RAM details 0/${needRam.length}…`;
+    let done = 0;
+    // physicalMemoryInBytes is usually empty on the list endpoint; per-device
+    // GET with bounded concurrency (token cache + $top pagination already help).
+    await mapPool(needRam, 25, async (dev) => {
+      if (gen !== hwLoadGen) return;
+      try {
+        const detail = await graphGet(
+          `beta/deviceManagement/managedDevices/${dev.id}?$select=physicalMemoryInBytes`
+        );
+        if (gen !== hwLoadGen) return;
+        dev.ramGB = Math.round(toGB(detail.physicalMemoryInBytes));
+      } catch (_) { /* leave ramGB as 0 */ }
+      done++;
+      if (gen === hwLoadGen && (done % 40 === 0 || done === needRam.length)) {
+        $('hwLoading').textContent = `Fetching RAM details ${done}/${needRam.length}…`;
+      }
+    });
+    if (gen !== hwLoadGen) return;
+    renderHardware(); // refresh RAM tiles + table
+    $('hwLoading').style.display = 'none';
   } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    if (gen !== hwLoadGen) return;
     hwLoaded = false; // retry on next visit
     $('hwLoading').style.display = 'none';
     $('hwError').innerHTML = `<div class="error-banner">Failed to load devices: ${esc(e.message || e)}</div>`;
@@ -5626,7 +5657,7 @@ $('hwRamFilter').addEventListener('change', renderHardware);
 $('hwStorageFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('hwPlatformFilter').addEventListener('change', renderHardware);
-$('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
+$('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; hwLoadGen++; loadHardware(); });
 const hwTileMap = {
   hwWin10Tile: 'win:win10',
   hwWin11Tile: 'win:win11',

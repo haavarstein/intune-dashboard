@@ -2,53 +2,73 @@
 // Depends at call-time on getToken() defined in the main page script
 // (and optionally opts.token for just-in-time write scopes).
 
+// Prefer large pages when the caller did not set $top — fewer round-trips
+// on managedDevices / devices / mobileApps (Graph caps vary; 999 is widely accepted).
+function graphPathWithTop(path, top = 999) {
+  if (!path || /[?&]\$top=/i.test(path)) return path;
+  return path + (path.includes('?') ? '&' : '?') + '$top=' + top;
+}
+
 // Fetch with retry on Graph throttling (429) and transient 503/504, honoring Retry-After.
-async function graphFetch(url, init) {
+async function graphFetch(url, init = {}) {
   for (let attempt = 0; ; attempt++) {
+    if (init.signal && init.signal.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
     const res = await fetch(url, init);
     if ((res.status !== 429 && res.status !== 503 && res.status !== 504) || attempt >= 3) return res;
     const retryAfter = parseInt(res.headers.get('Retry-After'), 10);
     const waitMs = (isNaN(retryAfter) ? Math.pow(2, attempt + 1) : Math.min(retryAfter, 60)) * 1000;
     console.warn(`Graph ${res.status} on ${url.split('?')[0]} — retrying in ${waitMs / 1000}s (attempt ${attempt + 1}/3)`);
-    await new Promise(r => setTimeout(r, waitMs));
+    await new Promise((r, reject) => {
+      const t = setTimeout(r, waitMs);
+      if (init.signal) {
+        init.signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          const err = new Error('Aborted');
+          err.name = 'AbortError';
+          reject(err);
+        }, { once: true });
+      }
+    });
   }
+}
+
+function graphAuthHeaders(token, extra) {
+  const headers = { Authorization: 'Bearer ' + token };
+  if (extra) Object.assign(headers, extra);
+  return headers;
+}
+
+function graphHttpError(res, bodyText) {
+  const err = new Error('Graph ' + res.status + ': ' + bodyText);
+  err.status = res.status;
+  err.body = bodyText;
+  if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
+  return err;
 }
 
 async function graphGet(path, opts = {}) {
   const token = opts.token || await getToken();
-  const headers = { Authorization: 'Bearer ' + token };
-  if (opts.headers) Object.assign(headers, opts.headers);
-  const res = await graphFetch('https://graph.microsoft.com/' + path, { headers });
-  if (!res.ok) {
-    const bodyText = await res.text();
-    const err = new Error('Graph ' + res.status + ': ' + bodyText);
-    err.status = res.status;
-    err.body = bodyText;
-    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
-    throw err;
-  }
+  const res = await graphFetch('https://graph.microsoft.com/' + path, {
+    headers: graphAuthHeaders(token, opts.headers),
+    signal: opts.signal
+  });
+  if (!res.ok) throw graphHttpError(res, await res.text());
   return res.json();
 }
 
 async function graphPost(path, body, opts = {}) {
   const token = opts.token || await getToken();
-  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
-  if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
     method: 'POST',
-    headers,
-    body: JSON.stringify(body)
+    headers: graphAuthHeaders(token, Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {})),
+    body: JSON.stringify(body),
+    signal: opts.signal
   });
-  if (!res.ok) {
-    const bodyText = await res.text();
-    const err = new Error('Graph ' + res.status + ': ' + bodyText);
-    err.status = res.status;
-    err.body = bodyText;
-    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
-    throw err;
-  }
-  // Some action endpoints (e.g. .../assign) return 204 No Content with an empty body.
-  // .json() on an empty body throws "Unexpected end of JSON input" — handle that.
+  if (!res.ok) throw graphHttpError(res, await res.text());
   if (res.status === 204) return null;
   const text = await res.text();
   if (!text) return null;
@@ -57,21 +77,13 @@ async function graphPost(path, body, opts = {}) {
 
 async function graphPatch(path, body, opts = {}) {
   const token = opts.token || await getToken();
-  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
-  if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
     method: 'PATCH',
-    headers,
-    body: JSON.stringify(body)
+    headers: graphAuthHeaders(token, Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {})),
+    body: JSON.stringify(body),
+    signal: opts.signal
   });
-  if (!res.ok) {
-    const bodyText = await res.text();
-    const err = new Error('Graph ' + res.status + ': ' + bodyText);
-    err.status = res.status;
-    err.body = bodyText;
-    if (/x-msft-approval-justification/.test(bodyText)) err.isMaa = true;
-    throw err;
-  }
+  if (!res.ok) throw graphHttpError(res, await res.text());
   if (res.status === 204) return null;
   const text = await res.text();
   if (!text) return null;
@@ -80,29 +92,48 @@ async function graphPatch(path, body, opts = {}) {
 
 async function graphDelete(path, opts = {}) {
   const token = opts.token || await getToken();
-  const headers = { Authorization: 'Bearer ' + token };
-  if (opts.headers) Object.assign(headers, opts.headers);
   const res = await graphFetch('https://graph.microsoft.com/' + path, {
     method: 'DELETE',
-    headers
+    headers: graphAuthHeaders(token, opts.headers),
+    signal: opts.signal
   });
   if (res.ok || res.status === 404) return;
-  const body = await res.text();
-  const err = new Error('Graph ' + res.status + ': ' + body);
-  err.status = res.status;
-  err.body = body;
-  if (/x-msft-approval-justification/.test(body)) err.isMaa = true;
-  throw err;
+  throw graphHttpError(res, await res.text());
 }
 
-async function graphGetAll(initialPath) {
-  let path = initialPath;
+// Paginate a Graph collection. Injects $top=999 unless the path already sets $top.
+// opts.onPage(accumulatedCount, pageSize) for progress UIs.
+async function graphGetAll(initialPath, opts = {}) {
+  let path = graphPathWithTop(initialPath);
   const all = [];
   while (path) {
-    const data = await graphGet(path);
+    if (opts.signal && opts.signal.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    const data = await graphGet(path, opts);
     if (data.value) all.push(...data.value);
+    if (opts.onPage) opts.onPage(all.length, (data.value || []).length);
     const next = data['@odata.nextLink'];
     path = next ? next.replace('https://graph.microsoft.com/', '') : null;
   }
   return all;
+}
+
+// Bounded concurrency — used for per-device RAM fan-out and similar.
+async function mapPool(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const n = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
 }

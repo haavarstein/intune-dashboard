@@ -120,6 +120,21 @@ Proactive Remediation collectors (software metering, AI agent scan, IME required
 
 No build step. MSAL + PapaParse from CDN. Static hosting (GitHub Pages).
 
+### Scale notes (large tenants)
+
+There is no hard device cap, but Graph rate limits and browser work still matter:
+
+| Surface | Behavior |
+|---------|----------|
+| **Pagination** | Collection GETs use `$top=999` when the caller does not set `$top` (fewer pages). |
+| **Access tokens** | Read-scope tokens are cached until near expiry so thousands of GETs do not each call MSAL. |
+| **Hardware** | Device list + storage/OS render first; RAM is filled with concurrency 25 and a progress line. Refresh / tenant switch abandons in-flight RAM work. |
+| **Installed apps** | Slim `$select` + assignment id expand; progress while paging. Zero-install tile still pages the install-summary report. |
+| **Failed → by error** | Per-app install-status reports run with concurrency 8. |
+| **Overview** | Slim device `$select` only (no RAM fan-out). |
+
+Expect multi-minute Hardware RAM backfill on fleets of several thousand devices; the table is usable before that finishes. Further cancel buttons / slim-mode toggles remain on the backlog (`tasks/todo.md`).
+
 ---
 
 ## Contributing / docs map

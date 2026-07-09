@@ -12,12 +12,16 @@ Completed designs (Software Metering, Autopilot, MSP switcher, app delete, MAA e
 ## Goal
 Keep Hardware, Assignments, Installed, and Overview usable on tenants with thousands of devices/apps — prevent silent hangs and “works in the lab, dies in production” support load.
 
-## Scope (when scheduled)
-- [ ] Document tested / expected scale limits in README (devices, apps, Assignments policy fan-out)
-- [ ] Progress UI + cancel for long Graph walks (Hardware RAM fan-out, Assignments multi-endpoint load, install-status sweeps)
-- [ ] Extend Overview-style slim `$select` / catch-per-call patterns to remaining heavy tabs
-- [ ] Optional “slim mode” toggles where full inventory is not required for the review use case
-- [ ] Session cache notes: what is cached vs always re-fetched
+## Scope
+- [x] Document scale behavior in README (Tech → Scale notes)
+- [x] Hardware: progress while paging + RAM backfill; progressive table (usable before RAM done); abandon in-flight on refresh/tenant switch; concurrency 25 + token cache
+- [x] Graph: default `$top=999` on `graphGetAll`, `mapPool` helper, AbortSignal plumbing
+- [x] Installed: slim `$select` + progress while paging apps
+- [x] Failed error-cluster: mapPool concurrency 8
+- [ ] Explicit **Cancel** button UI on long walks (Assignments multi-endpoint, Hardware RAM)
+- [ ] Assignments: per-endpoint progress + optional cancel
+- [ ] Optional “slim mode” toggles (e.g. skip Hardware RAM fan-out entirely)
+- [ ] Session cache notes in-app (what is cached vs always re-fetched)
 
 ## Out of scope for this card
 - Backend aggregation / Log Analytics
