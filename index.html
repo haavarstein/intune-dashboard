@@ -252,53 +252,29 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="btn btn-ghost" id="btnSignOut">Sign out</button>
       </div>
 
-      <!-- Grouped sub-tabs: same data-subtab buttons, organized for MSP scanning. -->
-      <div class="subtabs-nav" role="navigation" aria-label="Intune views">
-        <div class="subtab-group">
-          <div class="subtab-group-label">Health</div>
-          <div class="subtabs">
-            <button class="subtab active" data-subtab="overview">Overview</button>
-            <button class="subtab" data-subtab="failed">Failed Install</button>
-            <button class="subtab" data-subtab="certhealth">Management Health</button>
-            <button class="subtab" data-subtab="diskspace">Disk Space</button>
-            <button class="subtab" data-subtab="bitlocker">BitLocker</button>
-            <button class="subtab" data-subtab="hardware">Hardware</button>
-          </div>
-        </div>
-        <div class="subtab-group">
-          <div class="subtab-group-label">Apps</div>
-          <div class="subtabs">
-            <button class="subtab" data-subtab="installed">Installed</button>
-            <button class="subtab" data-subtab="appversions">App Versions</button>
-            <button class="subtab" data-subtab="required">Required Install</button>
-            <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
-            <button class="subtab" data-subtab="metering">Software Metering</button>
-          </div>
-        </div>
-        <div class="subtab-group">
-          <div class="subtab-group-label">Identity</div>
-          <div class="subtabs">
-            <button class="subtab" data-subtab="autopilot">Autopilot</button>
-            <button class="subtab" data-subtab="staleusers">Stale Users (P1)</button>
-            <button class="subtab" data-subtab="softdeleted">Soft-Deleted</button>
-          </div>
-        </div>
-        <div class="subtab-group">
-          <div class="subtab-group-label">Security</div>
-          <div class="subtabs">
-            <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
-            <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
-            <button class="subtab" data-subtab="aiagents">AI Agents (P2/E5)</button>
-          </div>
-        </div>
-        <div class="subtab-group">
-          <div class="subtab-group-label">Admin</div>
-          <div class="subtabs">
-            <button class="subtab" data-subtab="approvals">Approvals <span id="approvalsBadge" class="subtab-badge" style="display:none;"></span></button>
-            <button class="subtab" data-subtab="assignments">Assignments</button>
-            <button class="subtab" data-subtab="remediation">Remediation</button>
-          </div>
-        </div>
+      <!-- Single fixed-column grid: every tab keeps a fixed cell, so a
+           scrollbar-width change can never reflow a tab onto another row. -->
+      <div class="subtabs">
+        <button class="subtab active" data-subtab="overview">Overview</button>
+        <button class="subtab" data-subtab="installed">Installed</button>
+        <button class="subtab" data-subtab="approvals">Approvals <span id="approvalsBadge" class="subtab-badge" style="display:none;"></span></button>
+        <button class="subtab" data-subtab="failed">Failed Install</button>
+        <button class="subtab" data-subtab="required">Required Install</button>
+        <button class="subtab" data-subtab="uninstall">Required Uninstall</button>
+        <button class="subtab" data-subtab="metering">Software Metering</button>
+        <button class="subtab" data-subtab="remediation">Remediation</button>
+        <button class="subtab" data-subtab="hardware">Hardware</button>
+        <button class="subtab" data-subtab="diskspace">Disk Space</button>
+        <button class="subtab" data-subtab="appversions">App Versions</button>
+        <button class="subtab" data-subtab="autopilot">Autopilot</button>
+        <button class="subtab" data-subtab="bitlocker">BitLocker</button>
+        <button class="subtab" data-subtab="certhealth">Management Health</button>
+        <button class="subtab" data-subtab="assignments">Assignments</button>
+        <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
+        <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
+        <button class="subtab" data-subtab="softdeleted">Soft-Deleted</button>
+        <button class="subtab" data-subtab="staleusers">Stale Users (P1)</button>
+        <button class="subtab" data-subtab="aiagents">AI Agents (P2/E5)</button>
       </div>
 
       <div id="intuneError"></div>

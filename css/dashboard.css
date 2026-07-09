@@ -442,45 +442,25 @@ tbody tr:last-child td { border-bottom: none; }
 .tab:hover { color: var(--ink-2); }
 .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 
-/* Sub-tabs — grouped nav (Health / Apps / Identity / Security / Admin).
-   Each group is a labeled flex row of pills; active state is unchanged. */
-.subtabs-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* Sub-tabs — fixed-column grid (not wrapping flex) so tabs hold a stable
+   cell regardless of scrollbar width; pill active state reads cleanly
+   across the multi-row layout. Column count is fixed per breakpoint, so a
+   ~15px viewport change resizes cells but never reflows a tab to a new row. */
+.subtabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
   margin: 0 0 28px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
-.subtab-group {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px 12px;
-  align-items: start;
-}
-.subtab-group-label {
-  padding-top: 10px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  line-height: 1.2;
-}
-.subtabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-@media (max-width: 560px) {
-  .subtab-group { grid-template-columns: 1fr; gap: 4px; }
-  .subtab-group-label { padding-top: 0; padding-bottom: 2px; }
-}
+@media (max-width: 1500px) { .subtabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 1180px) { .subtabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .subtabs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .subtab {
   background: none;
   border: none;
-  padding: 9px 12px;
+  padding: 9px 10px;
   font-family: var(--font-body);
   font-size: 12.5px;
   font-weight: 600;
@@ -489,6 +469,8 @@ tbody tr:last-child td { border-bottom: none; }
   cursor: pointer;
   border-radius: 9px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color .15s, background .15s, box-shadow .15s;
 }
 .subtab:hover { color: var(--ink-2); background: rgba(232,116,59,.07); }
