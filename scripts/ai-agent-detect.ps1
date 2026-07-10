@@ -8,10 +8,10 @@
 # ║  Description :                                                           ║
 # ║    Agentless AI-agent discovery (shadow-AI inventory). Scans every       ║
 # ║    user profile and the machine for locally installed AI agents —       ║
-# ║    Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Claude/       ║
-# ║    ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf, Cline,   ║
-# ║    Roo Code, Continue, Aider, OpenCode, OpenClaw, Hermes Agent — via     ║
-# ║    WinGet packages, npm globals, desktop-app folders, VS Code            ║
+# ║    Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Grok Build,   ║
+# ║    Claude/ChatGPT/Ollama/LM Studio/Poe desktop apps, Cursor, Windsurf,  ║
+# ║    Cline, Roo Code, Continue, Aider, OpenCode, OpenClaw, Hermes Agent — ║
+# ║    via WinGet packages, npm globals, desktop-app folders, VS Code        ║
 # ║    extensions, agent config directories, machine-wide installs, and      ║
 # ║    running processes. Reports                                            ║
 # ║    a gzip+base64-encoded snapshot via the detection script's stdout      ║
@@ -84,6 +84,7 @@ $WingetPkgs = @(   # %LOCALAPPDATA%\Microsoft\WinGet\Packages\<Prefix>_*
     @{ Prefix = 'OpenAI.Codex';         Agent = 'Codex CLI';          Vendor = 'OpenAI';    Exe = 'codex.exe' }
     @{ Prefix = 'Google.GeminiCLI';     Agent = 'Gemini CLI';         Vendor = 'Google';    Exe = 'gemini.exe' }
     @{ Prefix = 'GitHub.CopilotCLI';    Agent = 'GitHub Copilot CLI'; Vendor = 'GitHub';    Exe = 'copilot.exe' }
+    @{ Prefix = 'xAI.GrokBuild';        Agent = 'Grok Build';         Vendor = 'xAI';      Exe = 'grok.exe' }
     @{ Prefix = 'Ollama.Ollama';        Agent = 'Ollama';             Vendor = 'Ollama';    Exe = 'ollama.exe' }
 )
 $DesktopApps = @(  # %LOCALAPPDATA%\Programs\<Dir>
@@ -100,6 +101,8 @@ $NpmPkgs = @(      # %APPDATA%\npm\node_modules\<Path>
     @{ Path = '@openai\codex';             Agent = 'Codex CLI';          Vendor = 'OpenAI' }
     @{ Path = '@google\gemini-cli';        Agent = 'Gemini CLI';         Vendor = 'Google' }
     @{ Path = '@github\copilot';           Agent = 'GitHub Copilot CLI'; Vendor = 'GitHub' }
+    @{ Path = '@vibe-kit\grok-cli';         Agent = 'Grok CLI';           Vendor = 'vibe-kit' }
+    @{ Path = '@webdevtoday\grok-cli';     Agent = 'Grok CLI';           Vendor = 'webdevtoday' }
     @{ Path = 'opencode-ai';               Agent = 'OpenCode';           Vendor = 'OpenCode' }
     @{ Path = 'openclaw';                  Agent = 'OpenClaw';           Vendor = 'OpenClaw' }
 )
@@ -116,6 +119,8 @@ $ConfigDirs = @(   # <profile>\<Dir> — config artifacts survive even if the bi
     @{ Dir = '.hermes';   Agent = 'Hermes Agent';       Vendor = 'Nous Research' }
     # Hermes' Windows install root (repo clone + desktop app live underneath)
     @{ Dir = 'AppData\Local\hermes'; Agent = 'Hermes Agent'; Vendor = 'Nous Research'; Exe = 'hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe' }
+    # xAI Grok Build — curl/irm installer + skills/auth live under ~/.grok (bin\grok.exe on Windows)
+    @{ Dir = '.grok';     Agent = 'Grok Build';         Vendor = 'xAI'; Exe = 'bin\grok.exe' }
     @{ Dir = '.codex';    Agent = 'Codex CLI';          Vendor = 'OpenAI' }
     @{ Dir = '.gemini';   Agent = 'Gemini CLI';         Vendor = 'Google' }
     @{ Dir = '.copilot';  Agent = 'GitHub Copilot CLI'; Vendor = 'GitHub' }
@@ -134,6 +139,8 @@ $ArpPatterns = @(  # machine-wide HKLM uninstall entries
     @{ Rx = '^Windsurf';   Agent = 'Windsurf';        Vendor = 'Codeium' }
     @{ Rx = '^Claude($| )'; Agent = 'Claude Desktop'; Vendor = 'Anthropic' }
     @{ Rx = '^ChatGPT';    Agent = 'ChatGPT Desktop'; Vendor = 'OpenAI' }
+    @{ Rx = '^Grok Build'; Agent = 'Grok Build';     Vendor = 'xAI' }
+    @{ Rx = '^Grok[- ]Desktop'; Agent = 'Grok Desktop'; Vendor = 'Community' }
 )
 $ProcMap = @{      # point-in-time running processes (catches portable/unknown installs)
     'claude'     = @{ Agent = 'Claude Code';     Vendor = 'Anthropic' }
@@ -145,6 +152,7 @@ $ProcMap = @{      # point-in-time running processes (catches portable/unknown i
     'lm studio'  = @{ Agent = 'LM Studio';       Vendor = 'Element Labs' }
     'codex'      = @{ Agent = 'Codex CLI';       Vendor = 'OpenAI' }
     'gemini'     = @{ Agent = 'Gemini CLI';      Vendor = 'Google' }
+    'grok'       = @{ Agent = 'Grok Build';      Vendor = 'xAI' }
     'hermes'     = @{ Agent = 'Hermes Agent';    Vendor = 'Nous Research' }
 }
 
