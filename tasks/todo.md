@@ -18,10 +18,10 @@ Keep Hardware, Assignments, Installed, and Overview usable on tenants with thous
 - [x] Graph: default `$top=999` on `graphGetAll`, `mapPool` helper, AbortSignal plumbing
 - [x] Installed: slim `$select` + progress while paging apps
 - [x] Failed error-cluster: mapPool concurrency 8
-- [ ] Explicit **Cancel** button UI on long walks (Assignments multi-endpoint, Hardware RAM)
-- [ ] Assignments: per-endpoint progress + optional cancel
-- [ ] Optional “slim mode” toggles (e.g. skip Hardware RAM fan-out entirely)
-- [ ] Session cache notes in-app (what is cached vs always re-fetched)
+- [x] Explicit **Cancel** button UI on long walks (Assignments multi-endpoint, Hardware paging + RAM)
+- [x] Assignments: per-endpoint progress + optional cancel
+- [x] Optional “slim mode” toggles (e.g. skip Hardware RAM fan-out entirely) — Settings → Large tenants
+- [x] Session cache notes in-app (what is cached vs always re-fetched) — Settings card
 
 ## Out of scope for this card
 - Backend aggregation / Log Analytics

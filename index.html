@@ -671,8 +671,11 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubUninstall -->
 
       <div id="intuneSubHardware" style="display:none;">
-        <div class="tab-hint">Managed-device inventory for Win11 readiness, post-EOS Win10 cleanup, and stale-device refresh planning. Tile filters + CSV export for Entra-group import.</div>
-        <div id="hwLoading" class="loading">Loading devices…</div>
+        <div class="tab-hint">Managed-device inventory for Win11 readiness, post-EOS Win10 cleanup, and stale-device refresh planning. Tile filters + CSV export for Entra-group import. On large tenants, device list + storage load first; RAM is backfilled in the background (or skipped if slim mode is on in Settings).</div>
+        <div id="hwLoading" class="loading" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+          <span id="hwLoadingText">Loading devices…</span>
+          <span id="btnHwCancel" style="display:none; cursor:pointer; color:var(--danger); font-weight:600; font-size:13px;" title="Stop the current Graph walk">✕ Cancel</span>
+        </div>
         <div id="hwError"></div>
         <div id="hwContent" style="display:none;">
           <div class="hw-overview">
@@ -1157,6 +1160,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div id="assignmentsSearchResults" style="display:none; position:absolute; left:0; right:0; top:100%; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-top:4px; max-height:480px; overflow-y:auto; z-index:50; box-shadow:0 4px 16px rgba(0,0,0,.06);"></div>
             </div>
             <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAssignmentsRefresh">↻ Refresh</span>
+            <span id="btnAssignmentsCancel" style="display:none; cursor:pointer; color:var(--danger); font-weight:600; font-size:13px;" title="Stop indexing policies">✕ Cancel</span>
           </div>
           <div id="assignmentsLoadStatus" class="meta" style="margin-top:10px; font-size:12px;"></div>
         </div>
@@ -1995,6 +1999,28 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <option value="claude-opus-4-8">Opus 4.8 — $5/$25 per MTok — ~$0.0125/click — reserve for stuck cases</option>
           <option value="claude-fable-5">Fable 5 — $10/$50 per MTok — ~$0.025/click — most capable, slower</option>
         </select>
+      </div>
+
+      <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Large tenants</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Options that keep Hardware / Assignments usable when the fleet is thousands of devices. Stored in this browser only.</div>
+        <label style="display:flex; align-items:flex-start; gap:10px; font-size:13px; cursor:pointer; line-height:1.45;">
+          <input type="checkbox" id="scaleSkipHwRam" style="margin-top:3px; flex-shrink:0;">
+          <span><strong>Slim Hardware</strong> — skip per-device RAM backfill. List/storage/OS tiles still load; RAM columns stay empty until you turn this off and Refresh Hardware. Prefer this on multi-thousand-device tenants.</span>
+        </label>
+      </div>
+
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">What is cached vs re-fetched</div>
+        <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
+          <ul style="margin:0; padding-left:18px;">
+            <li><strong>In-memory (this session)</strong> — each Intune sub-tab keeps its last Graph result until you click <strong>↻ Refresh</strong> on that tab or switch customer/tenant (full reset). Switching browser tabs does not clear it.</li>
+            <li><strong>sessionStorage</strong> — MSAL access tokens only (no refresh tokens across browser restarts).</li>
+            <li><strong>localStorage</strong> — customers list, Claude/OpenRouter key + model, large-tenant toggles, error-analysis cache. Survives reloads; never uploaded as a blob to our servers (there are none).</li>
+            <li><strong>Always live on demand</strong> — MAA approve/reject/complete, app/device deletes, script deploy, mail send, and any action after Cancel mid-walk (partial data stays until Refresh).</li>
+            <li><strong>Long walks</strong> — Hardware device paging + RAM backfill, and Assignments multi-endpoint index, show <strong>✕ Cancel</strong> while running. Cancel keeps whatever already arrived.</li>
+          </ul>
+        </div>
       </div>
 
       <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
@@ -2990,6 +3016,9 @@ function deleteCustomer(code) {
 function resetTenantState() {
   clearAccessTokenCache();
   hwLoadGen++; // abandon any in-flight Hardware RAM fan-out
+  assignmentsLoadGen++;
+  if (typeof hwAbort !== 'undefined' && hwAbort) { try { hwAbort.abort(); } catch (_) {} }
+  if (typeof assignmentsAbort !== 'undefined' && assignmentsAbort) { try { assignmentsAbort.abort(); } catch (_) {} }
   // Hardware
   hwLoaded = false; hwDevices = []; hwTileFilter = null;
   // Installed
@@ -4845,6 +4874,7 @@ document.querySelectorAll('#installedView thead th').forEach(th => {
 
 // --- Settings: API key + model ---
 const SETTINGS_KEY = 'intuneDash.claude';
+const SCALE_KEY = 'intuneDash.scale';
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -4855,14 +4885,34 @@ function loadSettings() {
 function saveSettings() {
   const s = { apiKey: $('claudeApiKey').value.trim(), model: $('claudeModel').value };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  saveScaleSettingsFromUi();
   $('settingsStatus').textContent = 'Saved.';
   setTimeout(() => $('settingsStatus').textContent = '', 2000);
 }
 function getSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return {}; }
 }
+function getScaleSettings() {
+  try { return JSON.parse(localStorage.getItem(SCALE_KEY) || '{}'); } catch { return {}; }
+}
+function saveScaleSettingsFromUi() {
+  const skipHwRam = !!($('scaleSkipHwRam') && $('scaleSkipHwRam').checked);
+  localStorage.setItem(SCALE_KEY, JSON.stringify({ skipHwRam }));
+}
+function loadScaleSettingsUi() {
+  const s = getScaleSettings();
+  if ($('scaleSkipHwRam')) $('scaleSkipHwRam').checked = !!s.skipHwRam;
+}
 loadSettings();
+loadScaleSettingsUi();
 $('btnSaveSettings').addEventListener('click', saveSettings);
+if ($('scaleSkipHwRam')) {
+  $('scaleSkipHwRam').addEventListener('change', () => {
+    saveScaleSettingsFromUi();
+    $('settingsStatus').textContent = 'Large-tenant option saved.';
+    setTimeout(() => { if ($('settingsStatus').textContent === 'Large-tenant option saved.') $('settingsStatus').textContent = ''; }, 2000);
+  });
+}
 
 // --- Click error code -> analyze with Claude ---
 $('failedRows').addEventListener('click', e => {
@@ -5248,12 +5298,37 @@ const GB = 1024 * 1024 * 1024;
 const toGB = b => (!b || b <= 0) ? 0 : b / GB;
 // Bumped on refresh / tenant switch so in-flight RAM fan-outs exit early.
 let hwLoadGen = 0;
+let hwAbort = null;
+
+function setHwLoading(text, cancelable) {
+  $('hwLoading').style.display = 'flex';
+  $('hwLoadingText').textContent = text;
+  $('btnHwCancel').style.display = cancelable ? '' : 'none';
+}
+function hideHwLoading() {
+  $('hwLoading').style.display = 'none';
+  $('btnHwCancel').style.display = 'none';
+}
+function cancelHardwareLoad() {
+  hwLoadGen++;
+  if (hwAbort) { try { hwAbort.abort(); } catch (_) {} }
+  $('btnHwCancel').style.display = 'none';
+  if (hwDevices.length) {
+    setHwLoading('Cancelled — showing data gathered so far (RAM may be incomplete).', false);
+    setTimeout(() => { if ($('hwLoadingText').textContent.startsWith('Cancelled')) hideHwLoading(); }, 2800);
+  } else {
+    hwLoaded = false;
+    hideHwLoading();
+  }
+}
 
 async function loadHardware() {
+  if (hwAbort) { try { hwAbort.abort(); } catch (_) {} }
+  hwAbort = new AbortController();
+  const signal = hwAbort.signal;
   const gen = ++hwLoadGen;
   hwLoaded = true;
-  $('hwLoading').style.display = '';
-  $('hwLoading').textContent = 'Loading devices…';
+  setHwLoading('Loading devices…', true);
   $('hwContent').style.display = 'none';
   $('hwError').innerHTML = '';
   try {
@@ -5265,11 +5340,16 @@ async function loadHardware() {
     // tiles fall back gracefully instead of failing the whole tab.
     const [all, entraIds] = await Promise.all([
       graphGetAll('beta/deviceManagement/managedDevices?$select=' + encodeURIComponent(select), {
+        signal,
         onPage: (n) => {
-          if (gen === hwLoadGen) $('hwLoading').textContent = `Loading devices… ${n}`;
+          if (gen === hwLoadGen) setHwLoading(`Loading devices… ${n}`, true);
         }
       }),
-      graphGetAll('v1.0/devices?$select=deviceId').then(arr => new Set(arr.map(d => (d.deviceId || '').toLowerCase()).filter(Boolean))).catch(e => { console.warn('Entra /devices fetch failed', e); return null; })
+      graphGetAll('v1.0/devices?$select=deviceId', { signal }).then(arr => new Set(arr.map(d => (d.deviceId || '').toLowerCase()).filter(Boolean))).catch(e => {
+        if (e && e.name === 'AbortError') throw e;
+        console.warn('Entra /devices fetch failed', e);
+        return null;
+      })
     ]);
     if (gen !== hwLoadGen) return;
 
@@ -5313,36 +5393,56 @@ async function loadHardware() {
 
     const needRam = hwDevices.filter(d => !d.ramGB);
     if (!needRam.length) {
-      $('hwLoading').style.display = 'none';
+      hideHwLoading();
       return;
     }
 
-    $('hwLoading').textContent = `Fetching RAM details 0/${needRam.length}…`;
+    if (getScaleSettings().skipHwRam) {
+      setHwLoading(`Slim mode: skipped RAM backfill for ${needRam.length} device(s). Turn off in Settings → Large tenants, then Refresh.`, false);
+      setTimeout(() => { if (gen === hwLoadGen) hideHwLoading(); }, 4000);
+      return;
+    }
+
+    setHwLoading(`Fetching RAM details 0/${needRam.length}…`, true);
     let done = 0;
     // physicalMemoryInBytes is usually empty on the list endpoint; per-device
     // GET with bounded concurrency (token cache + $top pagination already help).
     await mapPool(needRam, 25, async (dev) => {
-      if (gen !== hwLoadGen) return;
+      if (gen !== hwLoadGen || signal.aborted) return;
       try {
         const detail = await graphGet(
-          `beta/deviceManagement/managedDevices/${dev.id}?$select=physicalMemoryInBytes`
+          `beta/deviceManagement/managedDevices/${dev.id}?$select=physicalMemoryInBytes`,
+          { signal }
         );
         if (gen !== hwLoadGen) return;
         dev.ramGB = Math.round(toGB(detail.physicalMemoryInBytes));
-      } catch (_) { /* leave ramGB as 0 */ }
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        /* leave ramGB as 0 */
+      }
       done++;
       if (gen === hwLoadGen && (done % 40 === 0 || done === needRam.length)) {
-        $('hwLoading').textContent = `Fetching RAM details ${done}/${needRam.length}…`;
+        setHwLoading(`Fetching RAM details ${done}/${needRam.length}…`, true);
       }
-    });
+    }, { signal });
     if (gen !== hwLoadGen) return;
     renderHardware(); // refresh RAM tiles + table
-    $('hwLoading').style.display = 'none';
+    hideHwLoading();
   } catch (e) {
-    if (e && e.name === 'AbortError') return;
+    if (e && e.name === 'AbortError') {
+      if (gen === hwLoadGen && hwDevices.length) {
+        renderHardware();
+        setHwLoading('Cancelled — showing data gathered so far (RAM may be incomplete).', false);
+        setTimeout(() => { if (gen === hwLoadGen) hideHwLoading(); }, 2800);
+      } else if (gen === hwLoadGen) {
+        hwLoaded = false;
+        hideHwLoading();
+      }
+      return;
+    }
     if (gen !== hwLoadGen) return;
     hwLoaded = false; // retry on next visit
-    $('hwLoading').style.display = 'none';
+    hideHwLoading();
     $('hwError').innerHTML = `<div class="error-banner">Failed to load devices: ${esc(e.message || e)}</div>`;
   }
 }
@@ -5657,7 +5757,8 @@ $('hwRamFilter').addEventListener('change', renderHardware);
 $('hwStorageFilter').addEventListener('change', renderHardware);
 $('hwManufacturerFilter').addEventListener('change', renderHardware);
 $('hwPlatformFilter').addEventListener('change', renderHardware);
-$('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; hwLoadGen++; loadHardware(); });
+$('btnHwRefresh').addEventListener('click', () => { hwLoaded = false; loadHardware(); });
+$('btnHwCancel').addEventListener('click', cancelHardwareLoad);
 const hwTileMap = {
   hwWin10Tile: 'win:win10',
   hwWin11Tile: 'win:win11',
@@ -10229,6 +10330,8 @@ document.querySelectorAll('#intuneSubCerthealth th[data-csort]').forEach(th => {
 // ============================================================
 let assignmentsPoliciesLoaded = false;
 let assignmentsPoliciesLoading = false;
+let assignmentsAbort = null;
+let assignmentsLoadGen = 0;
 let assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
 let assignmentsSelectedGroup = null;
 let assignmentsSearchTimer = null;
@@ -10236,49 +10339,122 @@ let assignmentsSearchTimer = null;
 const GROUP_TARGET_TYPE = '#microsoft.graph.groupAssignmentTarget';
 const EXCLUSION_TARGET_TYPE = '#microsoft.graph.exclusionGroupAssignmentTarget';
 
-// Graph endpoints can 403/404 in tenants without specific licensing
-// (e.g. windowsDriverUpdateProfiles needs Autopatch). One failing endpoint
-// shouldn't take down the whole Assignments load — log and continue.
-async function safeGraphGetAll(path, label) {
-  try { return await graphGetAll(path); }
-  catch (e) { console.warn(`Assignments: ${label} fetch failed:`, e.message || e); return []; }
+// Parallel policy index endpoints. Graph can 403/404 per type (e.g. driver
+// update profiles need Autopatch) — one failure must not kill the load.
+const ASSIGNMENTS_ENDPOINTS = [
+  { key: 'apps', label: 'Apps', path: 'beta/deviceAppManagement/mobileApps?$expand=assignments' },
+  { key: 'configs', label: 'Configs', path: 'beta/deviceManagement/deviceConfigurations?$expand=assignments' },
+  { key: 'compliance', label: 'Compliance', path: 'beta/deviceManagement/deviceCompliancePolicies?$expand=assignments' },
+  { key: 'healthScripts', label: 'Remediations', path: 'beta/deviceManagement/deviceHealthScripts?$expand=assignments' },
+  { key: 'settingsCatalog', label: 'Settings catalog', path: 'beta/deviceManagement/configurationPolicies?$expand=assignments' },
+  { key: 'psScripts', label: 'Scripts', path: 'beta/deviceManagement/deviceManagementScripts?$expand=assignments' },
+  { key: 'featureUpdates', label: 'Feature updates', path: 'beta/deviceManagement/windowsFeatureUpdateProfiles?$expand=assignments' },
+  { key: 'qualityUpdates', label: 'Quality updates', path: 'beta/deviceManagement/windowsQualityUpdateProfiles?$expand=assignments' },
+  { key: 'driverUpdates', label: 'Driver updates', path: 'beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments' }
+];
+
+function formatAssignmentsProgress(states) {
+  return ASSIGNMENTS_ENDPOINTS.map(ep => {
+    const s = states[ep.key];
+    if (!s || s.status === 'pending') return `${ep.label}…`;
+    if (s.status === 'ok') return `${ep.label} ${s.count}`;
+    if (s.status === 'fail') return `${ep.label} ✕`;
+    return `${ep.label}…`;
+  }).join(' · ');
+}
+
+function cancelAssignmentsLoad() {
+  assignmentsLoadGen++;
+  if (assignmentsAbort) { try { assignmentsAbort.abort(); } catch (_) {} }
+  assignmentsPoliciesLoading = false;
+  $('btnAssignmentsCancel').style.display = 'none';
+  if (!assignmentsPoliciesLoaded) {
+    $('assignmentsLoadStatus').textContent = 'Cancelled. Click Refresh to index policies again.';
+  }
 }
 
 async function loadAssignmentsPolicies(force = false) {
-  if (assignmentsPoliciesLoading) return;
+  if (assignmentsPoliciesLoading && !force) return;
   if (assignmentsPoliciesLoaded && !force) return;
 
-  assignmentsPoliciesLoading = true;
-  $('assignmentsLoadStatus').textContent = 'Loading policies (apps · configs · compliance · remediations)…';
+  if (assignmentsAbort) { try { assignmentsAbort.abort(); } catch (_) {} }
+  assignmentsAbort = new AbortController();
+  const signal = assignmentsAbort.signal;
+  const gen = ++assignmentsLoadGen;
 
+  assignmentsPoliciesLoading = true;
+  $('btnAssignmentsCancel').style.display = '';
+  const states = Object.fromEntries(ASSIGNMENTS_ENDPOINTS.map(ep => [ep.key, { status: 'pending' }]));
+  $('assignmentsLoadStatus').textContent = 'Indexing policies… ' + formatAssignmentsProgress(states);
+
+  const bag = {};
   try {
-    const [apps, configs, compliance, healthScripts, settingsCatalog, psScripts, featureUpdates, qualityUpdates, driverUpdates] = await Promise.all([
-      safeGraphGetAll('beta/deviceAppManagement/mobileApps?$expand=assignments', 'apps'),
-      safeGraphGetAll('beta/deviceManagement/deviceConfigurations?$expand=assignments', 'configs'),
-      safeGraphGetAll('beta/deviceManagement/deviceCompliancePolicies?$expand=assignments', 'compliance'),
-      safeGraphGetAll('beta/deviceManagement/deviceHealthScripts?$expand=assignments', 'remediations'),
-      safeGraphGetAll('beta/deviceManagement/configurationPolicies?$expand=assignments', 'settingsCatalog'),
-      safeGraphGetAll('beta/deviceManagement/deviceManagementScripts?$expand=assignments', 'psScripts'),
-      safeGraphGetAll('beta/deviceManagement/windowsFeatureUpdateProfiles?$expand=assignments', 'featureUpdates'),
-      safeGraphGetAll('beta/deviceManagement/windowsQualityUpdateProfiles?$expand=assignments', 'qualityUpdates'),
-      safeGraphGetAll('beta/deviceManagement/windowsDriverUpdateProfiles?$expand=assignments', 'driverUpdates')
-    ]);
+    await Promise.all(ASSIGNMENTS_ENDPOINTS.map(async ep => {
+      try {
+        const rows = await graphGetAll(ep.path, {
+          signal,
+          onPage: (n) => {
+            if (gen !== assignmentsLoadGen || signal.aborted) return;
+            states[ep.key] = { status: 'pending', count: n };
+            $('assignmentsLoadStatus').textContent = 'Indexing policies… ' + formatAssignmentsProgress(states);
+          }
+        });
+        if (gen !== assignmentsLoadGen || signal.aborted) return;
+        bag[ep.key] = rows;
+        states[ep.key] = { status: 'ok', count: rows.length };
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        console.warn(`Assignments: ${ep.label} fetch failed:`, e.message || e);
+        bag[ep.key] = [];
+        states[ep.key] = { status: 'fail' };
+      }
+      if (gen === assignmentsLoadGen && !signal.aborted) {
+        $('assignmentsLoadStatus').textContent = 'Indexing policies… ' + formatAssignmentsProgress(states);
+      }
+    }));
+
+    if (gen !== assignmentsLoadGen || signal.aborted) {
+      if (gen === assignmentsLoadGen && !assignmentsPoliciesLoaded) {
+        $('assignmentsLoadStatus').textContent = 'Cancelled. Click Refresh to index policies again.';
+      }
+      return;
+    }
+
     const updateProfiles = [
-      ...featureUpdates.map(p => ({ ...p, _updateType: 'Feature' })),
-      ...qualityUpdates.map(p => ({ ...p, _updateType: 'Quality' })),
-      ...driverUpdates.map(p => ({ ...p, _updateType: 'Driver' }))
+      ...(bag.featureUpdates || []).map(p => ({ ...p, _updateType: 'Feature' })),
+      ...(bag.qualityUpdates || []).map(p => ({ ...p, _updateType: 'Quality' })),
+      ...(bag.driverUpdates || []).map(p => ({ ...p, _updateType: 'Driver' }))
     ];
-    assignmentsRaw = { apps, configs, compliance, healthScripts, settingsCatalog, psScripts, updateProfiles };
+    assignmentsRaw = {
+      apps: bag.apps || [],
+      configs: bag.configs || [],
+      compliance: bag.compliance || [],
+      healthScripts: bag.healthScripts || [],
+      settingsCatalog: bag.settingsCatalog || [],
+      psScripts: bag.psScripts || [],
+      updateProfiles
+    };
     assignmentsPoliciesLoaded = true;
-    $('assignmentsLoadStatus').textContent = `Indexed ${apps.length} apps · ${configs.length} configs · ${settingsCatalog.length} settings catalog · ${compliance.length} compliance · ${psScripts.length} scripts · ${healthScripts.length} remediations · ${updateProfiles.length} update profiles. Type a group name above.`;
+    const a = assignmentsRaw;
+    $('assignmentsLoadStatus').textContent =
+      `Indexed ${a.apps.length} apps · ${a.configs.length} configs · ${a.settingsCatalog.length} settings catalog · ${a.compliance.length} compliance · ${a.psScripts.length} scripts · ${a.healthScripts.length} remediations · ${a.updateProfiles.length} update profiles. Type a group name above.`;
     if (assignmentsSelectedGroup) renderAssignmentsForGroup();
-    // Compute hygiene in the background after the main load — non-blocking.
     computeAssignmentHygiene().catch(e => console.error('Hygiene compute failed', e));
   } catch (e) {
+    if (e && e.name === 'AbortError') {
+      if (gen === assignmentsLoadGen && !assignmentsPoliciesLoaded) {
+        $('assignmentsLoadStatus').textContent = 'Cancelled. Click Refresh to index policies again.';
+      }
+      return;
+    }
+    if (gen !== assignmentsLoadGen) return;
     console.error('Assignments policies load failed', e);
     $('assignmentsLoadStatus').innerHTML = `<span style="color:#c0392b;">Failed to load policies: ${esc(e.message || String(e))}</span>`;
   } finally {
-    assignmentsPoliciesLoading = false;
+    if (gen === assignmentsLoadGen) {
+      assignmentsPoliciesLoading = false;
+      $('btnAssignmentsCancel').style.display = 'none';
+    }
   }
 }
 
@@ -10559,8 +10735,10 @@ $('btnAssignmentsRefresh').addEventListener('click', () => {
   hygieneFiltersRaw = [];
   hygieneGroupMembers = new Map();
   hygieneComputed = null;
+  assignmentsPoliciesLoaded = false;
   loadAssignmentsPolicies(true);
 });
+$('btnAssignmentsCancel').addEventListener('click', cancelAssignmentsLoad);
 
 // ============================================================
 // Assignment Hygiene — surfaces cruft on top of the existing

@@ -122,12 +122,22 @@ async function graphGetAll(initialPath, opts = {}) {
 }
 
 // Bounded concurrency — used for per-device RAM fan-out and similar.
-async function mapPool(items, concurrency, fn) {
+// opts.signal: AbortSignal — workers stop claiming new items when aborted.
+async function mapPool(items, concurrency, fn, opts = {}) {
   if (!items.length) return [];
+  const signal = opts.signal;
   const results = new Array(items.length);
   let next = 0;
+  function throwIfAborted() {
+    if (signal && signal.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+  }
   async function worker() {
     for (;;) {
+      throwIfAborted();
       const i = next++;
       if (i >= items.length) return;
       results[i] = await fn(items[i], i);

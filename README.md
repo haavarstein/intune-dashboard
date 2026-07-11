@@ -128,12 +128,15 @@ There is no hard device cap, but Graph rate limits and browser work still matter
 |---------|----------|
 | **Pagination** | Collection GETs use `$top=999` when the caller does not set `$top` (fewer pages). |
 | **Access tokens** | Read-scope tokens are cached until near expiry so thousands of GETs do not each call MSAL. |
-| **Hardware** | Device list + storage/OS render first; RAM is filled with concurrency 25 and a progress line. Refresh / tenant switch abandons in-flight RAM work. |
+| **Hardware** | Device list + storage/OS render first; RAM is filled with concurrency 25 and a progress line. **✕ Cancel** aborts paging/RAM mid-walk (keeps partial data). Refresh / tenant switch also abandons in-flight work. |
+| **Hardware slim mode** | Settings → **Large tenants** → skip RAM backfill entirely (list still loads). |
+| **Assignments** | Nine policy endpoints load in parallel with **per-endpoint progress** in the status line; **✕ Cancel** stops the index. |
 | **Installed apps** | Slim `$select` + assignment id expand; progress while paging. Zero-install tile still pages the install-summary report. |
 | **Failed → by error** | Per-app install-status reports run with concurrency 8. |
 | **Overview** | Slim device `$select` only (no RAM fan-out). |
+| **Cache** | Sub-tab Graph results stay in memory until Refresh or tenant switch; tokens in `sessionStorage`; customers/API key/scale toggles in `localStorage`. In-app notes under Settings. |
 
-Expect multi-minute Hardware RAM backfill on fleets of several thousand devices; the table is usable before that finishes. Further cancel buttons / slim-mode toggles remain on the backlog (`tasks/todo.md`).
+Expect multi-minute Hardware RAM backfill on fleets of several thousand devices; the table is usable before that finishes. Use Cancel or slim mode when you only need storage/OS.
 
 ---
 
