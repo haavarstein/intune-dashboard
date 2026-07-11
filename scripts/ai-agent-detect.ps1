@@ -252,7 +252,24 @@ try {
         foreach ($w in $WingetPkgs) {
             foreach ($pkg in (Get-ChildItem (Join-Path $p.FullName 'AppData\Local\Microsoft\WinGet\Packages') -Directory -Filter "$($w.Prefix)_*" -ErrorAction SilentlyContinue)) {
                 $ver = Get-ExeVersion (Join-Path $pkg.FullName $w.Exe)
+                if (-not $ver -and $w.Exe) {
+                    # Portable packages often keep the download filename (e.g. grok-0.2.93-windows-x86_64.exe)
+                    $stem = [System.IO.Path]::GetFileNameWithoutExtension($w.Exe)
+                    $alt = Get-ChildItem $pkg.FullName -File -Filter "$stem*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($alt) { $ver = Get-ExeVersion $alt.FullName }
+                }
                 Add-Hit $w.Agent $w.Vendor $ver $user 'winget' 1 (Get-DaysAgo $pkg)
+            }
+        }
+        # WinGet command shims (portable packages expose e.g. Links\grok.exe)
+        $wingetLinks = Join-Path $p.FullName 'AppData\Local\Microsoft\WinGet\Links'
+        if (Test-Path $wingetLinks -ErrorAction SilentlyContinue) {
+            foreach ($w in $WingetPkgs) {
+                if (-not $w.Exe) { continue }
+                $link = Join-Path $wingetLinks $w.Exe
+                if (Test-Path $link -ErrorAction SilentlyContinue) {
+                    Add-Hit $w.Agent $w.Vendor (Get-ExeVersion $link) $user 'winget' 1 (Get-DaysAgo (Get-Item $link -ErrorAction SilentlyContinue))
+                }
             }
         }
         foreach ($d in $DesktopApps) {
@@ -346,7 +363,10 @@ try {
     }
     $sorted = $rows.ToArray()
     $originalCount = $sorted.Count
+    $nameSummary = ($found.Values | ForEach-Object { $_.Agent } | Sort-Object -Unique) -join ', '
+    if (-not $nameSummary) { $nameSummary = '(none)' }
     Write-ScanLog 'INFO' "Agents found: $originalCount unique (agent x user) across $profileCount profile(s)"
+    Write-ScanLog 'INFO' "Agent names: $nameSummary"
 
     $encoded = Compress-Payload (Build-Payload $sorted $originalCount)
     $initialEncodedLen = $encoded.Length
