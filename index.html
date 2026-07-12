@@ -6594,7 +6594,9 @@ async function gunzipB64(b64) {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream not supported in this browser');
   }
-  const binary = atob(b64);
+  // Graph / Intune sometimes insert whitespace or newlines in the base64 blob.
+  const clean = String(b64 || '').replace(/\s+/g, '');
+  const binary = atob(clean);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const ds = new DecompressionStream('gzip');
@@ -11693,21 +11695,27 @@ async function queryLocalAgents() {
   return { rows: [], source: null, checked };
 }
 
-// Fleet-scan fallback: the "THE Intune Dashboard - AI Agent Scan" Proactive
-// Remediation (scripts/ai-agent-detect.ps1) — agentless client-side discovery
-// until Microsoft's agent-discovery preview is on by default. Mirrors the
-// metering tab's plumbing: per-customer script ID with by-name self-heal,
-// deviceRunStates fan-out, gzip+base64 decode of the detection output.
+// Fleet-scan: the "THE Intune Dashboard - AI Agent Scan" Proactive Remediation
+// (scripts/ai-agent-detect.ps1). Always merged with Defender hunting so agents
+// Microsoft's catalog omits (e.g. Grok Build) still surface when the PR finds them.
+// Mirrors metering: per-customer script ID with by-name self-heal, deviceRunStates
+// fan-out, gzip+base64 decode of detection output.
 let aiagentsScanDevices = 0;
+let aiagentsScanDecodeFail = 0;
+let aiagentsScanLastRunMs = null;
+let aiagentsFleetOnlyCount = 0;
 
 function parseAiScanPayload(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
   if (lines.length < 2) throw new Error('payload too short');
   if (lines[0].split('|')[0] !== 'v1') throw new Error('unsupported version');
   const rows = [];
   for (let i = 2; i < lines.length; i++) {
-    const parts = lines[i].trim().split('|');
-    if (parts.length !== 6 || !parts[0]) continue;
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split('|');
+    // Tolerate trailing empty fields / extra pipe noise — need agent + daysAgo at least.
+    if (parts.length < 6 || !parts[0]) continue;
     const daysAgo = parseInt(parts[5], 10);
     rows.push({
       agent: parts[0], vendor: parts[1] || '', ver: parts[2] || '',
@@ -11718,21 +11726,45 @@ function parseAiScanPayload(text) {
   return { rows };
 }
 
-async function queryFleetScan(checked) {
-  aiagentsScanDevices = 0;
+function agentRowKey(r) {
+  return [(r.agentName || ''), (r.deviceName || ''), (r.userName || '')]
+    .map(s => s.toLowerCase()).join('\0');
+}
+
+// Primary (Defender) wins on key collision; secondary (fleet) adds catalog gaps.
+function mergeAgentRows(primary, secondary) {
+  const map = new Map();
+  for (const r of primary) map.set(agentRowKey(r), r);
+  let added = 0;
+  for (const r of secondary) {
+    const k = agentRowKey(r);
+    if (!map.has(k)) { map.set(k, r); added++; }
+  }
+  return { rows: [...map.values()], added };
+}
+
+async function resolveAiScanScriptId() {
   const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
   let scriptId = customer && customer.aiScanScriptId;
-  if (!scriptId && customer) {
-    try {
-      const filter = `displayName eq '${AI_SCAN_SCRIPT_NAME}'`;
-      const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
-      const hits = (found && found.value) || [];
-      if (hits.length === 1) {
-        scriptId = hits[0].id;
-        saveMeteringScriptIdToActiveCustomer(scriptId, 'aiScanScriptId');
-      }
-    } catch (_) { /* hunting-only viewers may lack the scripts scope */ }
-  }
+  if (scriptId) return scriptId;
+  try {
+    const filter = `displayName eq '${AI_SCAN_SCRIPT_NAME}'`;
+    const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
+    const hits = (found && found.value) || [];
+    if (hits.length === 1) {
+      scriptId = hits[0].id;
+      if (customer) saveMeteringScriptIdToActiveCustomer(scriptId, 'aiScanScriptId');
+      return scriptId;
+    }
+  } catch (_) { /* hunting-only viewers may lack the scripts scope */ }
+  return null;
+}
+
+async function queryFleetScan(checked) {
+  aiagentsScanDevices = 0;
+  aiagentsScanDecodeFail = 0;
+  aiagentsScanLastRunMs = null;
+  const scriptId = await resolveAiScanScriptId();
   if (!scriptId) {
     checked.push({ source: 'FleetScan', outcome: 'absent' });
     return null;
@@ -11741,10 +11773,17 @@ async function queryFleetScan(checked) {
     const runStates = await graphGetAll(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/deviceRunStates?$expand=managedDevice($select=id,deviceName)&$top=200`);
     const rows = [];
     const devices = new Set();
+    let decodeFail = 0;
     for (const rs of runStates) {
       const raw = (rs.preRemediationDetectionScriptOutput || '').trim();
       if (!raw || raw.startsWith('v1|error|')) continue;
       const deviceName = (rs.managedDevice && rs.managedDevice.deviceName) || '(unknown)';
+      if (rs.lastStateUpdateDateTime) {
+        const t = Date.parse(rs.lastStateUpdateDateTime);
+        if (!Number.isNaN(t) && (aiagentsScanLastRunMs == null || t > aiagentsScanLastRunMs)) {
+          aiagentsScanLastRunMs = t;
+        }
+      }
       try {
         const parsed = parseAiScanPayload(await gunzipB64(raw));
         if (parsed.rows.length) devices.add(deviceName);
@@ -11760,15 +11799,15 @@ async function queryFleetScan(checked) {
             detectedAtMs: r.daysAgo >= 0 ? Date.now() - r.daysAgo * 86400000 : null
           });
         }
-      } catch (_) { /* skip undecodable snapshots */ }
+      } catch (_) { decodeFail++; }
     }
     aiagentsScanDevices = devices.size;
+    aiagentsScanDecodeFail = decodeFail;
     checked.push({ source: 'FleetScan', outcome: rows.length });
+    if (decodeFail) checked.push({ source: 'FleetScanDecode', outcome: decodeFail });
     return { rows };
   } catch (e) {
     if (e.status === 404) {
-      // Script was deleted in Intune — clear the stale local ID so the
-      // empty-state deploy button offers a clean redeploy.
       clearMeteringScriptIdForActiveCustomer('aiScanScriptId');
       checked.push({ source: 'FleetScan', outcome: 'absent' });
       return null;
@@ -11781,34 +11820,42 @@ function aiagentsSourceNoticeHtml() {
   const labels = {
     AgentsInfo: 'AgentsInfo', AIAgentsInfo: 'AIAgentsInfo',
     ExposureGraph: 'Exposure graph (endpointAiAgent)', AdvancedHunting: 'Advanced hunting',
-    FleetScan: 'Fleet scan (Proactive Remediation)'
+    FleetScan: 'Fleet scan (Proactive Remediation)', FleetScanDecode: 'Fleet decode failures'
   };
+  const lastRun = aiagentsScanLastRunMs
+    ? ` Last fleet report: <strong>${esc(new Date(aiagentsScanLastRunMs).toLocaleString())}</strong>.`
+    : '';
   if (!aiagentsRows.length) {
     const detail = (aiagentsChecked || []).map(c => {
+      if (c.source === 'FleetScanDecode') return `<code>${esc(labels[c.source])}</code>: ${c.outcome}`;
       const outcome = c.outcome === 'absent'
-        ? (c.source === 'FleetScan' ? 'not deployed' : 'not present in tenant')
+        ? (c.source === 'FleetScan' ? 'not deployed / not found by name' : 'not present in tenant')
         : 'queryable, 0 rows';
       return `<code>${esc(labels[c.source] || c.source)}</code>: ${outcome}`;
     }).join(' · ');
     const scanDeployed = (aiagentsChecked || []).some(c => c.source === 'FleetScan' && c.outcome !== 'absent');
     const deployCta = scanDeployed
-      ? `The fleet scan is deployed but no device has reported a detection yet — devices run it on their daily schedule, so allow one check-in cycle (typically ≤ 24h) and ↻ Refresh.`
+      ? `The fleet scan is deployed but no device has reported a detection yet — devices run it on their daily schedule, so allow one check-in cycle (typically ≤ 24h) and ↻ Refresh.${lastRun}`
       : `<button class="btn" style="margin-top:4px;" onclick="openMeteringDeployModal('aiscan')">⚡ Deploy AI Agent Scan…</button> — an agentless Proactive Remediation (<code>scripts/ai-agent-detect.ps1</code>, same pattern as Software Metering) that hunts AI agents client-side until Microsoft enables Defender agent discovery by default. Devices report on their next daily run.`;
-    return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>${deployCta}<br><br><strong>Why the Defender sources are empty:</strong> agent discovery is a staged preview — it requires Defender for Endpoint P2, onboarded devices running Defender Antivirus in active mode, the agent on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a>, and currently ships through Defender's <strong>Beta platform/engine update channel</strong>. Ground truth lives in the Defender portal → <strong>Assets → AI Agents → Local agents</strong>; if agents show there but not here, that's a dashboard bug — tell us.</div>`;
+    return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>${deployCta}<br><br><strong>Why the Defender sources are empty:</strong> agent discovery is a staged preview — it requires Defender for Endpoint P2, onboarded devices running Defender Antivirus in active mode, the agent on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a>, and currently ships through Defender's <strong>Beta platform/engine update channel</strong>. Ground truth lives in the Defender portal → <strong>Assets → AI Agents → Local agents</strong>; if agents show there but not here, that's a dashboard bug — tell us. Agents not on Microsoft's list (e.g. <strong>Grok Build</strong>) only appear via fleet scan.</div>`;
+  }
+  if (aiagentsSource === 'Merged') {
+    return `<div class="notice-banner">Source: <strong>Defender + Fleet scan</strong> — hunting rows merged with the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'}; <strong>${aiagentsFleetOnlyCount}</strong> install${aiagentsFleetOnlyCount === 1 ? '' : 's'} only in fleet scan — typically agents Microsoft's catalog omits, e.g. Grok Build).${lastRun}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
   }
   if (aiagentsSource === 'FleetScan') {
-    return `<div class="notice-banner">Source: <strong>Fleet scan</strong> — the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'} reporting detections). The Defender hunting sources were empty, so this client-side scan fills the tab until Microsoft's agent-discovery preview reaches the tenant — once it does, the native source takes over automatically. "Detected" is the install-artifact creation date reported by the scan.</div>`;
+    return `<div class="notice-banner">Source: <strong>Fleet scan</strong> — the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'} reporting detections). Defender hunting was empty; this client-side scan fills the tab (and keeps agents Microsoft doesn't catalog, like <strong>Grok Build</strong>). "Detected" is the install-artifact creation date reported by the scan.${lastRun}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
   }
   if (aiagentsSource === 'ExposureGraph') {
-    return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable.</div>`;
+    return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable. Fleet scan was empty or not deployed — agents outside Microsoft's catalog will not appear until the scan reports.</div>`;
   }
-  return `<div class="notice-banner">Source: Defender XDR <code>${esc(aiagentsSource)}</code> table.${aiagentsSource === 'AIAgentsInfo' ? ' Heads-up: this table is retired on <strong>July 1, 2026</strong> in favour of <code>AgentsInfo</code>; the dashboard already tries the new name first on every load.' : ''}</div>`;
+  return `<div class="notice-banner">Source: Defender XDR <code>${esc(aiagentsSource)}</code> table.${aiagentsSource === 'AIAgentsInfo' ? ' Heads-up: this table is retired on <strong>July 1, 2026</strong> in favour of <code>AgentsInfo</code>; the dashboard already tries the new name first on every load.' : ''} Fleet scan was empty or not deployed — agents outside Microsoft's catalog (e.g. Grok) need the AI Agent Scan remediation.${lastRun}</div>`;
 }
 
 async function loadAiAgents(force = false) {
   if (aiagentsLoading) return;
   if (aiagentsLoaded && !force) return;
   aiagentsLoading = true;
+  aiagentsFleetOnlyCount = 0;
   $('aiagentsLoading').style.display = '';
   $('aiagentsContent').style.display = 'none';
   $('aiagentsError').innerHTML = '';
@@ -11823,12 +11870,27 @@ async function loadAiAgents(force = false) {
       }),
       graphPost('v1.0/security/runHuntingQuery', { Query: AIAGENTS_FLEET_KQL }).catch(() => null)
     ]);
-    let rows = agents.rows;
+    let rows = agents.rows || [];
     let source = agents.source;
     const checked = agents.checked || [];
-    if (!rows.length) {
-      const scan = await queryFleetScan(checked);
-      if (scan && scan.rows.length) { rows = scan.rows; source = 'FleetScan'; }
+    // Always pull fleet scan — do not skip when hunting has rows. Grok Build and
+    // other non-catalog agents only exist on this path.
+    const scan = await queryFleetScan(checked).catch(e => {
+      if (e && e.status === 403) throw e;
+      console.warn('Fleet scan failed', e);
+      checked.push({ source: 'FleetScan', outcome: 'absent' });
+      return null;
+    });
+    if (scan && scan.rows.length) {
+      if (!rows.length) {
+        rows = scan.rows;
+        source = 'FleetScan';
+      } else {
+        const merged = mergeAgentRows(rows, scan.rows);
+        rows = merged.rows;
+        aiagentsFleetOnlyCount = merged.added;
+        source = merged.added ? 'Merged' : source;
+      }
     }
     aiagentsRows = rows;
     aiagentsSource = source;
@@ -11836,6 +11898,8 @@ async function loadAiAgents(force = false) {
     const fleetRows = fleetJson && Array.isArray(fleetJson.results) ? fleetJson.results : [];
     aiagentsFleetTotal = fleetRows.length ? (Number(fleetRows[0].Total) || null) : null;
     aiagentsLoaded = true;
+    const names = [...new Set(rows.map(r => r.agentName).filter(Boolean))].sort();
+    console.log(`[AI agents] source=${source} rows=${rows.length} fleetDevices=${aiagentsScanDevices} fleetOnly=${aiagentsFleetOnlyCount} decodeFail=${aiagentsScanDecodeFail} names=`, names);
     $('aiagentsLoading').style.display = 'none';
     $('aiagentsContent').style.display = '';
     $('aiagentsNotice').innerHTML = aiagentsSourceNoticeHtml();
