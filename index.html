@@ -11704,6 +11704,9 @@ let aiagentsScanDevices = 0;
 let aiagentsScanDecodeFail = 0;
 let aiagentsScanLastRunMs = null;
 let aiagentsFleetOnlyCount = 0;
+let aiagentsScanScriptId = null;
+let aiagentsScanStale = false;
+const AI_SCAN_STALE_MS = 2 * 86400000; // warn / re-pick when last Graph report older than this
 
 function parseAiScanPayload(text) {
   const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
@@ -11743,32 +11746,130 @@ function mergeAgentRows(primary, secondary) {
   return { rows: [...map.values()], added };
 }
 
+async function listAiScanScriptsByName() {
+  try {
+    const filter = `displayName eq '${AI_SCAN_SCRIPT_NAME.replace(/'/g, "''")}'`;
+    const found = await graphGet(
+      `beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName,lastModifiedDateTime`
+    );
+    return (found && found.value) || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+// Newest lastStateUpdate across a script's deviceRunStates (first pages only — enough to rank).
+async function peekAiScanLastRunMs(scriptId) {
+  try {
+    const data = await graphGet(
+      `beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/deviceRunStates?$select=lastStateUpdateDateTime&$top=100`
+    );
+    let best = 0;
+    for (const s of (data.value || [])) {
+      const t = Date.parse(s.lastStateUpdateDateTime);
+      if (!Number.isNaN(t) && t > best) best = t;
+    }
+    return best || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Pick the live AI Agent Scan remediation. Never trust a stored GUID alone —
+// redeploys mint a new id while localStorage keeps the old one, which freezes
+// "Last fleet report" on the abandoned script (e.g. stuck on July 8 while the
+// device log shows July 10+ runs against the new policy).
 async function resolveAiScanScriptId() {
   const customer = loadCustomers().find(c => c.code === getActiveCustomerCode());
-  let scriptId = customer && customer.aiScanScriptId;
-  if (scriptId) return scriptId;
+  const stored = customer && customer.aiScanScriptId;
+  const byName = await listAiScanScriptsByName();
+
+  const candidates = [];
+  const seen = new Set();
+  for (const h of byName) {
+    if (h.id && !seen.has(h.id)) { seen.add(h.id); candidates.push(h); }
+  }
+  if (stored && !seen.has(stored)) {
+    candidates.push({ id: stored, lastModifiedDateTime: null, _storedOnly: true });
+  }
+  if (!candidates.length) return null;
+  if (candidates.length === 1) {
+    const id = candidates[0].id;
+    if (customer && id !== stored) saveMeteringScriptIdToActiveCustomer(id, 'aiScanScriptId');
+    return id;
+  }
+
+  let best = null; // { id, score }
+  for (const c of candidates) {
+    const lastRun = await peekAiScanLastRunMs(c.id);
+    const lastMod = c.lastModifiedDateTime ? Date.parse(c.lastModifiedDateTime) : 0;
+    // Prefer freshest device report; break ties with Intune lastModified.
+    const score = (lastRun || 0) * 2 + (Number.isNaN(lastMod) ? 0 : lastMod);
+    if (!best || score > best.score) best = { id: c.id, score, lastRun };
+  }
+  const id = best.id;
+  if (customer && id !== stored) {
+    saveMeteringScriptIdToActiveCustomer(id, 'aiScanScriptId');
+    console.log(`[AI agents] Re-linked fleet scan script ${stored || '(none)'} → ${id} (fresher deviceRunStates)`);
+  }
+  return id;
+}
+
+function relinkAiScanScript() {
+  clearMeteringScriptIdForActiveCustomer('aiScanScriptId');
+  aiagentsLoaded = false;
+  loadAiAgents(true);
+}
+
+// Push scripts/ai-agent-detect.ps1 into the tenant remediation in place (PATCH).
+// Needed after catalog edits (Grok, agent-name logging) — redeploy alone is easy to skip.
+async function pushAiScanScriptContent() {
   try {
-    const filter = `displayName eq '${AI_SCAN_SCRIPT_NAME}'`;
-    const found = await graphGet(`beta/deviceManagement/deviceHealthScripts?$filter=${encodeURIComponent(filter)}&$select=id,displayName`);
-    const hits = (found && found.value) || [];
-    if (hits.length === 1) {
-      scriptId = hits[0].id;
-      if (customer) saveMeteringScriptIdToActiveCustomer(scriptId, 'aiScanScriptId');
-      return scriptId;
-    }
-  } catch (_) { /* hunting-only viewers may lack the scripts scope */ }
-  return null;
+    const writeToken = await ensureMeteringWriteConsent();
+    const res = await fetch('scripts/ai-agent-detect.ps1');
+    if (!res.ok) throw new Error(`Could not fetch scripts/ai-agent-detect.ps1 (${res.status}). Serve over http:// or use GitHub Pages.`);
+    const text = await res.text();
+    const enc = new TextEncoder().encode(text);
+    let binary = '';
+    for (let i = 0; i < enc.length; i++) binary += String.fromCharCode(enc[i]);
+    const b64 = btoa(binary);
+    let scriptId = aiagentsScanScriptId || await resolveAiScanScriptId();
+    if (!scriptId) throw new Error('No AI Agent Scan remediation found in this tenant. Deploy it first.');
+    const body = {
+      displayName: AI_SCAN_SCRIPT_NAME,
+      description: AI_SCAN_DESCRIPTION,
+      detectionScriptContent: b64,
+      // detection-only — keep remediation empty
+      runAsAccount: 'system',
+      runAs32Bit: false,
+      enforceSignatureCheck: false
+    };
+    await imeWrite(h => graphPatch(
+      `beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}`,
+      body,
+      { headers: h, token: writeToken }
+    ));
+    $('aiagentsNotice').innerHTML =
+      `<div class="notice-banner">✓ Pushed latest <code>ai-agent-detect.ps1</code> to Intune script <code>${esc(scriptId)}</code>. Devices pick it up on the next daily run (or force a sync). Then ↻ Refresh this tab.</div>`;
+    imeToast('AI Agent Scan script updated in Intune.', 'ok');
+  } catch (e) {
+    $('aiagentsError').innerHTML =
+      `<div class="error-banner">Push script failed: ${esc(e.message || String(e))}</div>`;
+  }
 }
 
 async function queryFleetScan(checked) {
   aiagentsScanDevices = 0;
   aiagentsScanDecodeFail = 0;
   aiagentsScanLastRunMs = null;
+  aiagentsScanScriptId = null;
+  aiagentsScanStale = false;
   const scriptId = await resolveAiScanScriptId();
   if (!scriptId) {
     checked.push({ source: 'FleetScan', outcome: 'absent' });
     return null;
   }
+  aiagentsScanScriptId = scriptId;
   try {
     const runStates = await graphGetAll(`beta/deviceManagement/deviceHealthScripts/${encodeURIComponent(scriptId)}/deviceRunStates?$expand=managedDevice($select=id,deviceName)&$top=200`);
     const rows = [];
@@ -11803,6 +11904,9 @@ async function queryFleetScan(checked) {
     }
     aiagentsScanDevices = devices.size;
     aiagentsScanDecodeFail = decodeFail;
+    if (aiagentsScanLastRunMs != null && (Date.now() - aiagentsScanLastRunMs) > AI_SCAN_STALE_MS) {
+      aiagentsScanStale = true;
+    }
     checked.push({ source: 'FleetScan', outcome: rows.length });
     if (decodeFail) checked.push({ source: 'FleetScanDecode', outcome: decodeFail });
     return { rows };
@@ -11825,6 +11929,16 @@ function aiagentsSourceNoticeHtml() {
   const lastRun = aiagentsScanLastRunMs
     ? ` Last fleet report: <strong>${esc(new Date(aiagentsScanLastRunMs).toLocaleString())}</strong>.`
     : '';
+  const scriptMeta = aiagentsScanScriptId
+    ? ` Script id: <code style="font-size:11px;">${esc(aiagentsScanScriptId)}</code>.`
+    : '';
+  const staleWarn = aiagentsScanStale
+    ? ` <strong style="color:var(--danger);">Stale:</strong> Graph has not received a device report in over 2 days — the dashboard may be linked to an old remediation, or devices are not uploading output. `
+      + `<button class="btn" style="margin:4px 6px 0 0; padding:4px 10px; font-size:12px;" onclick="relinkAiScanScript()">↻ Re-link script</button>`
+      + `<button class="btn" style="margin:4px 0 0; padding:4px 10px; font-size:12px;" onclick="pushAiScanScriptContent()">⬆ Push latest .ps1</button>`
+    : (aiagentsScanScriptId
+      ? ` <button class="btn" style="margin:4px 0 0; padding:4px 10px; font-size:12px;" onclick="pushAiScanScriptContent()">⬆ Push latest .ps1 to Intune</button>`
+      : '');
   if (!aiagentsRows.length) {
     const detail = (aiagentsChecked || []).map(c => {
       if (c.source === 'FleetScanDecode') return `<code>${esc(labels[c.source])}</code>: ${c.outcome}`;
@@ -11835,20 +11949,20 @@ function aiagentsSourceNoticeHtml() {
     }).join(' · ');
     const scanDeployed = (aiagentsChecked || []).some(c => c.source === 'FleetScan' && c.outcome !== 'absent');
     const deployCta = scanDeployed
-      ? `The fleet scan is deployed but no device has reported a detection yet — devices run it on their daily schedule, so allow one check-in cycle (typically ≤ 24h) and ↻ Refresh.${lastRun}`
+      ? `The fleet scan is deployed but no device has reported a detection yet — devices run it on their daily schedule, so allow one check-in cycle (typically ≤ 24h) and ↻ Refresh.${lastRun}${scriptMeta}${staleWarn}`
       : `<button class="btn" style="margin-top:4px;" onclick="openMeteringDeployModal('aiscan')">⚡ Deploy AI Agent Scan…</button> — an agentless Proactive Remediation (<code>scripts/ai-agent-detect.ps1</code>, same pattern as Software Metering) that hunts AI agents client-side until Microsoft enables Defender agent discovery by default. Devices report on their next daily run.`;
     return `<div class="notice-banner"><strong>No local AI agents discovered yet.</strong><br>Source check — ${detail}.<br>${deployCta}<br><br><strong>Why the Defender sources are empty:</strong> agent discovery is a staged preview — it requires Defender for Endpoint P2, onboarded devices running Defender Antivirus in active mode, the agent on <a href="https://learn.microsoft.com/en-us/defender-endpoint/local-agent-discovery-overview" target="_blank" rel="noopener noreferrer">Microsoft's supported-agent list</a>, and currently ships through Defender's <strong>Beta platform/engine update channel</strong>. Ground truth lives in the Defender portal → <strong>Assets → AI Agents → Local agents</strong>; if agents show there but not here, that's a dashboard bug — tell us. Agents not on Microsoft's list (e.g. <strong>Grok Build</strong>) only appear via fleet scan.</div>`;
   }
   if (aiagentsSource === 'Merged') {
-    return `<div class="notice-banner">Source: <strong>Defender + Fleet scan</strong> — hunting rows merged with the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'}; <strong>${aiagentsFleetOnlyCount}</strong> install${aiagentsFleetOnlyCount === 1 ? '' : 's'} only in fleet scan — typically agents Microsoft's catalog omits, e.g. Grok Build).${lastRun}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
+    return `<div class="notice-banner">Source: <strong>Defender + Fleet scan</strong> — hunting rows merged with the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'}; <strong>${aiagentsFleetOnlyCount}</strong> install${aiagentsFleetOnlyCount === 1 ? '' : 's'} only in fleet scan — typically agents Microsoft's catalog omits, e.g. Grok Build).${lastRun}${scriptMeta}${staleWarn}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
   }
   if (aiagentsSource === 'FleetScan') {
-    return `<div class="notice-banner">Source: <strong>Fleet scan</strong> — the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'} reporting detections). Defender hunting was empty; this client-side scan fills the tab (and keeps agents Microsoft doesn't catalog, like <strong>Grok Build</strong>). "Detected" is the install-artifact creation date reported by the scan.${lastRun}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
+    return `<div class="notice-banner">Source: <strong>Fleet scan</strong> — the <code>${esc(AI_SCAN_SCRIPT_NAME)}</code> Proactive Remediation (${aiagentsScanDevices} device${aiagentsScanDevices === 1 ? '' : 's'} reporting detections). Defender hunting was empty; this client-side scan fills the tab (and keeps agents Microsoft doesn't catalog, like <strong>Grok Build</strong>). "Detected" is the install-artifact creation date reported by the scan.${lastRun}${scriptMeta}${staleWarn}${aiagentsScanDecodeFail ? ` <span style="color:var(--danger);">${aiagentsScanDecodeFail} device snapshot(s) failed to decode.</span>` : ''}</div>`;
   }
   if (aiagentsSource === 'ExposureGraph') {
-    return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable. Fleet scan was empty or not deployed — agents outside Microsoft's catalog will not appear until the scan reports.</div>`;
+    return `<div class="notice-banner">Source: exposure graph (<code>ExposureGraphEdges</code> · <code>endpointAiAgent</code> nodes) — Microsoft's documented home for endpoint agent discovery. This source carries agent + device only, so Vendor / OS / User / Detected show "—" and the <strong>New (7 days)</strong> tile is unavailable. Fleet scan was empty or not deployed — agents outside Microsoft's catalog will not appear until the scan reports.${scriptMeta}${staleWarn}</div>`;
   }
-  return `<div class="notice-banner">Source: Defender XDR <code>${esc(aiagentsSource)}</code> table.${aiagentsSource === 'AIAgentsInfo' ? ' Heads-up: this table is retired on <strong>July 1, 2026</strong> in favour of <code>AgentsInfo</code>; the dashboard already tries the new name first on every load.' : ''} Fleet scan was empty or not deployed — agents outside Microsoft's catalog (e.g. Grok) need the AI Agent Scan remediation.${lastRun}</div>`;
+  return `<div class="notice-banner">Source: Defender XDR <code>${esc(aiagentsSource)}</code> table.${aiagentsSource === 'AIAgentsInfo' ? ' Heads-up: this table is retired on <strong>July 1, 2026</strong> in favour of <code>AgentsInfo</code>; the dashboard already tries the new name first on every load.' : ''} Fleet scan was empty or not deployed — agents outside Microsoft's catalog (e.g. Grok) need the AI Agent Scan remediation.${lastRun}${scriptMeta}${staleWarn}</div>`;
 }
 
 async function loadAiAgents(force = false) {
