@@ -207,6 +207,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <div class="signin-feat"><div class="signin-feat-name">Stale users</div><div class="signin-feat-desc">Dormant accounts</div></div>
             <div class="signin-feat"><div class="signin-feat-name">Vulnerabilities</div><div class="signin-feat-desc">CVE exposure</div></div>
             <div class="signin-feat"><div class="signin-feat-name">AI agents</div><div class="signin-feat-desc">Endpoint discovery</div></div>
+            <div class="signin-feat"><div class="signin-feat-name">Posture</div><div class="signin-feat-desc">Compliance &amp; CA audit</div></div>
             <div class="signin-feat"><div class="signin-feat-name">Metering</div><div class="signin-feat-desc">Real software usage</div></div>
           </div>
           <div class="signin-trust">
@@ -270,6 +271,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
         <button class="subtab" data-subtab="certhealth">Management Health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
+        <button class="subtab" data-subtab="posture">Posture</button>
         <button class="subtab" data-subtab="vulnerabilities">Vulnerabilities (P2/E5)</button>
         <button class="subtab" data-subtab="drift">Drift &amp; Compliance (P2/E5)</button>
         <button class="subtab" data-subtab="softdeleted">Soft-Deleted</button>
@@ -1337,6 +1339,76 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubAssignments -->
+
+      <div id="intuneSubPosture" style="display:none;">
+        <div class="tab-hint">MSP customer-review of compliance + Conditional Access posture — the unsafe defaults and assignment patterns auditors flag. Compliance uses existing Intune scopes. Conditional Access needs optional <code>Policy.Read.All</code> (grant only when you want the CA section).</div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnPostureRefresh">↻ Refresh</span>
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnPostureExportComp">⬇ Export Compliance CSV</span>
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnPostureExportCa">⬇ Export CA CSV</span>
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnPostureClearKpi" title="Clear tile selection">✕ Clear KPI</span>
+        </div>
+        <div id="postureLoading" style="color:var(--muted); font-size:13px; padding:12px; display:none;">Loading posture…</div>
+        <div id="postureError"></div>
+
+        <section id="postureComplianceSection" style="margin-bottom:28px;">
+          <h2 style="margin:0 0 12px; font-size:18px;">Compliance</h2>
+          <div class="tiles" style="grid-template-columns:repeat(4,1fr);">
+            <div class="tile tile-bad" data-posture-tile="unsafeDefault" style="cursor:pointer;" title="Tenant marks devices with no compliance policy as compliant (secureByDefault = false)">
+              <div class="tile-label">Unsafe default</div>
+              <div class="tile-value" id="pTileUnsafe">—</div>
+              <div class="tile-sub">no policy = compliant</div>
+            </div>
+            <div class="tile tile-warn" data-posture-tile="noGrace" style="cursor:pointer;" title="Compliance policies with gracePeriodHours = 0">
+              <div class="tile-label">No grace period</div>
+              <div class="tile-value" id="pTileNoGrace">—</div>
+              <div class="tile-sub">gracePeriodHours = 0</div>
+            </div>
+            <div class="tile tile-watch" data-posture-tile="deviceTargeted" style="cursor:pointer;" title="Compliance policies assigned to device groups or all devices">
+              <div class="tile-label">Device-targeted</div>
+              <div class="tile-value" id="pTileDevice">—</div>
+              <div class="tile-sub">device groups / all devices</div>
+            </div>
+            <div class="tile tile-watch" data-posture-tile="noPlatformSplit" style="cursor:pointer;" title="Assigned compliance policies that are multi-platform or the tenant covers only one platform">
+              <div class="tile-label">No platform split</div>
+              <div class="tile-value" id="pTilePlatform">—</div>
+              <div class="tile-sub">cross-platform / single platform</div>
+            </div>
+          </div>
+          <div id="postureCompDetail" style="display:none; margin-top:16px;"></div>
+        </section>
+
+        <section id="postureCaSection">
+          <h2 style="margin:0 0 12px; font-size:18px;">Conditional Access</h2>
+          <div id="postureCaNeedScope" style="display:none;" class="notice-banner">
+            <strong>Grant <code>Policy.Read.All</code> to audit CA posture.</strong>
+            Compliance above still works without it. This scope is optional and requested only when you click Grant.
+            <div style="margin-top:10px;">
+              <button class="btn" id="btnPostureGrantCa">Grant Policy.Read.All</button>
+            </div>
+          </div>
+          <div id="postureCaBody" style="display:none;">
+            <div class="tiles" style="grid-template-columns:repeat(3,1fr);">
+              <div class="tile tile-warn" data-posture-tile="reportOnlyStale" style="cursor:pointer;" title="CA policies in report-only for more than 30 days">
+                <div class="tile-label">Report-only stale</div>
+                <div class="tile-value" id="pTileReportOnly">—</div>
+                <div class="tile-sub">&gt; 30 days report-only</div>
+              </div>
+              <div class="tile tile-bad" data-posture-tile="compliantGap" style="cursor:pointer;" title="Enabled CA grant policies that do not require compliant or hybrid-joined device">
+                <div class="tile-label">Compliant-device gap</div>
+                <div class="tile-value" id="pTileCompliantGap">—</div>
+                <div class="tile-sub">no compliantDevice / domainJoined</div>
+              </div>
+              <div class="tile tile-bad" data-posture-tile="legacyAuth" style="cursor:pointer;" title="No enabled CA policy blocking legacy authentication (exchangeActiveSync + other)">
+                <div class="tile-label">Legacy auth not blocked</div>
+                <div class="tile-value" id="pTileLegacy">—</div>
+                <div class="tile-sub">EAS + other client apps</div>
+              </div>
+            </div>
+            <div id="postureCaDetail" style="display:none; margin-top:16px;"></div>
+          </div>
+        </section>
+      </div><!-- /intuneSubPosture -->
 
       <div id="intuneSubDrift" style="display:none;">
         <div class="tab-hint">Fleet-wide software version drift via Defender. Catches cross-product-family drift (.NET 8 vs 9, Snagit major versions) Intune's reports can't see. Requires Defender for Endpoint P2 or M365 E5, and the Security Administrator role.</div>
@@ -3040,6 +3112,9 @@ function resetTenantState() {
   assignmentsPoliciesLoaded = false;
   assignmentsRaw = { apps: [], configs: [], compliance: [], healthScripts: [], settingsCatalog: [], psScripts: [], updateProfiles: [] };
   assignmentsSelectedGroup = null;
+  // Posture
+  postureLoaded = false; postureLoading = false; postureTileFilter = null;
+  postureComp = null; postureCa = null; postureCaGranted = null;
   // Approvals
   approvalsLoaded = false; approvalsRaw = [];
   const _ab = $('approvalsBadge'); if (_ab) _ab.style.display = 'none';
@@ -5145,6 +5220,7 @@ const SUBTAB_CFG = {
   bitlocker:       { panel: 'intuneSubBitlocker',       load: () => !bitlockerLoaded && loadBitlocker() },
   certhealth:      { panel: 'intuneSubCerthealth',      load: () => !certhealthLoaded && loadCerthealth() },
   assignments:     { panel: 'intuneSubAssignments',     load: () => !assignmentsPoliciesLoaded && loadAssignmentsPolicies() },
+  posture:         { panel: 'intuneSubPosture',         load: () => !postureLoaded && loadPosture() },
   vulnerabilities: { panel: 'intuneSubVulnerabilities', load: () => !vulnLoaded && loadVulnerabilities() },
   drift:           { panel: 'intuneSubDrift',           load: () => !driftLoaded && loadDriftData() },
   softdeleted:     { panel: 'intuneSubSoftdeleted',     load: () => !softdeletedLoaded && loadSoftdeleted() },
@@ -10991,6 +11067,584 @@ document.querySelectorAll('[data-hygiene-tile]').forEach(tile => {
   tile.addEventListener('click', () => {
     if (!hygieneComputed) return;
     renderHygieneDetail(tile.dataset.hygieneTile);
+  });
+});
+
+// ============================================================
+// Posture sub-tab — compliance + Conditional Access audit for
+// MSP customer reviews. Compliance uses existing configuration
+// scopes. Policy.Read.All is optional (JIT) for the CA section.
+// ============================================================
+let postureLoaded = false;
+let postureLoading = false;
+let postureTileFilter = null; // null | tile key
+let postureComp = null;       // computed compliance result
+let postureCa = null;         // computed CA result (null if not loaded)
+let postureCaGranted = null;  // null unknown | true | false
+
+const POSTURE_CA_STALE_DAYS = 30;
+const POLICY_READ_ALL = 'Policy.Read.All';
+
+const COMPLIANCE_BLADE = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/compliance';
+const CA_BLADE = 'https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/ConditionalAccessBlade/~/Policies';
+const COMPLIANCE_SETTINGS_BLADE = 'https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/DevicesMenu/~/compliancePolicies';
+
+async function hasPolicyReadAll() {
+  if (!msalApp || !msalApp.getActiveAccount()) return false;
+  try {
+    const r = await msalApp.acquireTokenSilent({
+      scopes: [POLICY_READ_ALL],
+      account: msalApp.getActiveAccount()
+    });
+    return (r.scopes || []).some(s => s.toLowerCase() === POLICY_READ_ALL.toLowerCase());
+  } catch (_) {
+    return false;
+  }
+}
+
+function compliancePolicyPlatform(p) {
+  const t = (p['@odata.type'] || '').toLowerCase();
+  if (t.includes('windows')) return 'Windows';
+  if (t.includes('android')) return 'Android';
+  if (t.includes('ios') || t.includes('ipad')) return 'iOS';
+  if (t.includes('mac')) return 'macOS';
+  if (t.includes('linux')) return 'Linux';
+  if (t.includes('aosp')) return 'Android (AOSP)';
+  return 'Other';
+}
+
+function compliancePolicyMinGraceHours(p) {
+  let min = null;
+  for (const rule of (p.scheduledActionsForRule || [])) {
+    for (const cfg of (rule.scheduledActionConfigurations || [])) {
+      const h = cfg.gracePeriodHours;
+      if (typeof h === 'number' && !Number.isNaN(h)) {
+        if (min == null || h < min) min = h;
+      }
+    }
+  }
+  return min;
+}
+
+function isDeviceAssignmentTarget(target, groupMeta) {
+  if (!target) return false;
+  const t = (target['@odata.type'] || '').toLowerCase();
+  if (t.includes('alldevices')) return true;
+  if (t.includes('alllicensedusers') || t.includes('allusers')) return false;
+  if (t.includes('exclusion')) {
+    // still count exclusion of device groups as device-targeted pattern
+  }
+  const gid = target.groupId;
+  if (!gid) return false;
+  const g = groupMeta.get(gid);
+  if (!g) return false;
+  // Dynamic device groups typically use membershipRule expressions on device.
+  if (g.membershipRule && /device\./i.test(g.membershipRule)) return true;
+  return false;
+}
+
+async function loadPostureCompliance() {
+  let secureByDefault = null;
+  try {
+    const settings = await graphGet('beta/deviceManagement/settings');
+    if (settings && typeof settings.secureByDefault === 'boolean') {
+      secureByDefault = settings.secureByDefault;
+    }
+  } catch (e) {
+    console.warn('Posture: deviceManagement/settings failed', e);
+    try {
+      const dm = await graphGet('beta/deviceManagement');
+      if (dm && typeof dm.secureByDefault === 'boolean') secureByDefault = dm.secureByDefault;
+    } catch (e2) {
+      console.warn('Posture: deviceManagement singleton failed', e2);
+    }
+  }
+
+  let policies = [];
+  try {
+    policies = await graphGetAll(
+      'beta/deviceManagement/deviceCompliancePolicies?$expand=assignments,scheduledActionsForRule'
+    );
+  } catch (e) {
+    // Some tenants reject the dual expand — fall back to assignments only.
+    console.warn('Posture: expand scheduledActionsForRule failed, retrying without', e);
+    policies = await graphGetAll(
+      'beta/deviceManagement/deviceCompliancePolicies?$expand=assignments'
+    );
+  }
+
+  const groupIds = new Set();
+  for (const p of policies) {
+    for (const a of (p.assignments || [])) {
+      const gid = a.target && a.target.groupId;
+      if (gid) groupIds.add(gid);
+    }
+  }
+  const groupMeta = new Map();
+  await mapPool([...groupIds], 10, async (id) => {
+    try {
+      const g = await graphGet(
+        `v1.0/groups/${encodeURIComponent(id)}?$select=id,displayName,membershipRule,groupTypes`
+      );
+      groupMeta.set(id, g);
+    } catch (_) {
+      groupMeta.set(id, { id, displayName: id });
+    }
+  });
+
+  const unsafeDefault = secureByDefault === false;
+  const noGrace = [];
+  const deviceTargeted = [];
+  const platformBuckets = new Map(); // platform → count of assigned policies
+
+  for (const p of policies) {
+    const name = p.displayName || '(unnamed)';
+    const plat = compliancePolicyPlatform(p);
+    const assigned = (p.assignments || []).length > 0;
+    if (assigned) {
+      platformBuckets.set(plat, (platformBuckets.get(plat) || 0) + 1);
+    }
+
+    const minGrace = compliancePolicyMinGraceHours(p);
+    if (minGrace === 0) {
+      noGrace.push({
+        id: p.id, name, platform: plat, gracePeriodHours: 0,
+        lastModified: p.lastModifiedDateTime || ''
+      });
+    }
+
+    let deviceHit = false;
+    const targetLabels = [];
+    for (const a of (p.assignments || [])) {
+      const t = a.target || {};
+      if (isDeviceAssignmentTarget(t, groupMeta)) {
+        deviceHit = true;
+        const ttype = (t['@odata.type'] || '').toLowerCase();
+        if (ttype.includes('alldevices')) targetLabels.push('All devices');
+        else if (t.groupId) {
+          const g = groupMeta.get(t.groupId);
+          targetLabels.push(g && g.displayName ? g.displayName : t.groupId);
+        }
+      }
+    }
+    if (deviceHit) {
+      deviceTargeted.push({
+        id: p.id, name, platform: plat,
+        targets: targetLabels.join('; ') || 'device group',
+        lastModified: p.lastModifiedDateTime || ''
+      });
+    }
+  }
+
+  // "No platform split": assigned policies on only one platform while ≥1 assigned,
+  // plus any policy typed as Other (non platform-specific).
+  const assignedPlatforms = [...platformBuckets.keys()].filter(k => k !== 'Other' && (platformBuckets.get(k) || 0) > 0);
+  const noPlatformSplit = [];
+  if (assignedPlatforms.length === 1) {
+    const only = assignedPlatforms[0];
+    for (const p of policies) {
+      if (!(p.assignments || []).length) continue;
+      if (compliancePolicyPlatform(p) === only) {
+        noPlatformSplit.push({
+          id: p.id,
+          name: p.displayName || '(unnamed)',
+          platform: only,
+          reason: `Only platform with assigned compliance policies: ${only}`,
+          lastModified: p.lastModifiedDateTime || ''
+        });
+      }
+    }
+  }
+  for (const p of policies) {
+    if (!(p.assignments || []).length) continue;
+    if (compliancePolicyPlatform(p) === 'Other') {
+      noPlatformSplit.push({
+        id: p.id,
+        name: p.displayName || '(unnamed)',
+        platform: 'Other',
+        reason: 'Non-platform-specific compliance policy type',
+        lastModified: p.lastModifiedDateTime || ''
+      });
+    }
+  }
+
+  return {
+    secureByDefault,
+    unsafeDefault,
+    unsafeItems: unsafeDefault
+      ? [{ name: 'Tenant compliance setting', detail: 'Devices with no compliance policy are marked Compliant (secureByDefault = false)', blade: COMPLIANCE_SETTINGS_BLADE }]
+      : (secureByDefault === true
+        ? []
+        : [{ name: 'Could not read secureByDefault', detail: 'Graph did not return deviceManagement settings — check DeviceManagementConfiguration.Read.All', blade: COMPLIANCE_SETTINGS_BLADE }]),
+    noGrace,
+    deviceTargeted,
+    noPlatformSplit,
+    policyCount: policies.length,
+    platformsCovered: assignedPlatforms
+  };
+}
+
+function caPolicyRequiresDevice(p) {
+  const controls = (p.grantControls && p.grantControls.builtInControls) || [];
+  return controls.some(c => {
+    const s = String(c).toLowerCase();
+    return s === 'compliantdevice' || s === 'domainjoineddevice';
+  });
+}
+
+function caBlocksLegacyAuth(p) {
+  if ((p.state || '') !== 'enabled') return false;
+  const norm = ((p.conditions && p.conditions.clientAppTypes) || []).map(a => String(a).toLowerCase());
+  // Microsoft's "Block legacy authentication" template uses EAS + other.
+  // Also accept clientAppTypes all / empty (all clients) with a Block grant.
+  const explicitLegacy = norm.includes('exchangeactivesync') && norm.includes('other');
+  const allClients = !norm.length || norm.includes('all');
+  if (!explicitLegacy && !allClients) return false;
+  const builtIn = ((p.grantControls && p.grantControls.builtInControls) || []).map(c => String(c).toLowerCase());
+  return builtIn.includes('block');
+}
+
+async function loadPostureCa() {
+  const token = await ensureScopeToken(POLICY_READ_ALL);
+  const policies = await graphGetAll('v1.0/identity/conditionalAccess/policies', { token });
+  const now = Date.now();
+  const staleMs = POSTURE_CA_STALE_DAYS * 86400000;
+
+  const reportOnlyStale = [];
+  const compliantGap = [];
+  let legacyBlocked = false;
+  const legacyBlockers = [];
+
+  for (const p of policies) {
+    const name = p.displayName || '(unnamed)';
+    const state = p.state || '';
+    const modified = p.modifiedDateTime || p.createdDateTime || '';
+    const modMs = modified ? Date.parse(modified) : NaN;
+
+    if (state === 'enabledForReportingButNotEnforced') {
+      if (!Number.isNaN(modMs) && (now - modMs) > staleMs) {
+        reportOnlyStale.push({
+          id: p.id, name, state, modified,
+          ageDays: Math.floor((now - modMs) / 86400000)
+        });
+      }
+    }
+
+    if (state === 'enabled') {
+      const grant = p.grantControls;
+      const builtIn = (grant && grant.builtInControls) || [];
+      // Only flag grant policies that allow access (not pure block)
+      const isBlockOnly = builtIn.length === 1 && String(builtIn[0]).toLowerCase() === 'block';
+      if (grant && !isBlockOnly && !caPolicyRequiresDevice(p)) {
+        compliantGap.push({
+          id: p.id, name, state,
+          grants: builtIn.join(', ') || '—',
+          modified
+        });
+      }
+    }
+
+    if (caBlocksLegacyAuth(p)) {
+      legacyBlocked = true;
+      legacyBlockers.push({ id: p.id, name, state, modified });
+    }
+  }
+
+  return {
+    reportOnlyStale,
+    compliantGap,
+    legacyAuthNotBlocked: !legacyBlocked,
+    legacyBlockers,
+    policyCount: policies.length
+  };
+}
+
+function syncPostureTileUi() {
+  document.querySelectorAll('#intuneSubPosture [data-posture-tile]').forEach(tile => {
+    const key = tile.dataset.postureTile;
+    tile.classList.toggle('active', postureTileFilter === key);
+  });
+  $('btnPostureClearKpi').style.display = postureTileFilter ? '' : 'none';
+}
+
+function renderPostureTiles() {
+  if (postureComp) {
+    $('pTileUnsafe').textContent = postureComp.secureByDefault === null
+      ? '?'
+      : (postureComp.unsafeDefault ? '1' : '0');
+    $('pTileNoGrace').textContent = postureComp.noGrace.length;
+    $('pTileDevice').textContent = postureComp.deviceTargeted.length;
+    $('pTilePlatform').textContent = postureComp.noPlatformSplit.length;
+    // Stoplight classes
+    const unsafeEl = document.querySelector('#intuneSubPosture [data-posture-tile="unsafeDefault"]');
+    if (unsafeEl) {
+      unsafeEl.classList.toggle('tile-bad', !!postureComp.unsafeDefault);
+      unsafeEl.classList.toggle('tile-good', postureComp.secureByDefault === true);
+    }
+  }
+  if (postureCa) {
+    $('pTileReportOnly').textContent = postureCa.reportOnlyStale.length;
+    $('pTileCompliantGap').textContent = postureCa.compliantGap.length;
+    $('pTileLegacy').textContent = postureCa.legacyAuthNotBlocked ? '1' : '0';
+    const leg = document.querySelector('#intuneSubPosture [data-posture-tile="legacyAuth"]');
+    if (leg) {
+      leg.classList.toggle('tile-bad', postureCa.legacyAuthNotBlocked);
+      leg.classList.toggle('tile-good', !postureCa.legacyAuthNotBlocked);
+    }
+  }
+  syncPostureTileUi();
+}
+
+function postureCompBlade(id) {
+  return COMPLIANCE_BLADE;
+}
+
+function postureCaBlade(id) {
+  return id
+    ? `https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/policyId/${encodeURIComponent(id)}`
+    : CA_BLADE;
+}
+
+function renderPostureDetail(kind) {
+  const isCa = ['reportOnlyStale', 'compliantGap', 'legacyAuth'].includes(kind);
+  const panel = $(isCa ? 'postureCaDetail' : 'postureCompDetail');
+  const other = $(isCa ? 'postureCompDetail' : 'postureCaDetail');
+  if (other) { other.style.display = 'none'; other.innerHTML = ''; }
+
+  let title = '';
+  let tableHtml = '';
+
+  if (kind === 'unsafeDefault' && postureComp) {
+    title = 'Unsafe default (no policy = compliant)';
+    const rows = postureComp.unsafeItems || [];
+    tableHtml = rows.map(r => `
+      <tr>
+        <td><a href="${esc(r.blade)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+        <td>${esc(r.detail)}</td>
+      </tr>`).join('');
+    tableHtml = `<table><thead><tr><th>Setting</th><th>Detail</th></tr></thead><tbody>${tableHtml || '<tr><td colspan="2" class="empty">secureByDefault is true — devices without a policy are noncompliant.</td></tr>'}</tbody></table>`;
+  } else if (kind === 'noGrace' && postureComp) {
+    title = `No grace period (${postureComp.noGrace.length})`;
+    tableHtml = !postureComp.noGrace.length
+      ? `<div class="meta" style="padding:18px;">No compliance policies with gracePeriodHours = 0.</div>`
+      : `<table><thead><tr><th>Policy</th><th>Platform</th><th>Grace (h)</th><th>Last modified</th></tr></thead><tbody>${postureComp.noGrace.map(r => `
+          <tr>
+            <td><a href="${postureCompBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${esc(r.platform)}</td>
+            <td>${r.gracePeriodHours}</td>
+            <td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+  } else if (kind === 'deviceTargeted' && postureComp) {
+    title = `Device-targeted compliance (${postureComp.deviceTargeted.length})`;
+    tableHtml = !postureComp.deviceTargeted.length
+      ? `<div class="meta" style="padding:18px;">No compliance policies assigned to device groups or All devices.</div>`
+      : `<table><thead><tr><th>Policy</th><th>Platform</th><th>Targets</th><th>Last modified</th></tr></thead><tbody>${postureComp.deviceTargeted.map(r => `
+          <tr>
+            <td><a href="${postureCompBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${esc(r.platform)}</td>
+            <td>${esc(r.targets)}</td>
+            <td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+  } else if (kind === 'noPlatformSplit' && postureComp) {
+    title = `No platform split (${postureComp.noPlatformSplit.length})`;
+    const platforms = (postureComp.platformsCovered || []).join(', ') || '—';
+    tableHtml = !postureComp.noPlatformSplit.length
+      ? `<div class="meta" style="padding:18px;">Assigned compliance policies cover multiple platforms (${esc(platforms)}).</div>`
+      : `<div class="meta" style="padding:8px 0 12px;">Platforms with assigned policies: <strong>${esc(platforms)}</strong></div>
+        <table><thead><tr><th>Policy</th><th>Platform</th><th>Reason</th><th>Last modified</th></tr></thead><tbody>${postureComp.noPlatformSplit.map(r => `
+          <tr>
+            <td><a href="${postureCompBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${esc(r.platform)}</td>
+            <td>${esc(r.reason)}</td>
+            <td class="date">${r.lastModified ? new Date(r.lastModified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+  } else if (kind === 'reportOnlyStale' && postureCa) {
+    title = `Report-only stale &gt; ${POSTURE_CA_STALE_DAYS}d (${postureCa.reportOnlyStale.length})`;
+    tableHtml = !postureCa.reportOnlyStale.length
+      ? `<div class="meta" style="padding:18px;">No report-only CA policies older than ${POSTURE_CA_STALE_DAYS} days.</div>`
+      : `<table><thead><tr><th>Policy</th><th>Age (days)</th><th>Last modified</th></tr></thead><tbody>${postureCa.reportOnlyStale.map(r => `
+          <tr>
+            <td><a href="${postureCaBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${r.ageDays}</td>
+            <td class="date">${r.modified ? new Date(r.modified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+  } else if (kind === 'compliantGap' && postureCa) {
+    title = `Compliant-device gap (${postureCa.compliantGap.length})`;
+    tableHtml = !postureCa.compliantGap.length
+      ? `<div class="meta" style="padding:18px;">Every enabled grant policy requires compliantDevice or domainJoinedDevice (or is block-only).</div>`
+      : `<table><thead><tr><th>Policy</th><th>Grant controls</th><th>Last modified</th></tr></thead><tbody>${postureCa.compliantGap.map(r => `
+          <tr>
+            <td><a href="${postureCaBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${esc(r.grants)}</td>
+            <td class="date">${r.modified ? new Date(r.modified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+  } else if (kind === 'legacyAuth' && postureCa) {
+    title = postureCa.legacyAuthNotBlocked
+      ? 'Legacy auth not blocked'
+      : 'Legacy auth is blocked';
+    if (postureCa.legacyAuthNotBlocked) {
+      tableHtml = `<div class="meta" style="padding:18px;">No enabled Conditional Access policy was found that blocks <code>exchangeActiveSync</code> + <code>other</code> (legacy clients). Create a Block legacy authentication policy in Entra.
+        <div style="margin-top:10px;"><a href="${CA_BLADE}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">Open Conditional Access policies ↗</a></div></div>`;
+    } else {
+      tableHtml = `<table><thead><tr><th>Blocking policy</th><th>State</th><th>Last modified</th></tr></thead><tbody>${postureCa.legacyBlockers.map(r => `
+          <tr>
+            <td><a href="${postureCaBlade(r.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.name)}</a></td>
+            <td>${esc(r.state)}</td>
+            <td class="date">${r.modified ? new Date(r.modified).toLocaleString() : '—'}</td>
+          </tr>`).join('')}</tbody></table>`;
+    }
+  } else {
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="table-card">
+      <div class="table-toolbar">
+        <h2>${title}</h2>
+        <div class="controls">
+          <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnPostureDetailClose">✕ Close</span>
+        </div>
+      </div>
+      ${tableHtml}
+    </div>`;
+  panel.style.display = '';
+  const closeBtn = $('btnPostureDetailClose');
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      panel.style.display = 'none';
+      panel.innerHTML = '';
+      postureTileFilter = null;
+      syncPostureTileUi();
+    };
+  }
+}
+
+function exportPostureCsv(section) {
+  const lines = [];
+  if (section === 'compliance' && postureComp) {
+    lines.push(['Section', 'Item', 'Platform', 'Detail', 'LastModified'].join(','));
+    if (postureComp.unsafeDefault) {
+      lines.push(['UnsafeDefault', 'secureByDefault=false', '', 'no policy = compliant', ''].map(escCsv).join(','));
+    }
+    for (const r of postureComp.noGrace) {
+      lines.push(['NoGrace', r.name, r.platform, 'gracePeriodHours=0', r.lastModified].map(escCsv).join(','));
+    }
+    for (const r of postureComp.deviceTargeted) {
+      lines.push(['DeviceTargeted', r.name, r.platform, r.targets, r.lastModified].map(escCsv).join(','));
+    }
+    for (const r of postureComp.noPlatformSplit) {
+      lines.push(['NoPlatformSplit', r.name, r.platform, r.reason, r.lastModified].map(escCsv).join(','));
+    }
+  } else if (section === 'ca' && postureCa) {
+    lines.push(['Section', 'Item', 'Detail', 'LastModified'].join(','));
+    for (const r of postureCa.reportOnlyStale) {
+      lines.push(['ReportOnlyStale', r.name, `ageDays=${r.ageDays}`, r.modified].map(escCsv).join(','));
+    }
+    for (const r of postureCa.compliantGap) {
+      lines.push(['CompliantDeviceGap', r.name, r.grants, r.modified].map(escCsv).join(','));
+    }
+    if (postureCa.legacyAuthNotBlocked) {
+      lines.push(['LegacyAuth', '(none blocking)', 'exchangeActiveSync+other not blocked', ''].map(escCsv).join(','));
+    } else {
+      for (const r of postureCa.legacyBlockers) {
+        lines.push(['LegacyAuthBlockedBy', r.name, r.state, r.modified].map(escCsv).join(','));
+      }
+    }
+  } else {
+    return;
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `posture-${section}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function loadPosture(force = false) {
+  if (postureLoading) return;
+  if (postureLoaded && !force) return;
+  postureLoading = true;
+  $('postureLoading').style.display = '';
+  $('postureError').innerHTML = '';
+  try {
+    postureComp = await loadPostureCompliance();
+    $('btnPostureExportComp').style.display = '';
+    postureCaGranted = await hasPolicyReadAll();
+    if (postureCaGranted) {
+      $('postureCaNeedScope').style.display = 'none';
+      $('postureCaBody').style.display = '';
+      try {
+        postureCa = await loadPostureCa();
+        $('btnPostureExportCa').style.display = '';
+      } catch (e) {
+        postureCa = null;
+        $('postureCaBody').style.display = 'none';
+        $('postureCaNeedScope').style.display = '';
+        $('postureCaNeedScope').innerHTML = `<strong>Conditional Access load failed:</strong> ${esc(e.message || String(e))}
+          <div style="margin-top:10px;"><button class="btn" id="btnPostureGrantCa">Retry / Grant Policy.Read.All</button></div>`;
+        $('btnPostureGrantCa').onclick = grantPostureCaScope;
+        postureCaGranted = false;
+      }
+    } else {
+      postureCa = null;
+      $('postureCaBody').style.display = 'none';
+      $('postureCaNeedScope').style.display = '';
+      $('postureCaNeedScope').innerHTML = `<strong>Grant <code>Policy.Read.All</code> to audit CA posture.</strong>
+        Compliance above still works without it. This scope is optional and requested only when you click Grant.
+        <div style="margin-top:10px;"><button class="btn" id="btnPostureGrantCa">Grant Policy.Read.All</button></div>`;
+      $('btnPostureGrantCa').onclick = grantPostureCaScope;
+      $('btnPostureExportCa').style.display = 'none';
+    }
+    postureLoaded = true;
+    renderPostureTiles();
+    if (postureTileFilter) renderPostureDetail(postureTileFilter);
+  } catch (e) {
+    console.error('Posture load failed', e);
+    $('postureError').innerHTML = `<div class="error-banner">Failed to load posture: ${esc(e.message || String(e))}</div>`;
+    postureLoaded = false;
+  } finally {
+    postureLoading = false;
+    $('postureLoading').style.display = 'none';
+  }
+}
+
+async function grantPostureCaScope() {
+  try {
+    await ensureScopeToken(POLICY_READ_ALL);
+    postureCaGranted = true;
+    postureLoaded = false;
+    await loadPosture(true);
+  } catch (e) {
+    $('postureError').innerHTML = `<div class="error-banner">Could not get Policy.Read.All: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+$('btnPostureRefresh').addEventListener('click', () => { postureLoaded = false; loadPosture(true); });
+$('btnPostureExportComp').addEventListener('click', () => exportPostureCsv('compliance'));
+$('btnPostureExportCa').addEventListener('click', () => exportPostureCsv('ca'));
+$('btnPostureClearKpi').addEventListener('click', () => {
+  postureTileFilter = null;
+  $('postureCompDetail').style.display = 'none';
+  $('postureCompDetail').innerHTML = '';
+  $('postureCaDetail').style.display = 'none';
+  $('postureCaDetail').innerHTML = '';
+  syncPostureTileUi();
+});
+document.querySelectorAll('#intuneSubPosture [data-posture-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const key = tile.dataset.postureTile;
+    if (postureTileFilter === key) {
+      postureTileFilter = null;
+      $('postureCompDetail').style.display = 'none';
+      $('postureCaDetail').style.display = 'none';
+      syncPostureTileUi();
+      return;
+    }
+    postureTileFilter = key;
+    syncPostureTileUi();
+    renderPostureDetail(key);
   });
 });
 

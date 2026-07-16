@@ -1,85 +1,104 @@
 # Active backlog
 
-Completed designs (Software Metering, Autopilot, MSP switcher, app delete, MAA emails) live in [`tasks/done.md`](done.md). Do not resurrect their unchecked boxes as open work.
+Completed designs (Software Metering, Autopilot, MSP switcher, app delete, MAA emails, large-tenant hardening, **Posture**) live in [`tasks/done.md`](done.md) or are marked shipped below. Do not resurrect their unchecked boxes as open work.
 
 **Skipped on purpose (do not re-open without a new request):**
 - Session-only Claude API key — operator prefers `localStorage` so the key survives reloads.
 
 ---
 
-# Large-tenant hardening (backlog)
+# Shipped (do not re-open)
 
-## Goal
-Keep Hardware, Assignments, Installed, and Overview usable on tenants with thousands of devices/apps — prevent silent hangs and “works in the lab, dies in production” support load.
-
-## Scope
-- [x] Document scale behavior in README (Tech → Scale notes)
-- [x] Hardware: progress while paging + RAM backfill; progressive table (usable before RAM done); abandon in-flight on refresh/tenant switch; concurrency 25 + token cache
-- [x] Graph: default `$top=999` on `graphGetAll`, `mapPool` helper, AbortSignal plumbing
-- [x] Installed: slim `$select` + progress while paging apps
-- [x] Failed error-cluster: mapPool concurrency 8
-- [x] Explicit **Cancel** button UI on long walks (Assignments multi-endpoint, Hardware paging + RAM)
-- [x] Assignments: per-endpoint progress + optional cancel
-- [x] Optional “slim mode” toggles (e.g. skip Hardware RAM fan-out entirely) — Settings → Large tenants
-- [x] Session cache notes in-app (what is cached vs always re-fetched) — Settings card
-
-## Out of scope for this card
-- Backend aggregation / Log Analytics
-- Cross-tenant comparison views
+- [x] Large-tenant hardening (Cancel, Assignments progress, slim Hardware, cache notes)
+- [x] **Posture** sub-tab (Compliance + optional CA via `Policy.Read.All`) — 20 → **21** sub-tabs
 
 ---
 
-# Posture sub-tab (new)
+# Next candidates (from X / community — not started)
+
+Prioritized for Graph-only, MSP review value. Product signals from @MSIntune + community (2026): patch/Autopatch, Secure Boot certs, EPM/Suite→E3/E5, app inventory migration, least-privilege.
+
+## Secure Boot readiness (new)
+
+### Goal
+Device-level Secure Boot certificate / trust readiness for the 2026 cert-rollover fire drill — KPI tiles + drill-down that the native report is easy to miss in multi-tenant MSP work.
+
+### Scope (draft)
+- [ ] Sub-tab or Hardware/Overview extension: Secure Boot status from Graph / Autopatch reports if available
+- [ ] Tiles: ready / at risk / unknown · CSV export · deep-links
+- [ ] Document licensing / report API prerequisites
+
+### Out of scope
+- Pushing cert updates from the dashboard (remediation stays out of band)
+
+---
+
+## Windows Update / Autopatch posture (new)
+
+### Goal
+Fleet update health: rings/profiles coverage, not-just-assignment index — rides Microsoft’s patch-pace messaging.
+
+### Scope (draft)
+- [ ] Reuse update profiles already fetched in Assignments where possible
+- [ ] Tiles: devices not in any feature/quality profile · stale check-in vs quality freeze · hotpatch coverage if Graph exposes it
+- [ ] Per-profile device counts if report APIs allow without Log Analytics
+
+### Out of scope
+- Authoring Autopatch policies; Windows 365 DR stories
+
+---
+
+## EPM / elevation inventory (new)
+
+### Goal
+“Who can elevate what” after Suite capabilities land in M365 E3/E5 — elevation policy inventory + optional elevation report if Graph exposes it.
+
+### Scope (draft)
+- [ ] List Endpoint Privilege Management policies / rules (Graph paths TBD per tenant licensing)
+- [ ] Tiles: elevation rules count · shared-device elevation · unassigned EPM policies
+- [ ] Graceful empty state when EPM not licensed
+
+### Out of scope
+- Building elevation rules; full BeyondTrust-style PAM
+
+---
+
+## Discovered / enhanced app inventory (new)
+
+### Goal
+Side-by-side or bridge view while Microsoft migrates “App inventory” vs classic discovered apps — community still runs two dashboards.
+
+### Scope (draft)
+- [ ] Graph inventory / discovered apps endpoints (verify current beta surface)
+- [ ] Compare to Installed / App versions / metering catalogs
+- [ ] Flag apps only in one source
+
+---
+
+## Smaller extensions (backlog)
+
+- [ ] Defender AV exclusion / local-merge drift (PR script or hunting) — security MVP classic
+- [ ] VS Code / IDE extension fleet scan — extend `ai-agent-detect.ps1` beyond AI agents
+- [ ] LAPS coverage (policy assigned + password age if Graph allows)
+- [ ] Primary user / shared-device hygiene deepen (Hardware already has no-primary-user tile)
+
+---
+
+# Posture sub-tab (shipped design reference)
 
 ## Goal
-One-page MSP customer-review of compliance + Conditional Access *posture* — the unsafe defaults and assignment-target patterns auditors flag. Closes the gap that today an MSP has to open three admin-center blades and squint.
-
-## Scope decisions
-- Dedicated sub-tab named "Posture" (user-confirmed), positioned after Assignments.
-- Two sections in one tab: **Compliance** (always-on, uses existing scopes) and **Conditional Access** (gated on optional new scope `Policy.Read.All`).
-- `Policy.Read.All` is optional / graceful degrade (user-confirmed). If denied, the CA section shows an empty state "Grant Policy.Read.All to audit CA posture" and the Compliance section still works.
-- Bumps canonical Intune sub-tab count from **20 → 21** when shipped (README lists twenty today).
-
-## Tiles
-**Compliance section** (always-on):
-- **Unsafe default**: tenant has `secureByDefault: false` (i.e. "no policy = compliant")
-- **No grace period**: compliance policies with `scheduledActionsForRule.gracePeriodHours = 0`
-- **Device-targeted**: count of compliance policies assigned to device groups instead of user groups
-- **No platform split**: count of tenants/policies relying on a single cross-platform policy
-
-**Conditional Access section** (requires `Policy.Read.All`):
-- **Report-only stale**: CA policies in `enabledForReportingButNotEnforced` state with `modifiedDateTime` > 30 days
-- **Compliant-device gap**: number of CA policies that don't require `compliantDevice` or `domainJoinedDevice` in `grantControls.builtInControls`
-- **Legacy auth not blocked**: no CA policy blocking `exchangeActiveSync` + `other` client app types
-
-Each tile clickable → drill-in panel listing the offending items with deep-links.
+One-page MSP customer-review of compliance + Conditional Access *posture*.
 
 ## Tasks
-- [ ] Add `Policy.Read.All` to `SCOPES` as **optional** — request via `acquireTokenSilent` and tolerate denial
-- [ ] Helper `hasPolicyReadAll()` checks the active account's granted scopes
-- [ ] HTML: `<button class="subtab" data-subtab="posture">Posture</button>` after Assignments
-- [ ] HTML: `intuneSubPosture` with two `<section>`s, each with its own tiles row and drill-in panel
-- [ ] Sub-tab show/hide wired; load on first reveal
-- [ ] `loadPostureCompliance()` fetches `/deviceManagement/settings` + `/deviceManagement/deviceCompliancePolicies?$expand=assignments` and computes the 4 compliance tiles
-- [ ] `loadPostureCa()` (only if `Policy.Read.All` granted) fetches `/identity/conditionalAccess/policies` and computes the 3 CA tiles
-- [ ] CA section empty state when scope not granted: "Grant Policy.Read.All to audit CA posture" + a "Grant scope" button that calls `loginPopup` with the extra scope
-- [ ] Each tile drills to a `<div class="hygiene-detail">`-style panel listing the offending items with deep-links to the matching admin-center blade
-- [ ] `pTileMap` + `syncPostureTileUi()` — toggle + active highlight (pre-publish checklist)
-- [ ] CSV export per section
-- [ ] README: add "Posture" to the sub-tab list (canonical count 20 → 21), add CA endpoint + Policy.Read.All scope line with the "optional" qualifier, bump scope count
-- [ ] Canonical-facts grep
-- [ ] **Live verification before commit**: each tile filters/drills correctly; CA section degrades gracefully when scope denied; "Grant scope" button works; deep-links open the right admin-center blade
+- [x] Optional `Policy.Read.All` via Grant / `ensureScopeToken` (not in static SCOPES)
+- [x] `hasPolicyReadAll()` + CA empty state
+- [x] HTML sub-tab after Assignments; Compliance + CA sections
+- [x] `loadPostureCompliance()` / `loadPostureCa()` + tiles + drill-in + CSV
+- [x] README / FEATURES 20 → 21; optional scope docs
 
-## Out of scope (v1)
-- Remediation actions (changing a setting from inside the dashboard — keep read-only stance)
-- Security baseline drift (separate feature; baselines have their own Graph surface)
-- Custom audit benchmarks / pluggable rulesets (one fixed set of checks in v1)
+## Out of scope (v1) — still open if revisited
+- Remediation actions from the tab
+- Security baseline drift
+- Custom audit benchmarks
 - Defender for Cloud Apps / session policies
-- Per-customer threshold tuning (grace period > 0d is the only "rule", not configurable in v1)
-
-## Verifiable success
-1. Sign in with no `Policy.Read.All` consent → Posture tab loads, Compliance section works, CA section shows the empty state.
-2. Click "Grant scope" → MSAL popup, consent → CA section loads.
-3. Each tile click → drill-in panel populates with the offending items, each linked to its blade.
-4. `unsafe default = false` test tenant → "Unsafe default" tile is 0; flipping it back to default makes the tile light up.
-5. README sub-tab count grep returns 21; old "twenty" / "20" sub-tab claims updated.
+- Per-customer threshold tuning

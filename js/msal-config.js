@@ -15,6 +15,8 @@ const MSAL_CONFIG = {
 // DeviceManagementScripts.ReadWrite.All, Mail.Send, …) are requested
 // just-in-time via ensureScopeToken() the first time a write action runs,
 // so read-only sessions never carry write permissions.
+// Optional: Policy.Read.All is NOT listed here — Posture CA section requests
+// it on demand (Grant button) so tenants that deny it still get Compliance.
 const SCOPES = [
   'DeviceManagementManagedDevices.Read.All',
   'DeviceManagementApps.Read.All',

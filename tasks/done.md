@@ -10,7 +10,9 @@ Shipped features archived here:
 - Delete app from Intune
 - MAA approver email notifications
 
-Active backlog: see `tasks/todo.md` (Posture).
+Active backlog: see `tasks/todo.md` (Secure Boot, Autopatch posture, EPM, …).
+
+Also shipped: **Posture** (compliance + optional CA), large-tenant Cancel/slim Hardware.
 
 ---
 # Software Metering sub-tab (new)

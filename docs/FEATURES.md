@@ -10,7 +10,7 @@ This file is the former long README, kept so operational detail is not lost when
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, Management health, Assignments, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty-one sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, Management health, Assignments, **Posture**, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -30,7 +30,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all twenty sub-tabs share the same session.
+Sign in once with MSAL — all twenty-one sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -219,6 +219,20 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 - Policy index is fetched once per session — 9 paginated Graph calls run in parallel on first tab open and cached. Per-endpoint failures (e.g. driver-update profiles on tenants without the licensing) are logged to the console but don't take down the rest of the load. Picking different groups after that is a client-side filter, no extra Graph traffic. Use **↻ Refresh** to invalidate the cache and re-fetch.
 - Still out of scope: MAM/app-protection policies (different assignment shape), Autopilot profiles, endpoint security intents, and device/user-centric reverse lookup.
 
+**Posture** — one-page MSP customer review of compliance + Conditional Access *posture* (unsafe defaults and assignment patterns auditors flag). Positioned after Assignments.
+
+- **Compliance** (always-on, existing `DeviceManagementConfiguration.Read.All` + `Group.Read.All`):
+  - **Unsafe default** — tenant `secureByDefault === false` (devices with no compliance policy marked compliant). Source: `GET /beta/deviceManagement/settings`.
+  - **No grace period** — policies whose `scheduledActionsForRule` configurations have `gracePeriodHours = 0`.
+  - **Device-targeted** — policies assigned to All devices or dynamic device groups (`membershipRule` containing `device.`).
+  - **No platform split** — assigned policies exist on only one platform, or use a non-platform-specific type.
+- **Conditional Access** (optional `Policy.Read.All` — **not** requested at sign-in):
+  - Empty state + **Grant Policy.Read.All** button when the scope is missing; Compliance still works.
+  - **Report-only stale** — `enabledForReportingButNotEnforced` and last modified &gt; 30 days.
+  - **Compliant-device gap** — enabled grant policies that do not require `compliantDevice` or `domainJoinedDevice`.
+  - **Legacy auth not blocked** — no enabled Block policy covering `exchangeActiveSync` + `other` (or all clients).
+- Click any tile → drill-in table with deep-links (Intune compliance / Entra CA blades). CSV export per section. Lazy-loaded; **↻ Refresh** re-fetches.
+
 **Remediation** — proactive remediation scripts (`deviceHealthScripts`) and their schedules.
 
 - Sortable table with **Script name**, **Publisher**, **Schedule**, **Assigned groups** (count), and **Last modified**. Default sort is Schedule with **Hourly** first, then **Daily**, then **Run once**, then **Unassigned**, tie-broken by script name A→Z.
@@ -288,8 +302,12 @@ When you click **Sign in with Microsoft**, the dashboard uses MSAL.js to open a 
 - `AuditLog.Read.All` — gates the `signInActivity` property on `/v1.0/users` (Stale users sub-tab); without it, Graph silently omits the property
 - `ThreatHunting.Read.All` — run Defender Advanced Hunting KQL queries (Vulnerabilities, Drift & Compliance, and AI agents sub-tabs; requires Defender for Endpoint P2 or M365 E5 to return data). Defender additionally checks the signed-in **user's** security permissions (`SecurityData.Read` / `TvmData.Read`) — the user needs a **Security Administrator** or **Security Reader** role; Global Administrator alone returns 403
 - `DeviceManagementScripts.Read.All` — read Intune device health scripts (Remediation sub-tab) and PowerShell scripts (Assignments sub-tab)
-- `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, and Windows Update profiles (Assignments sub-tab)
+- `DeviceManagementConfiguration.Read.All` — read configuration profiles, settings catalog policies, compliance policies, device management settings (`secureByDefault`), and Windows Update profiles (Assignments + Posture compliance)
 - `DeviceManagementServiceConfig.Read.All` — read Autopilot device identities (Autopilot sub-tab)
+
+**Optional just-in-time read scopes (not at sign-in):**
+
+- `Policy.Read.All` — Posture Conditional Access section only; granted via the tab’s **Grant** button (`ensureScopeToken`)
 
 **Just-in-time write scopes (not requested at sign-in):** each is requested via a consent popup the first time you use the matching write action in a session, so read-only viewers never carry write permissions.
 
@@ -312,6 +330,9 @@ Everything requested at sign-in is read-only; all write scopes are just-in-time.
 
 **What the dashboard calls:**
 
+- `GET /beta/deviceManagement/settings` — tenant compliance default (`secureByDefault`) for the Posture sub-tab
+- `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments,scheduledActionsForRule` — Posture compliance tiles
+- `GET /v1.0/identity/conditionalAccess/policies` — Posture CA tiles (requires `Policy.Read.All`)
 - `POST /beta/deviceManagement/reports/getAppsInstallSummaryReport` — apps overview (Failed Install filters server-side to `FailedDeviceCount > 0`; Installed fetches all apps)
 - `POST /beta/deviceManagement/reports/retrieveDeviceAppInstallationStatusReport` — per-app device install status (used by both the Failed drill-in and the Installed devices view)
 - `GET /beta/deviceAppManagement/mobileApps?$filter=...&$expand=assignments` — apps with assignments. Win32-filtered server-side for Required Install; all platforms (no `$filter`, paginated) for Required Uninstall *and* the Installed sub-tab, with client-side platform filtering. Also called with `?$select=id,notes` (paginated) by the Failed Install sub-tab to build the shared Patch My PC app-id set used by both filters. The **App versions** sub-tab reuses the full paginated `?$expand=assignments` form to group the catalog by product and count version/package sprawl (assigned *and* unassigned).

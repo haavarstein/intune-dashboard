@@ -13,13 +13,13 @@ Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in 
 | Tab | Purpose |
 |-----|---------|
 | **Local** | Visualize uninstall registry from CSV or Intune Collect diagnostics `.reg` files |
-| **Intune** | Live tenant: 20 sub-tabs (apps, hardware, MAA, Autopilot, BitLocker, Defender views, metering, …) |
+| **Intune** | Live tenant: 21 sub-tabs (apps, hardware, MAA, Autopilot, BitLocker, posture, Defender views, metering, …) |
 | **Analyze** | Drop IME / AgentExecutor / MSI logs → AI triage (optional API key) |
 | **Settings** | MSP customer list, approvers, metering script IDs, Claude/OpenRouter key |
 
-**Intune sub-tabs (20):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · Management Health · Assignments · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
+**Intune sub-tabs (21):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · Management Health · Assignments · **Posture** · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
 
-Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, BitLocker key-escrow gaps, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot orphan reconciliation.
+Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, BitLocker key-escrow gaps, compliance + Conditional Access posture audit, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot orphan reconciliation.
 
 ---
 
@@ -68,6 +68,12 @@ Pre-registered multi-tenant public client (MSAL.js). Tokens stay in **`sessionSt
 | `ThreatHunting.Read.All` | Defender KQL (Vulnerabilities, Drift, AI agents) — needs P2/E5 + security role |
 | `BitlockerKey.ReadBasic.All` | BitLocker key **metadata only** (no recovery material) |
 | `Device.Read.All` | Entra devices (hygiene / Autopilot duplicates / soft-delete list) |
+
+### Optional scopes (just-in-time / Grant button)
+
+| Scope | Used for |
+|-------|----------|
+| `Policy.Read.All` | **Posture** Conditional Access section only — not requested at sign-in; Grant on the tab |
 
 ### Write scopes (just-in-time)
 
