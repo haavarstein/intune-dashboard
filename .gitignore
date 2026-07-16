@@ -3,3 +3,8 @@
 
 # Exported real emails and local render previews (contain tenant/customer data)
 email/
+
+# Browser CSV exports accidentally saved in the repo root (tenant data)
+posture-*.csv
+*.csv
+!package-lock.json
