@@ -804,13 +804,14 @@ html.locked .signin { min-height: calc(100vh - 110px); align-items: center; }
 /* SYSTEM vs USER install context — used on Required / Uninstall / Installed pickers */
 .context-badge {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
   vertical-align: middle;
   line-height: 1.4;
+  white-space: nowrap;
 }
 .context-badge.context-system {
   background: var(--watch-bg);
@@ -827,17 +828,37 @@ html.locked .signin { min-height: calc(100vh - 110px); align-items: center; }
   color: var(--muted);
   border: 1px solid var(--line);
 }
-.target-chip {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-size: 10px;
+/* Required / Uninstall assignment tables — real columns, not meta soup */
+.table-scroll { overflow-x: auto; }
+.app-assign-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.app-assign-table thead th {
+  text-align: left;
+  font-size: 11px;
   font-weight: 600;
-  background: var(--accent-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ink-2);
-  border: 1px solid var(--line);
-  vertical-align: middle;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 1;
 }
+.app-assign-table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  color: var(--ink);
+}
+.app-assign-table tbody tr:last-child td { border-bottom: none; }
+.app-assign-table tbody tr:hover { background: var(--row-hover); }
+.app-assign-table td:nth-child(1) { min-width: 180px; max-width: 320px; }
+.app-assign-table td:nth-child(2) { min-width: 120px; color: var(--ink-2); }
+.app-assign-table td:nth-child(3) { white-space: nowrap; }
+.app-assign-table td:nth-child(4) { white-space: nowrap; }
+.app-assign-table td:nth-child(5) { white-space: nowrap; color: var(--ink-2); }
 
 .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
 .error-banner {

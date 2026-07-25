@@ -632,54 +632,53 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubApprovals -->
 
       <div id="intuneSubRequired" style="display:none;">
-        <div class="tab-hint">Win32 apps with a <strong>Required</strong> assignment to All Devices and/or All Users. Each row shows publisher, platform, install context (<strong>SYSTEM</strong> vs <strong>USER</strong> from <code>installExperience.runAsAccount</code>), and assignment target — same detail level as Installed / Failed pickers. Click a row to open the app in the Intune admin center.</div>
+        <div class="tab-hint">Win32 apps with a <strong>Required</strong> assignment to All Devices and/or All Users. Columns: app, publisher, platform, install context (<strong>SYSTEM</strong> / <strong>USER</strong>), and assignment target. Click the app name to open it in the Intune admin center.</div>
         <div id="requiredError"></div>
-        <div class="app-picker">
-          <div class="app-picker-bar">
-            <input type="text" class="search" id="requiredFilter" placeholder="Search by name or publisher…">
-            <select class="filter-select" id="requiredTargetFilter" title="Required assignment target">
-              <option value="allDevices" selected>All Devices</option>
-              <option value="allUsers">All Users</option>
-              <option value="">Either target</option>
-            </select>
-            <select class="filter-select" id="requiredContextFilter" title="Win32 install context">
-              <option value="">All contexts</option>
-              <option value="system">SYSTEM</option>
-              <option value="user">USER</option>
-            </select>
-            <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Required Install</h2>
+            <div class="controls">
+              <input type="text" class="search" id="requiredFilter" placeholder="Search name or publisher…">
+              <select class="filter-select" id="requiredTargetFilter" title="Required assignment target">
+                <option value="allDevices" selected>All Devices</option>
+                <option value="allUsers">All Users</option>
+                <option value="">Either target</option>
+              </select>
+              <select class="filter-select" id="requiredContextFilter" title="Win32 install context">
+                <option value="">All contexts</option>
+                <option value="system">SYSTEM</option>
+                <option value="user">USER</option>
+              </select>
+              <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
+            </div>
           </div>
-          <div class="app-list no-scroll" id="requiredList">
-            <div class="loading">Loading required apps…</div>
-          </div>
-          <div class="footer-count" style="padding: 12px 20px;"><span id="requiredCount">0</span> required apps</div>
+          <div id="requiredList"><div class="loading" style="padding:24px;">Loading required apps…</div></div>
+          <div class="footer-count"><span id="requiredCount">0</span> required apps</div>
         </div>
       </div><!-- /intuneSubRequired -->
 
       <div id="intuneSubUninstall" style="display:none;">
-        <div class="tab-hint">Apps with an <strong>Uninstall</strong> assignment to a group — what's being removed from the fleet. Rows show publisher, platform, and Win32 install context when available (SYSTEM/USER).</div>
+        <div class="tab-hint">Apps with an <strong>Uninstall</strong> assignment to a group. Columns: app, publisher, platform, install context, and group assignment count.</div>
         <div id="uninstallError"></div>
-        <div class="app-picker">
-          <div class="app-picker-bar">
-            <input type="text" class="search" id="uninstallFilter" placeholder="Search by name or publisher…">
-            <div class="filter-group">
-              <span class="filter-group-label">Platform</span>
-              <select class="filter-select" id="uninstallPlatformFilter">
-                <option value="">All</option>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Required Uninstall</h2>
+            <div class="controls">
+              <input type="text" class="search" id="uninstallFilter" placeholder="Search name or publisher…">
+              <select class="filter-select" id="uninstallPlatformFilter" title="Platform">
+                <option value="">All platforms</option>
               </select>
+              <select class="filter-select" id="uninstallContextFilter" title="Win32 install context">
+                <option value="">All contexts</option>
+                <option value="system">SYSTEM</option>
+                <option value="user">USER</option>
+                <option value="unknown">Unknown / N/A</option>
+              </select>
+              <button class="btn btn-ghost" id="btnReloadUninstall">↻ Reload</button>
             </div>
-            <select class="filter-select" id="uninstallContextFilter" title="Win32 install context (when known)">
-              <option value="">All contexts</option>
-              <option value="system">SYSTEM</option>
-              <option value="user">USER</option>
-              <option value="unknown">Unknown / N/A</option>
-            </select>
-            <button class="btn btn-ghost" id="btnReloadUninstall">↻ Reload</button>
           </div>
-          <div class="app-list no-scroll" id="uninstallList">
-            <div class="loading">Loading uninstall apps…</div>
-          </div>
-          <div class="footer-count" style="padding: 12px 20px;"><span id="uninstallCount">0</span> uninstall apps</div>
+          <div id="uninstallList"><div class="loading" style="padding:24px;">Loading uninstall apps…</div></div>
+          <div class="footer-count"><span id="uninstallCount">0</span> uninstall apps</div>
         </div>
       </div><!-- /intuneSubUninstall -->
 
@@ -2726,26 +2725,42 @@ function contextBadgeHtml(runAs) {
   return `<span class="context-badge context-unknown">${esc(String(runAs).toUpperCase())}</span>`;
 }
 
-function targetChipsHtml(targets) {
-  if (!targets || !targets.size) return '';
+function targetLabel(targets) {
+  if (!targets || !targets.size) return '—';
   const labels = [];
   if (targets.has('allDevices')) labels.push('All Devices');
   if (targets.has('allUsers')) labels.push('All Users');
   if (targets.has('group')) labels.push('Group');
-  return labels.map(l => `<span class="target-chip">${esc(l)}</span>`).join(' ');
+  return labels.join(', ') || '—';
 }
 
-// Shared picker row for Required / Uninstall (link-out to admin center).
-function appPickerLinkRow({ id, name, publisher, platform, runAs, targets, trailingHtml }) {
-  const metaText = [publisher || '—', platform || null].filter(Boolean).map(esc).join(' · ');
-  const badges = [contextBadgeHtml(runAs), targetChipsHtml(targets)].filter(Boolean).join(' ');
-  return `<a class="app-row" href="${appPortalUrl(id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;">
-    <div style="flex:1; min-width:0;">
-      <div class="name">${esc(name)}</div>
-      <div class="meta">${metaText}${badges ? ` · ${badges}` : ''}</div>
-    </div>
-    ${trailingHtml || '<div class="pub-small">↗</div>'}
-  </a>`;
+// Column table for Required / Uninstall (aligned, not a crammed meta line).
+function appAssignmentTableHtml(rows, mode) {
+  // mode: 'required' | 'uninstall'
+  if (!rows.length) {
+    return `<div class="loading" style="padding:24px;">${mode === 'uninstall' ? 'No uninstall apps found.' : 'No required apps found.'}</div>`;
+  }
+  const head = mode === 'uninstall'
+    ? `<th>App</th><th>Publisher</th><th>Platform</th><th>Context</th><th>Groups</th><th></th>`
+    : `<th>App</th><th>Publisher</th><th>Platform</th><th>Context</th><th>Target</th><th></th>`;
+  const body = rows.map(a => {
+    const nameLink = `<a href="${appPortalUrl(a.id)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none; font-weight:600;">${esc(a.name)}</a>`;
+    const last = mode === 'uninstall'
+      ? `<td>${a.groupCount || 0}</td>`
+      : `<td>${esc(targetLabel(a.targets))}</td>`;
+    return `<tr>
+      <td>${nameLink}</td>
+      <td>${esc(a.publisher) || '—'}</td>
+      <td>${esc(a.platform) || '—'}</td>
+      <td>${contextBadgeHtml(a.runAs)}</td>
+      ${last}
+      <td style="text-align:right; white-space:nowrap;"><a href="${appPortalUrl(a.id)}" target="_blank" rel="noopener noreferrer" class="pub-small" style="color:var(--accent); text-decoration:none;">Open ↗</a></td>
+    </tr>`;
+  }).join('');
+  return `<div class="table-scroll"><table class="app-assign-table">
+    <thead><tr>${head}</tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`;
 }
 
 document.querySelectorAll('.tab').forEach(btn => {
@@ -3597,17 +3612,10 @@ function renderRequiredList() {
   }
   $('requiredCount').textContent = filtered.length;
   if (!filtered.length) {
-    $('requiredList').innerHTML = '<div class="loading">No required apps found.</div>';
+    $('requiredList').innerHTML = '<div class="loading" style="padding:24px;">No required apps found.</div>';
     return;
   }
-  $('requiredList').innerHTML = filtered.map(a => appPickerLinkRow({
-    id: a.id,
-    name: a.name,
-    publisher: a.publisher,
-    platform: a.platform,
-    runAs: a.runAs,
-    targets: a.targets
-  })).join('');
+  $('requiredList').innerHTML = appAssignmentTableHtml(filtered, 'required');
 }
 
 function showRequiredError(msg) {
@@ -3693,18 +3701,10 @@ function renderUninstallList() {
     const msg = uninstallApps.length === 0
       ? 'No applications currently assigned for uninstall.'
       : 'No uninstall apps found.';
-    $('uninstallList').innerHTML = `<div class="loading">${msg}</div>`;
+    $('uninstallList').innerHTML = `<div class="loading" style="padding:24px;">${msg}</div>`;
     return;
   }
-  $('uninstallList').innerHTML = filtered.map(a => appPickerLinkRow({
-    id: a.id,
-    name: a.name,
-    publisher: a.publisher,
-    platform: a.platform,
-    runAs: a.runAs,
-    targets: a.targets,
-    trailingHtml: `<div class="pub-small" style="min-width:72px; text-align:right;">${a.groupCount} group${a.groupCount === 1 ? '' : 's'} ↗</div>`
-  })).join('');
+  $('uninstallList').innerHTML = appAssignmentTableHtml(filtered, 'uninstall');
 }
 
 function showUninstallError(msg) {
