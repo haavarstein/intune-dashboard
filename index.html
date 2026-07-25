@@ -8798,7 +8798,7 @@ function openApprovalActionModal(id, action) {
   $('apaSubtitle').textContent = `${approvalRequestor(req)} · ${approvalType(req)}`;
   $('apaBody').innerHTML = `
     <p style="margin-top:0;">${m.desc}</p>
-    ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote style="margin:0 0 16px 0; padding:10px 14px; background:#f5f3ee; border-left:3px solid #888; font-size:13px; white-space:pre-wrap;">${esc(req.requestJustification)}</blockquote>` : ''}
+    ${req.requestJustification ? `<p style="margin-bottom:6px;"><strong>Requester's justification:</strong></p><blockquote class="justification-quote">${esc(req.requestJustification)}</blockquote>` : ''}
     ${m.noJustification
       ? `<p style="margin-bottom:6px; color:var(--muted); font-size:12px;">${m.noJustNote}</p>`
       : `<p style="margin-bottom:6px;"><strong>Your justification</strong> <span style="color:var(--muted); font-weight:400;">(required, recorded in the audit log; max 1024 chars):</span></p>

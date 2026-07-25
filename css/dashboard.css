@@ -267,10 +267,21 @@ h1 { font-family: var(--font-display); font-size: 44px; font-weight: 800; margin
   font-family: inherit;
   width: 260px;
   background: var(--bg);
+  color: var(--ink);
   outline: none;
   transition: border-color .15s;
 }
 .search:focus { border-color: var(--accent); }
+/* MAA / Approvals — requester justification quote (must not hardcode cream) */
+.justification-quote {
+  margin: 0 0 16px 0;
+  padding: 10px 14px;
+  background: var(--row-hover);
+  border-left: 3px solid var(--muted);
+  color: var(--ink);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
 /* Wrapper + × clear button injected by attachSearchClearButtons() at runtime */
 .search-wrap { position: relative; display: inline-flex; align-items: center; vertical-align: middle; }
 .search-wrap > .search { padding-right: 30px; }
