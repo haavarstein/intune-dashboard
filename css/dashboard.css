@@ -801,6 +801,43 @@ html.locked .signin { min-height: calc(100vh - 110px); align-items: center; }
 .err-clickable { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
 .err-clickable:hover { background: var(--accent-soft); }
 .platform-badge { background: #eef0f3; color: #4a5568; }
+/* SYSTEM vs USER install context — used on Required / Uninstall / Installed pickers */
+.context-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+.context-badge.context-system {
+  background: var(--watch-bg);
+  color: var(--watch-ink);
+  border: 1px solid var(--watch-border);
+}
+.context-badge.context-user {
+  background: var(--good-bg);
+  color: var(--good-ink);
+  border: 1px solid var(--good-border);
+}
+.context-badge.context-unknown {
+  background: var(--row-hover);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.target-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+}
 
 .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
 .error-banner {

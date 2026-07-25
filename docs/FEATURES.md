@@ -50,7 +50,7 @@ Sign in once with MSAL — all twenty-one sub-tabs share the same session.
 - **View toggle** in the picker bar — switch between *By app* (default) and *By error code* (fleet-wide error clustering). The error-clustering view fans out per-app install-status reports across every failing app in parallel and aggregates by error code, surfacing distinct codes with device count + app count + sample apps. Spots systemic issues (e.g. `0x80073cf9` across 47 devices in 5 apps = Store offline, not an app problem) vs app-specific failures.
 - **🔍 Detection rule** button in the selected-app header — opens a modal showing exactly what Intune is checking for on each device (MSI ProductCode + version operator, file/folder path + version comparison, registry key + value match, or the full PowerShell detection script — base64-decoded). Read-only. Most failed-install threads on r/Intune ultimately reduce to "what does the detection rule check, and why doesn't it match?" — this answers that without leaving the dashboard.
 
-**Required Install** — Win32 apps assigned as *Required* to *All Devices* or *All Users*.
+**Required Install** — Win32 apps assigned as *Required* to *All Devices* or *All Users*. Picker rows match the Installed/Failed detail level: **name**, **publisher**, **platform**, **SYSTEM/USER** install context (`installExperience.runAsAccount`), and assignment-target chips. Filters: target (All Devices / All Users / either), install context, name/publisher search. Click opens the app blade in the Intune admin center.
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
 - **Target filter** dropdown defaults to *All Devices*; switch to *All Users* to audit user-targeted required pushes, or *Either* to see both.
 - Type to filter the list.
@@ -76,7 +76,7 @@ Sign in once with MSAL — all twenty-one sub-tabs share the same session.
 - **No new scope** — `operationApprovalRequests` list, approve, and reject all accept the existing `DeviceManagementConfiguration.Read.All` scope.
 - **Closes Intune's notification gap**: this is the queue Intune itself doesn't notify approvers about. Bookmark this tab for a single-pane-of-glass view of pending work. Paired with the auto-email-on-delete feature (Installed sub-tab → 🗑) you get the full loop: requester submits → approvers get an email + see it here → click Approve.
 
-**Required Uninstall** — apps assigned with intent *Uninstall* to a group.
+**Required Uninstall** — apps assigned with intent *Uninstall* to a group. Same picker detail as Required Install (publisher, platform, SYSTEM/USER when Win32, group-assignment count).
 - Alphabetical list of `displayName`s. Click any row to open the app's blade in the Intune admin center in a new tab.
 - **Platform filter** dropdown defaults to *Windows*; switch to *All*, *Android*, *iOS*, or *macOS* as needed.
 - Type to filter the list.

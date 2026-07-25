@@ -632,15 +632,20 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubApprovals -->
 
       <div id="intuneSubRequired" style="display:none;">
-        <div class="tab-hint">Audit view of Win32 apps assigned as Required — toggle between All Devices and All Users assignments.</div>
+        <div class="tab-hint">Win32 apps with a <strong>Required</strong> assignment to All Devices and/or All Users. Each row shows publisher, platform, install context (<strong>SYSTEM</strong> vs <strong>USER</strong> from <code>installExperience.runAsAccount</code>), and assignment target — same detail level as Installed / Failed pickers. Click a row to open the app in the Intune admin center.</div>
         <div id="requiredError"></div>
         <div class="app-picker">
           <div class="app-picker-bar">
-            <input type="text" class="search" id="requiredFilter" placeholder="Filter required apps…">
-            <select class="filter-select" id="requiredTargetFilter">
+            <input type="text" class="search" id="requiredFilter" placeholder="Search by name or publisher…">
+            <select class="filter-select" id="requiredTargetFilter" title="Required assignment target">
               <option value="allDevices" selected>All Devices</option>
               <option value="allUsers">All Users</option>
-              <option value="">Either</option>
+              <option value="">Either target</option>
+            </select>
+            <select class="filter-select" id="requiredContextFilter" title="Win32 install context">
+              <option value="">All contexts</option>
+              <option value="system">SYSTEM</option>
+              <option value="user">USER</option>
             </select>
             <button class="btn btn-ghost" id="btnReloadRequired">↻ Reload</button>
           </div>
@@ -652,17 +657,23 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubRequired -->
 
       <div id="intuneSubUninstall" style="display:none;">
-        <div class="tab-hint">Apps with an Uninstall assignment to a group — what's being actively removed from the fleet.</div>
+        <div class="tab-hint">Apps with an <strong>Uninstall</strong> assignment to a group — what's being removed from the fleet. Rows show publisher, platform, and Win32 install context when available (SYSTEM/USER).</div>
         <div id="uninstallError"></div>
         <div class="app-picker">
           <div class="app-picker-bar">
-            <input type="text" class="search" id="uninstallFilter" placeholder="Filter uninstall apps…">
+            <input type="text" class="search" id="uninstallFilter" placeholder="Search by name or publisher…">
             <div class="filter-group">
               <span class="filter-group-label">Platform</span>
               <select class="filter-select" id="uninstallPlatformFilter">
                 <option value="">All</option>
               </select>
             </div>
+            <select class="filter-select" id="uninstallContextFilter" title="Win32 install context (when known)">
+              <option value="">All contexts</option>
+              <option value="system">SYSTEM</option>
+              <option value="user">USER</option>
+              <option value="unknown">Unknown / N/A</option>
+            </select>
             <button class="btn btn-ghost" id="btnReloadUninstall">↻ Reload</button>
           </div>
           <div class="app-list no-scroll" id="uninstallList">
@@ -2693,6 +2704,50 @@ function platformFromOdataType(t) {
   return 'Other';
 }
 
+function appPortalUrl(id) {
+  return `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(id)}`;
+}
+
+// Win32 install context from installExperience.runAsAccount ('system' | 'user').
+function runAsFromApp(app) {
+  const r = (app && app.installExperience && app.installExperience.runAsAccount)
+    || (app && app.runAsAccount)
+    || null;
+  if (!r) return null;
+  const s = String(r).toLowerCase();
+  if (s === 'system' || s === 'user') return s;
+  return s;
+}
+
+function contextBadgeHtml(runAs) {
+  if (!runAs) return `<span class="context-badge context-unknown" title="Install context not exposed for this app type">N/A</span>`;
+  if (runAs === 'system') return `<span class="context-badge context-system" title="installExperience.runAsAccount = system">SYSTEM</span>`;
+  if (runAs === 'user') return `<span class="context-badge context-user" title="installExperience.runAsAccount = user">USER</span>`;
+  return `<span class="context-badge context-unknown">${esc(String(runAs).toUpperCase())}</span>`;
+}
+
+function targetChipsHtml(targets) {
+  if (!targets || !targets.size) return '';
+  const labels = [];
+  if (targets.has('allDevices')) labels.push('All Devices');
+  if (targets.has('allUsers')) labels.push('All Users');
+  if (targets.has('group')) labels.push('Group');
+  return labels.map(l => `<span class="target-chip">${esc(l)}</span>`).join(' ');
+}
+
+// Shared picker row for Required / Uninstall (link-out to admin center).
+function appPickerLinkRow({ id, name, publisher, platform, runAs, targets, trailingHtml }) {
+  const metaText = [publisher || '—', platform || null].filter(Boolean).map(esc).join(' · ');
+  const badges = [contextBadgeHtml(runAs), targetChipsHtml(targets)].filter(Boolean).join(' ');
+  return `<a class="app-row" href="${appPortalUrl(id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;">
+    <div style="flex:1; min-width:0;">
+      <div class="name">${esc(name)}</div>
+      <div class="meta">${metaText}${badges ? ` · ${badges}` : ''}</div>
+    </div>
+    ${trailingHtml || '<div class="pub-small">↗</div>'}
+  </a>`;
+}
+
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
@@ -3474,49 +3529,54 @@ function clearIntuneNotice() { $('intuneNotice').innerHTML = ''; }
 
 // ============================================================
 // Required Apps subtab (under Intune)
+// Win32 Required → All Devices / All Users, with install context.
 // ============================================================
 let requiredLoaded = false;
 let requiredApps = [];
 
 $('btnReloadRequired').addEventListener('click', loadRequiredApps);
-
 $('requiredFilter').addEventListener('input', renderRequiredList);
 $('requiredTargetFilter').addEventListener('change', renderRequiredList);
+$('requiredContextFilter').addEventListener('change', renderRequiredList);
 
 async function loadRequiredApps() {
   requiredLoaded = true;
   clearRequiredError();
   $('requiredList').innerHTML = '<div class="loading">Loading required apps…</div>';
   try {
+    // installExperience is on win32LobApp (runAsAccount = system | user).
     const filter = "(isof('microsoft.graph.win32LobApp')) and (isAssigned eq true)";
-    let path = "beta/deviceAppManagement/mobileApps?$filter=" + encodeURIComponent(filter) + "&$expand=assignments";
-    const all = [];
-    while (path) {
-      const data = await graphGet(path);
-      if (data.value) all.push(...data.value);
-      const next = data['@odata.nextLink'];
-      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
-    }
-    const byName = new Map();
+    const select = 'id,displayName,publisher,installExperience';
+    const all = await graphGetAll(
+      'beta/deviceAppManagement/mobileApps?$filter=' + encodeURIComponent(filter)
+        + '&$select=' + encodeURIComponent(select)
+        + '&$expand=assignments',
+      { onPage: (n) => { $('requiredList').innerHTML = `<div class="loading">Loading required apps… ${n}</div>`; } }
+    );
+    const rows = [];
     for (const app of all) {
       if (!app.displayName || /^update for/i.test(app.displayName)) continue;
-      const assignments = app.assignments || [];
       const targets = new Set();
-      for (const a of assignments) {
+      for (const a of (app.assignments || [])) {
         if (a.intent !== 'required') continue;
         const t = a.target && a.target['@odata.type'];
         if (t === '#microsoft.graph.allDevicesAssignmentTarget') targets.add('allDevices');
         else if (t === '#microsoft.graph.allLicensedUsersAssignmentTarget') targets.add('allUsers');
       }
       if (!targets.size) continue;
-      if (!byName.has(app.displayName)) byName.set(app.displayName, { id: app.id, targets });
+      rows.push({
+        id: app.id,
+        name: app.displayName,
+        publisher: app.publisher || '',
+        platform: platformFromOdataType(app['@odata.type'] || '#microsoft.graph.win32LobApp'),
+        runAs: runAsFromApp(app),
+        targets
+      });
     }
-    requiredApps = [...byName.entries()]
-      .map(([name, info]) => ({ name, id: info.id, targets: info.targets }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    requiredApps = rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     renderRequiredList();
   } catch (e) {
-    requiredLoaded = false; // retry on next visit
+    requiredLoaded = false;
     console.error(e);
     showRequiredError('Failed to load required apps: ' + (e.message || e));
     $('requiredList').innerHTML = '';
@@ -3524,19 +3584,30 @@ async function loadRequiredApps() {
 }
 
 function renderRequiredList() {
-  const q = $('requiredFilter').value.trim().toLowerCase();
+  const q = ($('requiredFilter').value || '').trim().toLowerCase();
   const target = $('requiredTargetFilter').value;
+  const ctx = $('requiredContextFilter').value;
   let filtered = requiredApps;
   if (target) filtered = filtered.filter(a => a.targets.has(target));
-  if (q) filtered = filtered.filter(a => a.name.toLowerCase().includes(q));
+  if (ctx === 'system' || ctx === 'user') filtered = filtered.filter(a => a.runAs === ctx);
+  if (q) {
+    filtered = filtered.filter(a =>
+      a.name.toLowerCase().includes(q) || (a.publisher || '').toLowerCase().includes(q)
+    );
+  }
   $('requiredCount').textContent = filtered.length;
   if (!filtered.length) {
     $('requiredList').innerHTML = '<div class="loading">No required apps found.</div>';
     return;
   }
-  $('requiredList').innerHTML = filtered
-    .map(a => `<a class="app-row" href="https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;"><div class="name">${esc(a.name)}</div></a>`)
-    .join('');
+  $('requiredList').innerHTML = filtered.map(a => appPickerLinkRow({
+    id: a.id,
+    name: a.name,
+    publisher: a.publisher,
+    platform: a.platform,
+    runAs: a.runAs,
+    targets: a.targets
+  })).join('');
 }
 
 function showRequiredError(msg) {
@@ -3554,44 +3625,45 @@ let uninstallApps = [];
 $('btnReloadUninstall').addEventListener('click', loadUninstallApps);
 $('uninstallFilter').addEventListener('input', renderUninstallList);
 $('uninstallPlatformFilter').addEventListener('change', renderUninstallList);
+$('uninstallContextFilter').addEventListener('change', renderUninstallList);
 
 async function loadUninstallApps() {
   uninstallLoaded = true;
   clearUninstallError();
   $('uninstallList').innerHTML = '<div class="loading">Loading uninstall apps…</div>';
   try {
-    let path = "beta/deviceAppManagement/mobileApps?$expand=assignments";
-    const all = [];
-    while (path) {
-      const data = await graphGet(path);
-      if (data.value) all.push(...data.value);
-      const next = data['@odata.nextLink'];
-      path = next ? next.replace('https://graph.microsoft.com/', '') : null;
-    }
-    const byName = new Map();
+    // Slim select + installExperience for Win32 context; @odata.type always returned.
+    const select = 'id,displayName,publisher,installExperience';
+    const all = await graphGetAll(
+      'beta/deviceAppManagement/mobileApps?$select=' + encodeURIComponent(select) + '&$expand=assignments',
+      { onPage: (n) => { $('uninstallList').innerHTML = `<div class="loading">Loading uninstall apps… ${n}</div>`; } }
+    );
+    const rows = [];
     for (const app of all) {
       if (!app.displayName) continue;
-      const assignments = app.assignments || [];
-      for (const a of assignments) {
+      let groupUninstalls = 0;
+      for (const a of (app.assignments || [])) {
         if (a.intent === 'uninstall' &&
             a.target && a.target['@odata.type'] === '#microsoft.graph.groupAssignmentTarget') {
-          if (!byName.has(app.displayName)) {
-            byName.set(app.displayName, {
-              id: app.id,
-              platform: platformFromOdataType(app['@odata.type'])
-            });
-          }
-          break;
+          groupUninstalls++;
         }
       }
+      if (!groupUninstalls) continue;
+      rows.push({
+        id: app.id,
+        name: app.displayName,
+        publisher: app.publisher || '',
+        platform: platformFromOdataType(app['@odata.type']),
+        runAs: runAsFromApp(app),
+        targets: new Set(['group']),
+        groupCount: groupUninstalls
+      });
     }
-    uninstallApps = [...byName.entries()]
-      .map(([name, v]) => ({ name, id: v.id, platform: v.platform }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    uninstallApps = rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     populateUninstallPlatformOptions();
     renderUninstallList();
   } catch (e) {
-    uninstallLoaded = false; // retry on next visit
+    uninstallLoaded = false;
     console.error(e);
     showUninstallError('Failed to load uninstall apps: ' + (e.message || e));
     $('uninstallList').innerHTML = '';
@@ -3606,11 +3678,14 @@ function populateUninstallPlatformOptions() {
 }
 
 function renderUninstallList() {
-  const q = $('uninstallFilter').value.trim().toLowerCase();
+  const q = ($('uninstallFilter').value || '').trim().toLowerCase();
   const platF = $('uninstallPlatformFilter').value;
+  const ctx = $('uninstallContextFilter').value;
   const filtered = uninstallApps.filter(a => {
     if (platF && a.platform !== platF) return false;
-    if (q && !a.name.toLowerCase().includes(q)) return false;
+    if (ctx === 'system' || ctx === 'user') { if (a.runAs !== ctx) return false; }
+    else if (ctx === 'unknown') { if (a.runAs) return false; }
+    if (q && !(a.name.toLowerCase().includes(q) || (a.publisher || '').toLowerCase().includes(q))) return false;
     return true;
   });
   $('uninstallCount').textContent = filtered.length;
@@ -3621,9 +3696,15 @@ function renderUninstallList() {
     $('uninstallList').innerHTML = `<div class="loading">${msg}</div>`;
     return;
   }
-  $('uninstallList').innerHTML = filtered
-    .map(a => `<a class="app-row" href="https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(a.id)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit;"><div class="name">${esc(a.name)}</div></a>`)
-    .join('');
+  $('uninstallList').innerHTML = filtered.map(a => appPickerLinkRow({
+    id: a.id,
+    name: a.name,
+    publisher: a.publisher,
+    platform: a.platform,
+    runAs: a.runAs,
+    targets: a.targets,
+    trailingHtml: `<div class="pub-small" style="min-width:72px; text-align:right;">${a.groupCount} group${a.groupCount === 1 ? '' : 's'} ↗</div>`
+  })).join('');
 }
 
 function showUninstallError(msg) {
@@ -3750,16 +3831,19 @@ function renderAppList() {
     $('appList').innerHTML = '<div class="loading">No apps with failed installs found.</div>';
     return;
   }
-  $('appList').innerHTML = intuneAppsFiltered.map(a => `
+  $('appList').innerHTML = intuneAppsFiltered.map(a => {
+    const plat = platformLabel(a.platform);
+    const meta = [esc(a.publisher) || '—', plat !== '—' ? esc(plat) : null].filter(Boolean).join(' · ');
+    return `
     <div class="app-row" data-id="${esc(a.id)}">
       <div style="flex:1; min-width:0;">
         <div class="name">${esc(a.displayName)}</div>
-        <div class="meta">${esc(a.publisher) || '—'}</div>
+        <div class="meta">${meta}</div>
       </div>
       <div class="pub-small" style="min-width:90px; text-align:right;">${a.failedDeviceCount ?? ''} failed</div>
       <div class="pub-small">→</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 $('appList').addEventListener('click', e => {
@@ -3921,7 +4005,8 @@ function selectApp(app) {
   $('appPicker').style.display = 'none';
   $('failedView').style.display = '';
   $('selAppName').textContent = app.displayName;
-  $('selAppMeta').textContent = app.publisher || '—';
+  const plat = platformLabel(app.platform);
+  $('selAppMeta').textContent = [app.publisher || '—', plat !== '—' ? plat : null].filter(Boolean).join(' · ');
   loadFailed();
 }
 
@@ -3958,9 +4043,17 @@ async function loadFailed() {
     fiRunAsAccount = null;
     try {
       const appDetail = await graphGet('beta/deviceAppManagement/mobileApps/' + encodeURIComponent(selectedApp.id));
-      fiRunAsAccount = appDetail?.installExperience?.runAsAccount || null;
+      fiRunAsAccount = runAsFromApp(appDetail);
     } catch (_) { /* non-blocking — grouped view still works, just labelled as assumed */ }
     fiGrouped = fiRunAsAccount !== 'user'; // system + unknown → device-scoped verdicts
+    // Align header meta with Required/Installed pickers (publisher · platform · SYSTEM|USER).
+    if (selectedApp) {
+      const plat = platformLabel(selectedApp.platform);
+      const bits = [selectedApp.publisher || '—', plat !== '—' ? plat : null];
+      if (fiRunAsAccount === 'system') bits.push('SYSTEM');
+      else if (fiRunAsAccount === 'user') bits.push('USER');
+      $('selAppMeta').textContent = bits.filter(Boolean).join(' · ');
+    }
     fiExpanded.clear();
     renderFailedKPIs();
     renderFailed();
@@ -4204,7 +4297,7 @@ async function loadInstalledApps() {
     // Slim select + expand: only fields the picker/zero-install tile need.
     // @odata.type is always returned by Graph for polymorphic collections.
     const all = await graphGetAll(
-      'beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,createdDateTime,notes&$expand=assignments',
+      'beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,createdDateTime,notes,installExperience&$expand=assignments',
       { onPage: (n) => { $('installedAppList').innerHTML = `<div class="loading">Loading apps… ${n} so far</div>`; } }
     );
 
@@ -4222,6 +4315,7 @@ async function loadInstalledApps() {
         displayName: app.displayName,
         publisher: app.publisher,
         platform: platformFromOdataType(app['@odata.type']),
+        runAs: runAsFromApp(app),
         created: app.createdDateTime || null
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
@@ -4320,7 +4414,10 @@ function renderInstalledAppList() {
   const slice = installedAppsFiltered.slice(start, start + INSTALLED_PAGE_SIZE);
 
   $('installedAppList').innerHTML = slice.map(a => {
-    let meta = esc(a.publisher) || '—';
+    const plat = platformLabel(a.platform);
+    let meta = [esc(a.publisher) || '—', plat !== '—' ? esc(plat) : null].filter(Boolean).join(' · ');
+    const ctx = a.runAs ? contextBadgeHtml(a.runAs) : '';
+    if (ctx) meta += ` · ${ctx}`;
     if (installedZeroFilter && a.created) {
       const days = Math.floor((Date.now() - Date.parse(a.created)) / 864e5);
       meta += ` · 0 installs · published ${days >= 60 ? Math.floor(days / 30) + ' months' : days + ' days'} ago`;
@@ -4389,7 +4486,9 @@ function selectAppInstalled(app) {
   $('installedView').style.display = '';
   const portalUrl = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(app.id)}`;
   $('instAppName').innerHTML = `<a href="${portalUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" title="Open in Intune admin center">${esc(app.displayName)} ↗</a>`;
-  $('instAppMeta').textContent = app.publisher || '—';
+  const bits = [app.publisher || '—', platformLabel(app.platform)];
+  if (app.runAs) bits.push(app.runAs === 'system' ? 'SYSTEM' : app.runAs === 'user' ? 'USER' : app.runAs);
+  $('instAppMeta').textContent = bits.filter(Boolean).join(' · ');
   loadInstalledAssignments();
   loadInstalled();
 }
