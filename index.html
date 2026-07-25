@@ -3544,12 +3544,12 @@ async function loadRequiredApps() {
   clearRequiredError();
   $('requiredList').innerHTML = '<div class="loading">Loading required apps…</div>';
   try {
-    // installExperience is on win32LobApp (runAsAccount = system | user).
+    // Do NOT $select installExperience — Graph rejects it on base mobileApp
+    // ("Could not find a property named 'installExperience'"). Filter to
+    // win32LobApp and return full derived objects; runAsAccount is present there.
     const filter = "(isof('microsoft.graph.win32LobApp')) and (isAssigned eq true)";
-    const select = 'id,displayName,publisher,installExperience';
     const all = await graphGetAll(
       'beta/deviceAppManagement/mobileApps?$filter=' + encodeURIComponent(filter)
-        + '&$select=' + encodeURIComponent(select)
         + '&$expand=assignments',
       { onPage: (n) => { $('requiredList').innerHTML = `<div class="loading">Loading required apps… ${n}</div>`; } }
     );
@@ -3632,10 +3632,10 @@ async function loadUninstallApps() {
   clearUninstallError();
   $('uninstallList').innerHTML = '<div class="loading">Loading uninstall apps…</div>';
   try {
-    // Slim select + installExperience for Win32 context; @odata.type always returned.
-    const select = 'id,displayName,publisher,installExperience';
+    // No $select for installExperience (not on base mobileApp). Full list + expand;
+    // Win32 items still carry installExperience on the derived type payload.
     const all = await graphGetAll(
-      'beta/deviceAppManagement/mobileApps?$select=' + encodeURIComponent(select) + '&$expand=assignments',
+      'beta/deviceAppManagement/mobileApps?$expand=assignments',
       { onPage: (n) => { $('uninstallList').innerHTML = `<div class="loading">Loading uninstall apps… ${n}</div>`; } }
     );
     const rows = [];
@@ -4296,8 +4296,11 @@ async function loadInstalledApps() {
   try {
     // Slim select + expand: only fields the picker/zero-install tile need.
     // @odata.type is always returned by Graph for polymorphic collections.
+    // Slim $select for scale. Do not include installExperience — Graph 400s it on
+    // base mobileApp. SYSTEM/USER badges appear on Required (win32 full objects)
+    // and Uninstall (no $select); Installed shows them only if present.
     const all = await graphGetAll(
-      'beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,createdDateTime,notes,installExperience&$expand=assignments',
+      'beta/deviceAppManagement/mobileApps?$select=id,displayName,publisher,createdDateTime,notes&$expand=assignments',
       { onPage: (n) => { $('installedAppList').innerHTML = `<div class="loading">Loading apps… ${n} so far</div>`; } }
     );
 
