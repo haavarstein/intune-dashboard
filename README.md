@@ -13,13 +13,13 @@ Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in 
 | Tab | Purpose |
 |-----|---------|
 | **Local** | Visualize uninstall registry from CSV or Intune Collect diagnostics `.reg` files |
-| **Intune** | Live tenant: 21 sub-tabs (apps, hardware, MAA, Autopilot, BitLocker, posture, Defender views, metering, …) |
+| **Intune** | Live tenant: 22 sub-tabs (apps, hardware, MAA, Autopilot, BitLocker, Secure Boot, posture, Defender views, metering, …) |
 | **Analyze** | Drop IME / AgentExecutor / MSI logs → AI triage (optional API key) |
 | **Settings** | MSP customer list, approvers, metering script IDs, Claude/OpenRouter key |
 
-**Intune sub-tabs (21):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · Management Health · Assignments · **Posture** · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
+**Intune sub-tabs (22):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · **Secure Boot** · Management Health · Assignments · Posture · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
 
-Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, BitLocker key-escrow gaps, compliance + Conditional Access posture audit, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot orphan reconciliation.
+Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, Secure Boot on/off from DHA, BitLocker key-escrow gaps, compliance + Conditional Access posture audit, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot orphan reconciliation.
 
 ---
 

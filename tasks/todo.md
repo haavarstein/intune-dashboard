@@ -11,25 +11,24 @@ Completed designs (Software Metering, Autopilot, MSP switcher, app delete, MAA e
 
 - [x] Large-tenant hardening (Cancel, Assignments progress, slim Hardware, cache notes)
 - [x] **Posture** sub-tab (Compliance + optional CA via `Policy.Read.All`) — 20 → **21** sub-tabs
+- [x] **Secure Boot** sub-tab (DHA enabled/disabled + progressive fan-out) — **21 → 22** sub-tabs  
+  Note: full Autopatch cert status (up to date / trust / confidence) is still portal-only; tab links to docs.
 
 ---
 
 # Next candidates (from X / community — not started)
 
-Prioritized for Graph-only, MSP review value. Product signals from @MSIntune + community (2026): patch/Autopatch, Secure Boot certs, EPM/Suite→E3/E5, app inventory migration, least-privilege.
+Prioritized for Graph-only, MSP review value. Product signals from @MSIntune + community (2026): patch/Autopatch, EPM/Suite→E3/E5, app inventory migration, least-privilege.
 
-## Secure Boot readiness (new)
+## Secure Boot v2 (optional follow-up)
 
 ### Goal
-Device-level Secure Boot certificate / trust readiness for the 2026 cert-rollover fire drill — KPI tiles + drill-down that the native report is easy to miss in multi-tenant MSP work.
+Per-device **certificate** readiness (2023 CA), not just Secure Boot on/off.
 
 ### Scope (draft)
-- [ ] Sub-tab or Hardware/Overview extension: Secure Boot status from Graph / Autopatch reports if available
-- [ ] Tiles: ready / at risk / unknown · CSV export · deep-links
-- [ ] Document licensing / report API prerequisites
-
-### Out of scope
-- Pushing cert updates from the dashboard (remediation stays out of band)
+- [ ] If Microsoft publishes a public Graph export for Autopatch Secure Boot status, wire it
+- [ ] Or PR detection script (registry/UEFI signals) + fleet-scan pattern like AI agents
+- [ ] Tiles: cert up to date / not up to date / N/A · trust config · confidence when available
 
 ---
 

@@ -10,7 +10,7 @@ This file is the former long README, kept so operational detail is not lost when
 A clean, client-side dashboard with four tabs:
 
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
-2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty-one sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, Management health, Assignments, **Posture**, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
+2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty-two sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, **Secure Boot**, Management health, Assignments, Posture, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
 4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
 
@@ -30,7 +30,7 @@ A clean, client-side dashboard with four tabs:
 
 ### Intune tab (Graph API)
 
-Sign in once with MSAL — all twenty-one sub-tabs share the same session.
+Sign in once with MSAL — all twenty-two sub-tabs share the same session.
 
 **Overview** *(default sub-tab on sign-in)* — single-screen tenant health summary, framed for MSP customer-review meetings.
 
@@ -110,6 +110,13 @@ Sign in once with MSAL — all twenty-one sub-tabs share the same session.
 - Sortable table with Device · User · Windows version · Model · Encryption state · Keys escrowed · Last check-in. Default sort floats gap-devices to the top.
 - **⬇ Export CSV** for compliance evidence — current filtered view with state column included.
 - The dashboard requests `BitlockerKey.ReadBasic.All` — the listing scope that returns key *metadata only* (id, deviceId, createdDateTime, volumeType). Recovery key material is never fetched or rendered; viewing actual keys still requires the Entra admin center.
+
+**Secure Boot** — fleet view of whether Secure Boot is **enabled** on Windows managed devices, from Intune health attestation (`deviceHealthAttestationState.secureBoot`). Supports the 2026 Secure Boot certificate-readiness conversation without requiring Autopatch UI.
+
+- **KPI tiles**: Windows devices · Secure Boot on · Secure Boot off · Unknown (no DHA) · enabled rate gauge (of devices with a known state).
+- Progressive load: device list first; then optional per-device DHA expand/fan-out with **✕ Cancel** (same pattern as Hardware RAM).
+- Table columns: Device · User · Windows · Manufacturer · Model · Secure Boot · TPM · Last check-in. Click device → Intune blade. CSV export of the filtered view.
+- **Honest gap:** Autopatch’s full certificate status (Up to date / Not up to date), trust configuration, and confidence level are **not** on public Graph. Banner links to Microsoft’s [Secure Boot status report](https://learn.microsoft.com/en-us/windows/deployment/windows-autopatch/monitor/secure-boot-status-report) (Intune → Reports → Windows Autopatch → Windows quality updates → Secure Boot status).
 
 **Vulnerabilities (P2/E5)** — software inventory from Microsoft Defender Vulnerability Management, surfaced via the Microsoft Graph Advanced Hunting API.
 
@@ -330,6 +337,7 @@ Everything requested at sign-in is read-only; all write scopes are just-in-time.
 
 **What the dashboard calls:**
 
+- `GET /beta/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$expand=deviceHealthAttestationState` (and per-device expand) — Secure Boot on/off + TPM from DHA for the Secure Boot sub-tab
 - `GET /beta/deviceManagement/settings` — tenant compliance default (`secureByDefault`) for the Posture sub-tab
 - `GET /beta/deviceManagement/deviceCompliancePolicies?$expand=assignments,scheduledActionsForRule` — Posture compliance tiles
 - `GET /v1.0/identity/conditionalAccess/policies` — Posture CA tiles (requires `Policy.Read.All`)

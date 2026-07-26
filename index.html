@@ -269,6 +269,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <button class="subtab" data-subtab="appversions">App Versions</button>
         <button class="subtab" data-subtab="autopilot">Autopilot</button>
         <button class="subtab" data-subtab="bitlocker">BitLocker</button>
+        <button class="subtab" data-subtab="secureboot">Secure Boot</button>
         <button class="subtab" data-subtab="certhealth">Management Health</button>
         <button class="subtab" data-subtab="assignments">Assignments</button>
         <button class="subtab" data-subtab="posture">Posture</button>
@@ -1013,6 +1014,97 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           </div>
         </div>
       </div><!-- /intuneSubBitlocker -->
+
+      <div id="intuneSubSecureboot" style="display:none;">
+        <div class="tab-hint">
+          Secure Boot readiness for the Windows fleet — is Secure Boot <strong>enabled</strong> on each device (from Intune <code>deviceHealthAttestationState.secureBoot</code>).
+          Full <strong>2023 certificate / trust / confidence</strong> columns live in the Autopatch portal report (not exposed on public Graph yet) —
+          <a href="https://learn.microsoft.com/en-us/windows/deployment/windows-autopatch/monitor/secure-boot-status-report" target="_blank" rel="noopener noreferrer">Secure Boot status report docs</a>
+          · Intune → Reports → Windows Autopatch → Windows quality updates → Secure Boot status.
+          Devices without DHA data show as <strong>Unknown</strong> (health attestation not reported, or not Windows DHA-capable).
+        </div>
+        <div class="tiles">
+          <div class="tile" data-sb-tile="" style="cursor:pointer;" title="Show all Windows devices">
+            <div class="tile-label">Windows devices</div>
+            <div class="tile-value" id="sbTileTotal">0</div>
+            <div class="tile-sub">in scope</div>
+          </div>
+          <div class="tile tile-good" data-sb-tile="enabled" style="cursor:pointer;" title="Filter: Secure Boot enabled">
+            <div class="tile-label">Secure Boot on</div>
+            <div class="tile-value" id="sbTileOn">0</div>
+            <div class="tile-sub">DHA reports enabled</div>
+          </div>
+          <div class="tile tile-bad" data-sb-tile="disabled" style="cursor:pointer;" title="Filter: Secure Boot disabled">
+            <div class="tile-label">Secure Boot off</div>
+            <div class="tile-value" id="sbTileOff">0</div>
+            <div class="tile-sub">DHA reports disabled</div>
+          </div>
+          <div class="tile tile-watch" data-sb-tile="unknown" style="cursor:pointer;" title="Filter: no DHA Secure Boot signal">
+            <div class="tile-label">Unknown</div>
+            <div class="tile-value" id="sbTileUnknown">0</div>
+            <div class="tile-sub">no attestation data</div>
+          </div>
+          <div class="tile" title="Share of devices with known state that have Secure Boot enabled">
+            <div class="tile-label">SB enabled rate</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <svg width="48" height="48" viewBox="0 0 50 50" style="flex-shrink:0;" aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="var(--line)" stroke-width="5"/>
+                <circle id="sbRateRing" cx="25" cy="25" r="20" fill="none" stroke="#1f7a3a" stroke-width="5"
+                        stroke-dasharray="125.66" stroke-dashoffset="125.66"
+                        transform="rotate(-90 25 25)" stroke-linecap="round"
+                        style="transition: stroke-dashoffset .6s ease, stroke .2s ease;"/>
+              </svg>
+              <div>
+                <div class="tile-value" id="sbRate" style="font-size:30px;">—</div>
+                <div class="tile-sub" style="margin-top:4px;">of known</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h2>Devices</h2>
+            <div class="controls">
+              <input type="text" class="search" id="securebootFilter" placeholder="Search device, user, model…">
+              <select class="filter-select" id="securebootStateFilter">
+                <option value="" selected>All states</option>
+                <option value="enabled">Secure Boot on</option>
+                <option value="disabled">Secure Boot off</option>
+                <option value="unknown">Unknown</option>
+              </select>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnSecurebootClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnSecurebootExport">⬇ Export CSV</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnSecurebootRefresh">↻ Refresh</span>
+              <span id="btnSecurebootCancel" style="display:none; cursor:pointer; color:var(--danger); font-weight:600; font-size:13px;" title="Stop DHA fan-out">✕ Cancel</span>
+            </div>
+          </div>
+          <div id="securebootLoading" class="loading" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px;">
+            <span id="securebootLoadingText">Loading devices…</span>
+          </div>
+          <div id="securebootError"></div>
+          <div id="securebootNotice"></div>
+          <div id="securebootContent" style="display:none;">
+            <div class="table-scroll">
+              <table class="app-assign-table">
+                <thead>
+                  <tr>
+                    <th data-sbsort="deviceName">Device <span class="arrow">▼</span></th>
+                    <th data-sbsort="userPrincipalName">User <span class="arrow">▼</span></th>
+                    <th data-sbsort="osVersion">Windows <span class="arrow">▼</span></th>
+                    <th data-sbsort="manufacturer">Manufacturer <span class="arrow">▼</span></th>
+                    <th data-sbsort="model">Model <span class="arrow">▼</span></th>
+                    <th data-sbsort="secureBoot">Secure Boot <span class="arrow">▼</span></th>
+                    <th data-sbsort="tpmVersion">TPM <span class="arrow">▼</span></th>
+                    <th data-sbsort="lastSync">Last check-in <span class="arrow">▼</span></th>
+                  </tr>
+                </thead>
+                <tbody id="securebootRowsBody"></tbody>
+              </table>
+            </div>
+            <div class="footer-count"><span id="securebootCount">0</span> devices shown</div>
+          </div>
+        </div>
+      </div><!-- /intuneSubSecureboot -->
 
       <div id="intuneSubCerthealth" style="display:none;">
         <div class="tab-hint">Intune management health, derived from the MDM certificate lifecycle. A Windows device whose management certificate has expired can still look perfectly healthy in the Intune portal — compliant, recently synced, online — while Win32 apps, remediation scripts and every other IME-driven workload silently stop working. This tab translates <code>managementCertificateExpirationDate</code> into that operational signal — an assessment inferred from Graph data and observed tenant patterns, not a direct client inspection. Click any health badge or 🔍 Investigate for the full assessment.</div>
@@ -3192,6 +3284,10 @@ function resetTenantState() {
   autopilotLoaded = false; autopilotRows = [];
   // BitLocker
   bitlockerLoaded = false; bitlockerRows = [];
+  // Secure Boot
+  securebootLoadGen++;
+  if (securebootAbort) { try { securebootAbort.abort(); } catch (_) {} }
+  securebootLoaded = false; securebootRows = []; securebootTileFilter = null;
   // Disk space
   diskspaceLoaded = false; diskspaceRows = [];
   // App versions (version sprawl)
@@ -5320,6 +5416,7 @@ const SUBTAB_CFG = {
   appversions:     { panel: 'intuneSubAppversions',     load: () => !appversionsLoaded && loadAppversions() },
   autopilot:       { panel: 'intuneSubAutopilot',       load: () => !autopilotLoaded && loadAutopilot() },
   bitlocker:       { panel: 'intuneSubBitlocker',       load: () => !bitlockerLoaded && loadBitlocker() },
+  secureboot:      { panel: 'intuneSubSecureboot',      load: () => !securebootLoaded && loadSecureBoot() },
   certhealth:      { panel: 'intuneSubCerthealth',      load: () => !certhealthLoaded && loadCerthealth() },
   assignments:     { panel: 'intuneSubAssignments',     load: () => !assignmentsPoliciesLoaded && loadAssignmentsPolicies() },
   posture:         { panel: 'intuneSubPosture',         load: () => !postureLoaded && loadPosture() },
@@ -9074,6 +9171,317 @@ document.querySelectorAll('#intuneSubApprovals th[data-asort]').forEach(th => {
 });
 
 $('approvalActionModal').addEventListener('click', e => { if (e.target === $('approvalActionModal')) closeApprovalActionModal(); });
+
+// ============================================================
+// Secure Boot sub-tab — DHA Secure Boot enabled/disabled
+// deviceHealthAttestationState.secureBoot via list expand, then
+// progressive per-device GET for gaps (same pattern as Hardware RAM).
+// Full Autopatch cert readiness is portal-only (public Graph gap).
+// ============================================================
+let securebootLoaded = false;
+let securebootRows = [];
+let securebootTileFilter = null;
+let securebootSortKey = 'secureBoot';
+let securebootSortDir = 'asc';
+let securebootLoadGen = 0;
+let securebootAbort = null;
+
+const SB_AUTOPATCH_DOCS = 'https://learn.microsoft.com/en-us/windows/deployment/windows-autopatch/monitor/secure-boot-status-report';
+
+function parseSecureBootFlag(raw) {
+  if (raw == null || raw === '') return 'unknown';
+  if (typeof raw === 'boolean') return raw ? 'enabled' : 'disabled';
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'enabled' || s === 'true' || s === '1' || s === 'yes' || s === 'on') return 'enabled';
+  if (s === 'disabled' || s === 'false' || s === '0' || s === 'no' || s === 'off') return 'disabled';
+  if (s.includes('enabled') || s.includes('turned on') || s === 'secureboot') return 'enabled';
+  if (s.includes('disabled') || s.includes('turned off')) return 'disabled';
+  return 'unknown';
+}
+
+function secureBootBadge(state) {
+  const map = {
+    enabled:  { label: 'On', bg: 'var(--good-bg)', border: 'var(--good-border)', color: 'var(--good-ink)' },
+    disabled: { label: 'Off', bg: 'var(--bad-bg)', border: 'var(--bad-border)', color: 'var(--bad-ink)' },
+    unknown:  { label: 'Unknown', bg: 'var(--row-hover)', border: 'var(--line)', color: 'var(--muted)' }
+  };
+  const m = map[state] || map.unknown;
+  return `<span style="display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:${m.bg}; border:1px solid ${m.border}; color:${m.color};">${m.label}</span>`;
+}
+
+function setSecurebootLoading(text, cancelable) {
+  $('securebootLoading').style.display = 'flex';
+  $('securebootLoadingText').textContent = text;
+  $('btnSecurebootCancel').style.display = cancelable ? '' : 'none';
+}
+function hideSecurebootLoading() {
+  $('securebootLoading').style.display = 'none';
+  $('btnSecurebootCancel').style.display = 'none';
+}
+
+function cancelSecureBootLoad() {
+  securebootLoadGen++;
+  if (securebootAbort) { try { securebootAbort.abort(); } catch (_) {} }
+  $('btnSecurebootCancel').style.display = 'none';
+  if (securebootRows.length) {
+    setSecurebootLoading('Cancelled — showing DHA data gathered so far.', false);
+    setTimeout(() => { if ($('securebootLoadingText').textContent.startsWith('Cancelled')) hideSecurebootLoading(); }, 2800);
+  } else {
+    securebootLoaded = false;
+    hideSecurebootLoading();
+  }
+}
+
+async function loadSecureBoot(force = false) {
+  if (securebootLoaded && !force) return;
+  if (securebootAbort) { try { securebootAbort.abort(); } catch (_) {} }
+  securebootAbort = new AbortController();
+  const signal = securebootAbort.signal;
+  const gen = ++securebootLoadGen;
+  securebootLoaded = true;
+  setSecurebootLoading('Loading Windows devices…', true);
+  $('securebootContent').style.display = 'none';
+  $('securebootError').innerHTML = '';
+  $('securebootNotice').innerHTML = '';
+  try {
+    const select = 'id,deviceName,userPrincipalName,osVersion,model,manufacturer,lastSyncDateTime,azureADDeviceId';
+    const filter = `operatingSystem eq 'Windows'`;
+    let devices = [];
+    // Prefer expand so we avoid N+1 when Graph allows it.
+    try {
+      devices = await graphGetAll(
+        `beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}&$expand=deviceHealthAttestationState`,
+        {
+          signal,
+          onPage: (n) => { if (gen === securebootLoadGen) setSecurebootLoading(`Loading Windows devices… ${n}`, true); }
+        }
+      );
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      console.warn('Secure Boot: expand DHA failed, listing without expand', e.message || e);
+      devices = await graphGetAll(
+        `beta/deviceManagement/managedDevices?$select=${select}&$filter=${encodeURIComponent(filter)}`,
+        {
+          signal,
+          onPage: (n) => { if (gen === securebootLoadGen) setSecurebootLoading(`Loading Windows devices… ${n}`, true); }
+        }
+      );
+    }
+    if (gen !== securebootLoadGen) return;
+
+    securebootRows = devices.map(d => {
+      const dha = d.deviceHealthAttestationState || null;
+      return {
+        id: d.id,
+        deviceName: d.deviceName || '',
+        userPrincipalName: d.userPrincipalName || '',
+        osVersion: d.osVersion || '',
+        model: d.model || '',
+        manufacturer: d.manufacturer || '',
+        lastSync: d.lastSyncDateTime || '',
+        azureADDeviceId: d.azureADDeviceId || '',
+        secureBoot: parseSecureBootFlag(dha && dha.secureBoot),
+        secureBootRaw: (dha && dha.secureBoot) || '',
+        tpmVersion: (dha && dha.tpmVersion) || '',
+        _dhaLoaded: !!(dha && (dha.secureBoot != null && dha.secureBoot !== ''))
+      };
+    });
+
+    // Progressive table before DHA fan-out finishes.
+    $('securebootContent').style.display = '';
+    $('securebootNotice').innerHTML =
+      `<div class="notice-banner"><strong>Graph scope:</strong> Secure Boot <em>enabled/disabled</em> from device health attestation.
+      Per-certificate readiness (Up to date / Not up to date / trust / confidence) is only in the
+      <a href="${SB_AUTOPATCH_DOCS}" target="_blank" rel="noopener noreferrer">Windows Autopatch Secure Boot status report</a>
+      (Intune → Reports → Windows Autopatch → Windows quality updates → Secure Boot status).</div>`;
+    renderSecureBootTiles();
+    renderSecureBootTable();
+
+    const needDha = securebootRows.filter(r => !r._dhaLoaded);
+    if (!needDha.length) {
+      hideSecurebootLoading();
+      return;
+    }
+
+    setSecurebootLoading(`Fetching health attestation 0/${needDha.length}…`, true);
+    let done = 0;
+    await mapPool(needDha, 20, async (row) => {
+      if (gen !== securebootLoadGen || signal.aborted) return;
+      try {
+        const detail = await graphGet(
+          `beta/deviceManagement/managedDevices/${encodeURIComponent(row.id)}?$select=id&$expand=deviceHealthAttestationState`,
+          { signal }
+        );
+        if (gen !== securebootLoadGen) return;
+        const dha = detail.deviceHealthAttestationState || null;
+        row.secureBoot = parseSecureBootFlag(dha && dha.secureBoot);
+        row.secureBootRaw = (dha && dha.secureBoot) || '';
+        row.tpmVersion = (dha && dha.tpmVersion) || row.tpmVersion || '';
+        row._dhaLoaded = true;
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e;
+        row._dhaLoaded = true; // stop retrying; leave unknown
+      }
+      done++;
+      if (gen === securebootLoadGen && (done % 25 === 0 || done === needDha.length)) {
+        setSecurebootLoading(`Fetching health attestation ${done}/${needDha.length}…`, true);
+        if (done % 50 === 0 || done === needDha.length) {
+          renderSecureBootTiles();
+          renderSecureBootTable();
+        }
+      }
+    }, { signal });
+
+    if (gen !== securebootLoadGen) return;
+    renderSecureBootTiles();
+    renderSecureBootTable();
+    hideSecurebootLoading();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      if (gen === securebootLoadGen && securebootRows.length) {
+        renderSecureBootTiles();
+        renderSecureBootTable();
+        setSecurebootLoading('Cancelled — showing data gathered so far.', false);
+        setTimeout(() => { if (gen === securebootLoadGen) hideSecurebootLoading(); }, 2800);
+      } else if (gen === securebootLoadGen) {
+        securebootLoaded = false;
+        hideSecurebootLoading();
+      }
+      return;
+    }
+    if (gen !== securebootLoadGen) return;
+    securebootLoaded = false;
+    hideSecurebootLoading();
+    console.error('Secure Boot load failed', e);
+    $('securebootError').innerHTML = `<div class="error-banner">Failed to load Secure Boot data: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderSecureBootTiles() {
+  let total = 0, on = 0, off = 0, unk = 0;
+  for (const r of securebootRows) {
+    total++;
+    if (r.secureBoot === 'enabled') on++;
+    else if (r.secureBoot === 'disabled') off++;
+    else unk++;
+  }
+  $('sbTileTotal').textContent = total;
+  $('sbTileOn').textContent = on;
+  $('sbTileOff').textContent = off;
+  $('sbTileUnknown').textContent = unk;
+  const known = on + off;
+  const rate = known === 0 ? null : (on / known) * 100;
+  setGaugeKpi('sbRateRing', 'sbRate', rate, { thresholds: { good: 95, watch: 80 } });
+  document.querySelectorAll('#intuneSubSecureboot [data-sb-tile]').forEach(tile => {
+    const key = tile.dataset.sbTile;
+    tile.classList.toggle('active', securebootTileFilter === key || (key === '' && !securebootTileFilter));
+  });
+  $('btnSecurebootClearKpi').style.display = securebootTileFilter ? '' : 'none';
+}
+
+function applySecureBootFilters(rows) {
+  const q = ($('securebootFilter').value || '').toLowerCase().trim();
+  const stateF = $('securebootStateFilter').value;
+  const tile = securebootTileFilter;
+  return rows.filter(r => {
+    if (tile && r.secureBoot !== tile) return false;
+    if (stateF && r.secureBoot !== stateF) return false;
+    if (q) {
+      const hay = [r.deviceName, r.userPrincipalName, r.model, r.manufacturer, r.osVersion].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderSecureBootTable() {
+  let rows = applySecureBootFilters(securebootRows);
+  const dir = securebootSortDir === 'asc' ? 1 : -1;
+  rows = rows.slice().sort((a, b) => {
+    let av = a[securebootSortKey], bv = b[securebootSortKey];
+    if (securebootSortKey === 'secureBoot') {
+      const rank = { disabled: 0, unknown: 1, enabled: 2 };
+      av = rank[a.secureBoot] ?? 1;
+      bv = rank[b.secureBoot] ?? 1;
+    } else {
+      av = (av ?? '').toString().toLowerCase();
+      bv = (bv ?? '').toString().toLowerCase();
+    }
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return (a.deviceName || '').localeCompare(b.deviceName || '');
+  });
+  const body = $('securebootRowsBody');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="8" class="empty" style="padding:24px; text-align:center; color:var(--muted);">No devices match.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(r => `
+      <tr>
+        <td><a href="${intuneDeviceUrl(r.id, 'overview')}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.deviceName) || '—'}</a></td>
+        <td>${esc(r.userPrincipalName) || '—'}</td>
+        <td>${esc(r.osVersion) || '—'}</td>
+        <td>${esc(r.manufacturer) || '—'}</td>
+        <td>${esc(r.model) || '—'}</td>
+        <td title="${esc(r.secureBootRaw || '')}">${secureBootBadge(r.secureBoot)}</td>
+        <td>${esc(r.tpmVersion) || '—'}</td>
+        <td class="date">${r.lastSync ? new Date(r.lastSync).toLocaleString() : '—'}</td>
+      </tr>`).join('');
+  }
+  $('securebootCount').textContent = rows.length;
+}
+
+function exportSecureBootCsv() {
+  const rows = applySecureBootFilters(securebootRows);
+  const lines = [['DeviceName', 'User', 'OSVersion', 'Manufacturer', 'Model', 'SecureBoot', 'SecureBootRaw', 'TpmVersion', 'LastSync', 'EntraDeviceId'].join(',')];
+  for (const r of rows) {
+    lines.push([
+      r.deviceName, r.userPrincipalName, r.osVersion, r.manufacturer, r.model,
+      r.secureBoot, r.secureBootRaw, r.tpmVersion, r.lastSync, r.azureADDeviceId
+    ].map(escCsv).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `secure-boot-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+$('btnSecurebootRefresh').addEventListener('click', () => { securebootLoaded = false; loadSecureBoot(true); });
+$('btnSecurebootCancel').addEventListener('click', cancelSecureBootLoad);
+$('btnSecurebootExport').addEventListener('click', exportSecureBootCsv);
+$('btnSecurebootClearKpi').addEventListener('click', () => {
+  securebootTileFilter = null;
+  $('securebootStateFilter').value = '';
+  renderSecureBootTiles();
+  renderSecureBootTable();
+});
+$('securebootFilter').addEventListener('input', renderSecureBootTable);
+$('securebootStateFilter').addEventListener('change', () => {
+  securebootTileFilter = null;
+  renderSecureBootTiles();
+  renderSecureBootTable();
+});
+document.querySelectorAll('#intuneSubSecureboot [data-sb-tile]').forEach(tile => {
+  tile.addEventListener('click', () => {
+    const key = tile.dataset.sbTile;
+    if (key === '') securebootTileFilter = null;
+    else securebootTileFilter = securebootTileFilter === key ? null : key;
+    if (securebootTileFilter) $('securebootStateFilter').value = securebootTileFilter;
+    else $('securebootStateFilter').value = '';
+    renderSecureBootTiles();
+    renderSecureBootTable();
+  });
+});
+document.querySelectorAll('#intuneSubSecureboot th[data-sbsort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sbsort;
+    if (securebootSortKey === key) securebootSortDir = securebootSortDir === 'asc' ? 'desc' : 'asc';
+    else { securebootSortKey = key; securebootSortDir = 'asc'; }
+    renderSecureBootTable();
+  });
+});
 
 // ============================================================
 // BitLocker sub-tab — escrow audit
