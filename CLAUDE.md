@@ -58,6 +58,15 @@ Any placeholder text, `e.g. …` hints, tooltips, README examples, and test/prev
 
 Real customer identifiers leaking into UI text or docs is a hard no — the whole customer-code system exists to keep names off screenshots and recordings.
 
+## Optional AI providers (Analyze / Settings)
+
+Analyze and click-to-explain error codes call a provider chosen in Settings. Keys live in `localStorage` (`intuneDash.claude`) and are sent only from the browser — do not add a backend that proxies keys, and do not log keys.
+
+- **Claude (default):** Anthropic Messages API (`sk-ant-…` → `api.anthropic.com`) or OpenRouter (`sk-or-…` → `openrouter.ai` with the same Claude models). Keep this path working; it is not deprecated.
+- **Grok:** xAI OpenAI-compatible chat completions (`xai-…` → `https://api.x.ai/v1/chat/completions`). Keys from [console.x.ai](https://console.x.ai). This is the xAI Grok API, **not** Twitter/X developer.x.com.
+
+Default models: Haiku 4.5 (Claude), Grok 4.6 (xAI).
+
 ## Files to never commit
 
 - `email/` — may contain exported real emails with tenant data (git-ignored)

@@ -12,7 +12,7 @@ A clean, client-side dashboard with four tabs:
 1. **Local** — visualize a Windows uninstall-registry export from a single machine. Accepts a PowerShell-generated CSV *or* the `.reg` files from an Intune **Collect diagnostics** bundle (drop one or both `.reg` files at once).
 2. **Intune** — sign in with your Microsoft account and inspect your tenant live. Twenty-two sub-tabs: Overview, Installed, Approvals, Failed Install, Required Install, Required Uninstall, Hardware, Disk space, App versions, Autopilot, BitLocker, **Secure Boot**, Management health, Assignments, Posture, Remediation, Software Metering, Vulnerabilities (P2/E5), Drift & Compliance (P2/E5), Soft-deleted (Entra recycle bin), Stale users (P1), and AI agents (P2/E5).
 3. **Analyze** — drop in Intune log files (IME, AgentExecutor, MSI verbose, etc.) and get an AI-powered diagnosis.
-4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude API key, and pick the model used for the optional AI features.
+4. **Settings** — manage a list of customers (for MSP multi-tenant workflows), configure the Claude and/or xAI API key, pick the Analyze provider (Claude or Grok), and pick the model used for the optional AI features.
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)
 
@@ -46,7 +46,7 @@ Sign in once with MSAL — all twenty-two sub-tabs share the same session.
 - **Grouped by device with an operational verdict (default view).** Intune's install-status report emits one row per *device + user session* — every user who signs in gets a status record — so a SYSTEM-context app can show "Installed" for one user and "Failed 0x80070643" for five others on the *same* machine, even though the install is per-device and actually succeeded. The drill-down folds those sessions into one row per device with a verdict chip: 🟢 **Installed on device** (≥1 session reports Installed — remaining failures are flagged as *stale session noise*), 🔴 **Failing** (no session reports installed), 🟡 no definitive state. Click a device row to expand the raw per-session rows. The app's `installExperience.runAsAccount` is fetched on drill-in: **user**-context apps default to the flat per-session view instead (there each row is a genuinely independent install); a hint link toggles between grouped and flat either way.
 - **KPIs count devices, not session rows**: *Failing devices* (reconcilable against the assignment group's member count) · *Installed w/ stale failures* (reporting noise, not missing installs) · unique error codes and affected users counted from failed rows only. State values render as Installed/Failed badges instead of raw enum numbers.
 - **Include Patch My PC** checkbox (above the app list, default unchecked) — apps created by Patch My PC Publisher are detected by their `notes` field starting with `PmpAppId` and hidden from the list by default, since they typically dominate the volume of assigned-and-failed apps in larger tenants. Tick the box to include them.
-- **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude. Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
+- **AI error analysis** *(optional)* — click an error code to get a diagnosis and remediation steps from Claude or Grok (whichever Analyze provider is selected in Settings). Results are cached per error code in localStorage so repeat clicks are instant and free. Use the **↻ Re-analyze** button in the modal to force a fresh API call.
 - **View toggle** in the picker bar — switch between *By app* (default) and *By error code* (fleet-wide error clustering). The error-clustering view fans out per-app install-status reports across every failing app in parallel and aggregates by error code, surfacing distinct codes with device count + app count + sample apps. Spots systemic issues (e.g. `0x80073cf9` across 47 devices in 5 apps = Store offline, not an app problem) vs app-specific failures.
 - **🔍 Detection rule** button in the selected-app header — opens a modal showing exactly what Intune is checking for on each device (MSI ProductCode + version operator, file/folder path + version comparison, registry key + value match, or the full PowerShell detection script — base64-decoded). Read-only. Most failed-install threads on r/Intune ultimately reduce to "what does the detection rule check, and why doesn't it match?" — this answers that without leaving the dashboard.
 
@@ -268,7 +268,7 @@ Click any tile to drill into the full list with deep-links into the Intune admin
 - **Drop-zone upload** for one or more Intune log files (IME, AgentExecutor, MSI verbose, etc.)
 - **Auto-trim** preprocessor — greps for error/failure/return-value lines (including negative and HRESULT-style decimal error codes) and keeps ±15 lines of context around each match. Deduplicates overlapping windows. Cuts input tokens ~80% with no quality loss for triage. Toggle off to send the full log.
 - **Size guard** — the prompt is capped under the model's 200k-token context. If a log is still too big after trimming, it is re-trimmed with tighter context (±3 lines), and as a last resort the oldest entries are dropped — the newest activity (usually the failure under investigation) is always kept. The status line tells you when this happens.
-- **Haiku 4.5 by default** — cheapest, fastest, separate rate-limit bucket. Switch to Sonnet 5 in Settings for tougher logs.
+- **Haiku 4.5 by default** (Claude) or **Grok 4.6** (xAI) — switch provider and model in Settings.
 - **Token usage shown** after each analysis (input/output and estimated USD cost) so you can track spend.
 - **Session cost pill** — a small counter in the bottom-right shows total spend and call count for the current browser session across both error-code and log analyses. Click to reset. Resets automatically when the tab closes.
 
@@ -419,13 +419,17 @@ After the switch the dashboard clears every sub-tab's cached state (`hwDevices`,
 
 ## AI error analysis (optional)
 
-If you add a Claude API key under the **Settings** tab, error-code cells in the device table become clickable. Clicking sends the app + device + error context to the Claude API and shows a structured diagnosis (what the error means, likely cause, remediation steps) in a modal.
+If you add an API key under the **Settings** tab, error-code cells in the device table become clickable. Clicking sends the app + device + error context to the selected provider (Claude or Grok) and shows a structured diagnosis (what the error means, likely cause, remediation steps) in a modal.
 
-**Anthropic or OpenRouter.** The key field accepts either an Anthropic key (`sk-ant-…`) or an [OpenRouter](https://openrouter.ai/) key (`sk-or-…`) — the provider is auto-detected from the prefix, no separate setting. With an OpenRouter key the same Claude models are used (`anthropic/claude-haiku-4.5` etc.) and billed through your OpenRouter account, which is handy if you already fund multiple AI tools from one balance there.
+**Analyze provider.** Settings has a Claude vs Grok picker. Both keys can be stored; Analyze uses the selected provider after you Save.
+
+**Anthropic or OpenRouter (Claude).** The Claude key field accepts either an Anthropic key (`sk-ant-…`) or an [OpenRouter](https://openrouter.ai/) key (`sk-or-…`) — the Claude backend is auto-detected from the prefix, no separate setting. With an OpenRouter key the same Claude models are used (`anthropic/claude-haiku-4.5` etc.) and billed through your OpenRouter account, which is handy if you already fund multiple AI tools from one balance there.
+
+**xAI Grok.** The xAI key field accepts a Grok API key from [console.x.ai](https://console.x.ai) (typical prefix `xai-…`). Calls go from the browser to `https://api.x.ai/v1/chat/completions` (OpenAI-compatible). This is the **xAI Grok API**, not Twitter/X developer.x.com. Default model is **Grok 4.6** ($2 / $6 per MTok under 200k prompt tokens); **Grok 4.3** ($1.25 / $2.50, 1M context) is the cheaper option.
 
 Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the same error code renders instantly from cache with a **Cached** badge — no API call, no tokens spent. Click **↻ Re-analyze** in the modal header to force a fresh response (useful if you change models or want to retry).
 
-**Models available:**
+**Models available (Claude):**
 
 | Model | Price (per MTok) | Approx. cost per click | Good for |
 | --- | --- | --- | --- |
@@ -434,9 +438,16 @@ Analyses are cached per `errorCode + model` in `localStorage`. Re-clicking the s
 | Opus 4.8 | $5 / $25 | ~$0.0125 | Reserve for stuck cases |
 | Fable 5 | $10 / $50 | ~$0.025 | Anthropic's most capable model — last resort for the gnarliest logs |
 
-**A note on model choice.** Haiku 4.5 is the default for everything — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 5** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise (and it's on $2/$10 introductory pricing through August 2026). Reserve **Opus 4.8** for cases where Sonnet gives up; the Opus 4.7+ tokenizer uses ~30% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. **Fable 5** sits above Opus at 2× the price with higher latency — a last resort for logs nothing else can untangle. (Previously saved Sonnet 4.6 / Opus 4.7 selections keep working — both models are still served — but the picker now offers the current generation.) The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
+**Models available (Grok):**
 
-**Where the API key lives.** The key is stored in your browser's `localStorage` and sent only to `api.anthropic.com` (Anthropic keys) or `openrouter.ai` (OpenRouter keys). Either way **the key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
+| Model | Price (per MTok) | Approx. cost per click | Good for |
+| --- | --- | --- | --- |
+| Grok 4.6 *(default)* | $2 / $6 | ~$0.0034 | xAI flagship chat/code; error codes and log triage |
+| Grok 4.3 | $1.25 / $2.50 | ~$0.0016 | Cheaper; 1M context for larger trimmed logs |
+
+**A note on model choice.** For Claude, Haiku 4.5 is the default — it's the cheapest current-generation model and uses a separate rate-limit bucket from Sonnet/Opus, so heavy Sonnet usage elsewhere won't throttle your dashboard. For most error codes and routine log triage, Haiku is enough. Escalate to **Sonnet 5** when Haiku misses something — its real strength is correlating timestamps across long IME logs and isolating root cause from noise (and it's on $2/$10 introductory pricing through August 2026). Reserve **Opus 4.8** for cases where Sonnet gives up; the Opus 4.7+ tokenizer uses ~30% more tokens for the same input, so the effective cost gap is wider than headline pricing suggests. **Fable 5** sits above Opus at 2× the price with higher latency — a last resort for logs nothing else can untangle. (Previously saved Sonnet 4.6 / Opus 4.7 selections keep working — both models are still served — but the picker now offers the current generation.) For Grok, **Grok 4.6** is the default; **Grok 4.3** is the cheaper option. The biggest cost lever regardless of model is **auto-trim** (the toggle on the Analyze tab) — it greps for error/return-value lines plus surrounding context and typically cuts input tokens 80%+ with no quality loss.
+
+**Where the API key lives.** Keys are stored in your browser's `localStorage` and sent only to `api.anthropic.com` (Anthropic), `openrouter.ai` (OpenRouter), or `api.x.ai` (xAI Grok). **The key is readable by anyone who can open DevTools on this page**. This is fine for a personal tool you run yourself. **Do not paste an API key into a shared or public deployment.** If you want to share the tool with a team, route the call through a backend (Cloudflare Worker, Vercel function, etc.) that holds the key server-side.
 
 ## Exporting the registry (for the Local tab)
 
@@ -471,7 +482,7 @@ Static site, no build step. Main UI logic still lives in `index.html`; shared pi
 - `js/msal-config.js` — MSAL public-client config + read scopes
 - `js/graph.js` — Graph `get` / `post` / `patch` / `delete` / paginate helpers (uses page `getToken()`)
 
-[PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) for error analysis. CDN for MSAL and PapaParse. Hanken Grotesk via Google Fonts. Security model and data-handling notes: [SECURITY.md](SECURITY.md).
+[PapaParse](https://www.papaparse.com/) for CSV parsing, [MSAL.js](https://github.com/AzureAD/microsoft-authentication-library-for-js) for Microsoft sign-in, Microsoft Graph beta endpoints for Intune data, optional [Claude API](https://docs.claude.com/en/api/overview) or [xAI Grok API](https://docs.x.ai/docs/overview) (`api.x.ai`) for error analysis. CDN for MSAL and PapaParse. Hanken Grotesk via Google Fonts. Security model and data-handling notes: [SECURITY.md](SECURITY.md).
 
 **Local serve:** open via `http://localhost` (not `file://`) so MSAL redirect URIs work — e.g. `python -m http.server 8080` from the repo root.
 

@@ -1,6 +1,6 @@
 # Security
 
-THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub Pages). There is no application backend. The browser talks directly to Microsoft identity endpoints, Microsoft Graph, and (optionally) Anthropic or OpenRouter for AI features.
+THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub Pages). There is no application backend. The browser talks directly to Microsoft identity endpoints, Microsoft Graph, and (optionally) Anthropic, OpenRouter, or xAI for AI features.
 
 ## Data flow
 
@@ -8,7 +8,7 @@ THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub
 |------|----------------|
 | **Local tab** | CSV / `.reg` files are parsed **in the browser**. They are not uploaded to any server. |
 | **Intune tab** | After Microsoft sign-in, the browser calls `graph.microsoft.com` with a user-delegated token. Graph responses stay in page memory / session UI state. |
-| **Analyze / AI error analysis** | Log snippets or error codes are sent from the browser to Anthropic or OpenRouter (depending on the key you configure). They do not pass through this project's servers. |
+| **Analyze / AI error analysis** | Log snippets or error codes are sent from the browser to Anthropic, OpenRouter, or xAI (`api.x.ai`) depending on the provider and key you configure. They do not pass through this project's servers. |
 | **MAA notification email** | Optional: Graph `POST /me/sendMail` from **your** mailbox to approvers you configured. |
 
 ## Authentication (Microsoft)
@@ -25,15 +25,17 @@ THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub
 |---------|----------|----------|
 | `sessionStorage` | MSAL token cache; session AI cost counter | Auth tokens (session-scoped) |
 | `localStorage` (`intuneDashboard:customers`) | MSP customer codes, emails, approver lists, script GUIDs | No tokens |
-| `localStorage` (`intuneDash.claude`) | Optional Claude/OpenRouter **API key** + model choice | **Yes — treat as a secret** |
+| `localStorage` (`intuneDash.claude`) | Optional Claude/OpenRouter and xAI **API keys**, Analyze provider, and model choice | **Yes — treat as a secret** |
 | `localStorage` | Theme preference; AI error-code response cache; last ~10 mail notification log entries | Cached AI text may include operational detail |
 
 Clear site data for `haavarstein.github.io` (or your local origin) to wipe stored settings and keys.
 
 ## Optional AI API key
 
-- The key is kept in **browser `localStorage`** so Analyze survives reloads.
-- Anything that can run script in the page origin (XSS, a malicious browser extension with site access) could read it.
+- Keys are kept in **browser `localStorage`** so Analyze survives reloads. The page never `console.log`s a key.
+- Claude: Anthropic (`sk-ant-…` → `api.anthropic.com`) or OpenRouter (`sk-or-…` → `openrouter.ai`).
+- Grok: xAI (`xai-…` → `https://api.x.ai`). Create the key at [console.x.ai](https://console.x.ai) — not Twitter/X developer.x.com.
+- Anything that can run script in the page origin (XSS, a malicious browser extension with site access) could read stored keys.
 - **Recommendations:** use a **spend-capped** personal key; do not paste an unrestricted org production key; rotate if the machine or browser profile may be shared; clear Settings if you are done with AI features.
 
 ## Sensitive Graph data
