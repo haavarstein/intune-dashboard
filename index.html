@@ -5187,6 +5187,7 @@ const SETTINGS_KEY = 'intuneDash.claude';
 const SCALE_KEY = 'intuneDash.scale';
 const CLAUDE_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const XAI_DEFAULT_MODEL = 'grok-4.3';
+const SETTINGS_REV = 2;
 const XAI_KEY_HELP = 'This needs an <strong>xAI Grok</strong> API key from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> (typical prefix <code>xai-</code>). Twitter/X developer keys from developer.x.com will not work.';
 function looksLikeXaiKey(key) {
   return /^xai-/i.test(String(key || '').trim());
@@ -5213,6 +5214,12 @@ function readLlmForm() {
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const rev = Number(s.settingsRev) || 0;
+    if (s.xaiModel === 'grok-4.6' && rev < SETTINGS_REV) {
+      s.xaiModel = XAI_DEFAULT_MODEL;
+      s.settingsRev = SETTINGS_REV;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    }
     if (s.provider === 'xai' || s.provider === 'claude') $('llmProvider').value = s.provider;
     if (s.apiKey) $('claudeApiKey').value = s.apiKey;
     if (s.model) $('claudeModel').value = s.model;
@@ -5226,7 +5233,9 @@ function loadSettings() {
 }
 function persistLlmSettings({ announce, fromPicker } = {}) {
   if (!$('llmProvider')) return;
-  const s = readLlmForm();
+  const prev = getSettings();
+  const s = Object.assign({}, prev, readLlmForm());
+  if (!(Number(s.settingsRev) >= SETTINGS_REV)) s.settingsRev = SETTINGS_REV;
   if (looksLikeXaiKey(s.apiKey) && !s.xaiApiKey) {
     s.xaiApiKey = s.apiKey;
     $('xaiApiKey').value = s.apiKey;
