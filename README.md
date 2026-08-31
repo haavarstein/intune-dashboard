@@ -39,7 +39,7 @@ Highlights that fill portal gaps: failed-install session-noise verdicts, MAA que
 1. Settings → pick **Claude** or **Grok**, then paste the matching key (stored in browser `localStorage`).
    - Claude: Anthropic (`sk-ant-…`) or OpenRouter (`sk-or-v1-…`). Prefer Haiku for cost/speed.
    - Grok: xAI key from [console.x.ai](https://console.x.ai) (`xai-…`) — this is the Grok API at `api.x.ai`, not Twitter/X developer.x.com. Prefer Grok 4.6.
-2. Drop log files → **Analyze with Claude** or **Analyze with Grok**.
+2. Drop log files → **Analyze**.
 
 ### Local development
 Do **not** open `index.html` as `file://` (MSAL redirect fails). From the repo root:
