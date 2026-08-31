@@ -1,6 +1,6 @@
 # THE Intune Dashboard
 
-Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in the browser only — no backend. Sign in with Microsoft Graph (MSAL); optional Claude/OpenRouter for log and error analysis.
+Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in the browser only — no backend. Sign in with Microsoft Graph (MSAL); optional Claude/OpenRouter or xAI Grok for log and error analysis.
 
 🔗 **Live:** [haavarstein.github.io/intune-dashboard](https://haavarstein.github.io/intune-dashboard/)  
 🔒 **Security:** [SECURITY.md](SECURITY.md)  
@@ -15,7 +15,7 @@ Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in 
 | **Local** | Visualize uninstall registry from CSV or Intune Collect diagnostics `.reg` files |
 | **Intune** | Live tenant: 22 sub-tabs (apps, hardware, MAA, Autopilot, BitLocker, Secure Boot, posture, Defender views, metering, …) |
 | **Analyze** | Drop IME / AgentExecutor / MSI logs → AI triage (optional API key) |
-| **Settings** | MSP customer list, approvers, metering script IDs, Claude/OpenRouter key |
+| **Settings** | MSP customer list, approvers, metering script IDs, Claude/OpenRouter or xAI Grok key |
 
 **Intune sub-tabs (22):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · **Secure Boot** · Management Health · Assignments · Posture · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
 
@@ -36,8 +36,10 @@ Highlights that fill portal gaps: failed-install session-noise verdicts, MAA que
 3. **Overview** loads first; open any other sub-tab as needed.
 
 ### Analyze tab
-1. Settings → paste an Anthropic (`sk-ant-…`) or OpenRouter (`sk-or-v1-…`) key (stored in browser `localStorage`).
-2. Drop log files → **Analyze with Claude**. Prefer Haiku for cost/speed.
+1. Settings → pick **Claude** or **Grok**, then paste the matching key (stored in browser `localStorage`).
+   - Claude: Anthropic (`sk-ant-…`) or OpenRouter (`sk-or-v1-…`). Prefer Haiku for cost/speed.
+   - Grok: xAI key from [console.x.ai](https://console.x.ai) (`xai-…`) — this is the Grok API at `api.x.ai`, not Twitter/X developer.x.com. Prefer Grok 4.6.
+2. Drop log files → **Analyze with Claude** or **Analyze with Grok**.
 
 ### Local development
 Do **not** open `index.html` as `file://` (MSAL redirect fails). From the repo root:
@@ -102,8 +104,9 @@ In **Settings → Customers**, add short codes (e.g. `ACME`), login email, optio
 
 ## Optional AI
 
-- **Anthropic or OpenRouter** key in Settings; models selectable (Haiku default).
-- Used for error-code analysis and log triage; key never sent to Microsoft Graph.
+- **Claude (Anthropic or OpenRouter)** or **Grok (xAI)** in Settings; pick the provider, then the model. Haiku 4.5 is the Claude default; Grok 4.6 is the xAI default.
+- Used for error-code analysis and log triage; keys never sent to Microsoft Graph.
+- xAI keys: [console.x.ai](https://console.x.ai) → `https://api.x.ai` (not Twitter/X developer.x.com).
 - Prefer a **spend-capped** key. See [SECURITY.md](SECURITY.md).
 
 ---

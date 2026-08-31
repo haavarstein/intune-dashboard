@@ -2103,7 +2103,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div><!-- /viewIntune -->
 
   <div id="viewAnalyze" style="display:none;">
-    <div class="tab-hint">Drop one or more Intune log files (IME / AgentExecutor / MSI verbose) for AI-powered triage. Auto-trim cuts input tokens ~80%.</div>
+    <div class="tab-hint">Drop one or more Intune log files (IME / AgentExecutor / MSI verbose) for AI-powered triage (Claude or Grok, per Settings). Auto-trim cuts input tokens ~80%.</div>
     <div class="table-card" style="display:flex; flex-direction:column; align-items:stretch; gap:16px; padding:24px;">
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Log file analysis</div>
@@ -2137,7 +2137,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 
   <div id="viewSettings" style="display:none;">
-    <div class="tab-hint">Configure customers (for MSPs managing multiple tenants) and the Claude API key for the optional AI features. Everything stored in your browser's localStorage only.</div>
+    <div class="tab-hint">Configure customers (for MSPs managing multiple tenants) and the API key for optional AI features (Claude or Grok). Everything stored in your browser's localStorage only.</div>
     <div class="table-card" style="display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px;">
 
       <div>
@@ -2159,12 +2159,27 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div>
 
       <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Analyze provider</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Which API Analyze and error-code clicks use. Save after changing. Keys stay in this browser only — never sent to Microsoft Graph.</div>
+        <select id="llmProvider" class="search" style="width:100%; cursor:pointer;">
+          <option value="claude" selected>Claude — Anthropic or OpenRouter</option>
+          <option value="xai">Grok — xAI</option>
+        </select>
+      </div>
+
+      <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used to analyze Intune error codes with AI. Accepts an Anthropic key (<code>sk-ant-…</code>, calls api.anthropic.com) or an OpenRouter key (<code>sk-or-…</code>, calls openrouter.ai with the same Claude models) — the provider is detected from the key prefix. Stored in your browser's localStorage — never sent anywhere else.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used when the Analyze provider is Claude. Accepts an Anthropic key (<code>sk-ant-…</code>, calls api.anthropic.com) or an OpenRouter key (<code>sk-or-…</code>, calls openrouter.ai with the same Claude models) — the provider is detected from the key prefix. Stored in your browser's localStorage — never sent anywhere else.</div>
         <input type="password" class="search" id="claudeApiKey" placeholder="sk-ant-api03-… or sk-or-v1-…" style="width:100%; font-family:ui-monospace, monospace;">
       </div>
 
       <div>
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">xAI API key</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used when the Analyze provider is Grok. Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> (xAI Grok API — not Twitter/X developer.x.com). Typical prefix <code>xai-…</code>. Calls <code>https://api.x.ai</code> from this browser. Stored in localStorage — never sent anywhere else.</div>
+        <input type="password" class="search" id="xaiApiKey" placeholder="xai-…" style="width:100%; font-family:ui-monospace, monospace;">
+      </div>
+
+      <div id="claudeModelBlock">
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Model</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a model based on cost vs. depth of analysis. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
         <select id="claudeModel" class="search" style="width:100%; cursor:pointer;">
@@ -2172,6 +2187,15 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <option value="claude-sonnet-5">Sonnet 5 — $3/$15 per MTok ($2/$10 intro thru Aug 2026) — ~$0.0075/click — deeper reasoning</option>
           <option value="claude-opus-4-8">Opus 4.8 — $5/$25 per MTok — ~$0.0125/click — reserve for stuck cases</option>
           <option value="claude-fable-5">Fable 5 — $10/$50 per MTok — ~$0.025/click — most capable, slower</option>
+        </select>
+      </div>
+
+      <div id="xaiModelBlock" style="display:none;">
+        <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Model</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a Grok model. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
+        <select id="xaiModel" class="search" style="width:100%; cursor:pointer;">
+          <option value="grok-4.6" selected>Grok 4.6 — $2/$6 per MTok — ~$0.0034/click — recommended default</option>
+          <option value="grok-4.3">Grok 4.3 — $1.25/$2.50 per MTok — ~$0.0016/click — cheaper, 1M context</option>
         </select>
       </div>
 
@@ -2190,14 +2214,14 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <ul style="margin:0; padding-left:18px;">
             <li><strong>In-memory (this session)</strong> — each Intune sub-tab keeps its last Graph result until you click <strong>↻ Refresh</strong> on that tab or switch customer/tenant (full reset). Switching browser tabs does not clear it.</li>
             <li><strong>sessionStorage</strong> — MSAL access tokens only (no refresh tokens across browser restarts).</li>
-            <li><strong>localStorage</strong> — customers list, Claude/OpenRouter key + model, large-tenant toggles, error-analysis cache. Survives reloads; never uploaded as a blob to our servers (there are none).</li>
+            <li><strong>localStorage</strong> — customers list, Claude/OpenRouter and xAI keys + model, Analyze provider, large-tenant toggles, error-analysis cache. Survives reloads; never uploaded as a blob to our servers (there are none).</li>
             <li><strong>Always live on demand</strong> — MAA approve/reject/complete, app/device deletes, script deploy, mail send, and any action after Cancel mid-walk (partial data stays until Refresh).</li>
             <li><strong>Long walks</strong> — Hardware device paging + RAM backfill, and Assignments multi-endpoint index, show <strong>✕ Cancel</strong> while running. Cancel keeps whatever already arrived.</li>
           </ul>
         </div>
       </div>
 
-      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
+      <div id="claudeModelHelp" style="border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
         <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Choosing a model</div>
         <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
           <strong>Haiku 4.5</strong> is the default — cheapest, fastest, and has its own rate-limit bucket so it won't conflict with other Anthropic API usage. Sufficient for error-code lookup and most MSI logs where the failure is a single obvious stack trace.
@@ -2208,6 +2232,18 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <li><strong>Fable 5</strong> — Anthropic's most capable model, at 2× Opus pricing and higher latency. Last resort for logs nothing else can untangle.</li>
           </ul>
           <div style="margin-top:8px;">Biggest cost lever: <strong>auto-trim logs before sending</strong> — grep for error/return-value lines + surrounding context cuts input tokens 80%+ with no quality loss.</div>
+        </div>
+      </div>
+
+      <div id="xaiModelHelp" style="display:none; border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
+        <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Choosing a model</div>
+        <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
+          <strong>Grok 4.6</strong> is the default — xAI's current generally available chat model, suited to error-code lookup and most MSI logs.
+          <ul style="margin:8px 0 0; padding-left:18px;">
+            <li><strong>Grok 4.6</strong> — default. Flagship chat/code model ($2 / $6 per MTok under 200k prompt tokens).</li>
+            <li><strong>Grok 4.3</strong> — cheaper per token ($1.25 / $2.50) with a 1M context window. Fine for routine error codes and trimmed logs.</li>
+          </ul>
+          <div style="margin-top:8px;">Keys come from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a>. Biggest cost lever is still <strong>auto-trim logs before sending</strong>.</div>
         </div>
       </div>
 
@@ -2866,6 +2902,7 @@ function switchTab(tab) {
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
+  if (tab === TAB_ANALYZE) syncAnalyzeButton();
   placeThemeToggle();
 }
 
@@ -5148,22 +5185,54 @@ document.querySelectorAll('#installedView thead th').forEach(th => {
 // --- Settings: API key + model ---
 const SETTINGS_KEY = 'intuneDash.claude';
 const SCALE_KEY = 'intuneDash.scale';
+const CLAUDE_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+const XAI_DEFAULT_MODEL = 'grok-4.6';
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (s.provider === 'xai' || s.provider === 'claude') $('llmProvider').value = s.provider;
     if (s.apiKey) $('claudeApiKey').value = s.apiKey;
     if (s.model) $('claudeModel').value = s.model;
+    if (s.xaiApiKey) $('xaiApiKey').value = s.xaiApiKey;
+    if (s.xaiModel) $('xaiModel').value = s.xaiModel;
   } catch {}
+  syncAnalyzeProviderUi();
+  syncAnalyzeButton();
 }
 function saveSettings() {
-  const s = { apiKey: $('claudeApiKey').value.trim(), model: $('claudeModel').value };
+  const s = {
+    provider: $('llmProvider').value === 'xai' ? 'xai' : 'claude',
+    apiKey: $('claudeApiKey').value.trim(),
+    model: $('claudeModel').value,
+    xaiApiKey: $('xaiApiKey').value.trim(),
+    xaiModel: $('xaiModel').value
+  };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   saveScaleSettingsFromUi();
+  syncAnalyzeButton();
   $('settingsStatus').textContent = 'Saved.';
   setTimeout(() => $('settingsStatus').textContent = '', 2000);
 }
 function getSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function getActiveLlm() {
+  const s = getSettings();
+  if (s.provider === 'xai') {
+    return { provider: 'xai', apiKey: (s.xaiApiKey || '').trim(), model: s.xaiModel || XAI_DEFAULT_MODEL, brand: 'Grok' };
+  }
+  return { provider: 'claude', apiKey: (s.apiKey || '').trim(), model: s.model || CLAUDE_DEFAULT_MODEL, brand: 'Claude' };
+}
+function syncAnalyzeProviderUi() {
+  const isXai = $('llmProvider') && $('llmProvider').value === 'xai';
+  if ($('claudeModelBlock')) $('claudeModelBlock').style.display = isXai ? 'none' : '';
+  if ($('xaiModelBlock')) $('xaiModelBlock').style.display = isXai ? '' : 'none';
+  if ($('claudeModelHelp')) $('claudeModelHelp').style.display = isXai ? 'none' : '';
+  if ($('xaiModelHelp')) $('xaiModelHelp').style.display = isXai ? '' : 'none';
+}
+function syncAnalyzeButton() {
+  const btn = $('btnAnalyzeLogs');
+  if (btn) btn.textContent = getActiveLlm().brand === 'Grok' ? 'Analyze with Grok' : 'Analyze with Claude';
 }
 function getScaleSettings() {
   try { return JSON.parse(localStorage.getItem(SCALE_KEY) || '{}'); } catch { return {}; }
@@ -5179,6 +5248,7 @@ function loadScaleSettingsUi() {
 loadSettings();
 loadScaleSettingsUi();
 $('btnSaveSettings').addEventListener('click', saveSettings);
+$('llmProvider').addEventListener('change', syncAnalyzeProviderUi);
 if ($('scaleSkipHwRam')) {
   $('scaleSkipHwRam').addEventListener('change', () => {
     saveScaleSettingsFromUi();
@@ -5187,7 +5257,7 @@ if ($('scaleSkipHwRam')) {
   });
 }
 
-// --- Click error code -> analyze with Claude ---
+// --- Click error code -> analyze with Claude or Grok ---
 $('failedRows').addEventListener('click', e => {
   const cell = e.target.closest('.err-clickable');
   if (!cell) return;
@@ -5225,11 +5295,13 @@ function renderAnalysis(text, opts) {
     <div style="padding:0; line-height:1.6;">${html}</div>`;
 }
 
-// Provider-agnostic model call. Anthropic keys (sk-ant-…) hit the Anthropic
-// Messages API directly; OpenRouter keys (sk-or-…) hit OpenRouter's
-// OpenAI-compatible endpoint instead — same Claude models, billed through the
-// OpenRouter account. Provider is detected from the key prefix, so there's no
-// separate setting. Returns { text, inputTokens, outputTokens }.
+// Provider-agnostic model call.
+// - provider 'xai' → xAI Grok chat completions (api.x.ai), key from Settings.
+// - Anthropic keys (sk-ant-…) hit the Anthropic Messages API directly.
+// - OpenRouter keys (sk-or-…) hit OpenRouter's OpenAI-compatible endpoint
+//   with the same Claude models, billed through the OpenRouter account.
+// Claude vs OpenRouter is detected from the key prefix. Returns
+// { text, inputTokens, outputTokens }.
 const OPENROUTER_MODELS = {
   'claude-haiku-4-5-20251001': 'anthropic/claude-haiku-4.5',
   'claude-sonnet-5': 'anthropic/claude-sonnet-5',
@@ -5239,36 +5311,44 @@ const OPENROUTER_MODELS = {
   'claude-sonnet-4-6': 'anthropic/claude-sonnet-4.6',
   'claude-opus-4-7': 'anthropic/claude-opus-4.7'
 };
-async function callModel({ apiKey, model, maxTokens, prompt }) {
-  const isOpenRouter = apiKey.startsWith('sk-or-');
-  const res = await fetch(
-    isOpenRouter ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.anthropic.com/v1/messages',
-    {
-      method: 'POST',
-      headers: isOpenRouter
-        ? {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + apiKey,
-            'HTTP-Referer': 'https://haavarstein.github.io/intune-dashboard/',
-            'X-Title': 'THE Intune Dashboard'
-          }
-        : {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
-      body: JSON.stringify({
-        model: isOpenRouter ? (OPENROUTER_MODELS[model] || model) : model,
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    }
-  );
+async function callModel({ apiKey, model, maxTokens, prompt, provider }) {
+  const isXai = provider === 'xai';
+  const isOpenRouter = !isXai && apiKey.startsWith('sk-or-');
+  const openaiCompat = isXai || isOpenRouter;
+  const url = isXai
+    ? 'https://api.x.ai/v1/chat/completions'
+    : isOpenRouter
+      ? 'https://openrouter.ai/api/v1/chat/completions'
+      : 'https://api.anthropic.com/v1/messages';
+  const headers = isXai
+    ? {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + apiKey
+      }
+    : isOpenRouter
+      ? {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + apiKey,
+          'HTTP-Referer': 'https://haavarstein.github.io/intune-dashboard/',
+          'X-Title': 'THE Intune Dashboard'
+        }
+      : {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        };
+  const body = {
+    model: isOpenRouter ? (OPENROUTER_MODELS[model] || model) : model,
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: prompt }]
+  };
+  if (isXai) body.max_completion_tokens = maxTokens;
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
   const data = await res.json();
   const usage = data.usage || {};
-  return isOpenRouter
+  return openaiCompat
     ? {
         text: data.choices?.[0]?.message?.content || '',
         inputTokens: usage.prompt_tokens,
@@ -5282,12 +5362,14 @@ async function callModel({ apiKey, model, maxTokens, prompt }) {
 }
 
 async function analyzeError(row, forceFresh = false) {
-  const { apiKey, model } = getSettings();
-  const activeModel = model || 'claude-haiku-4-5-20251001';
+  const { apiKey, model, provider, brand } = getActiveLlm();
+  const activeModel = model;
   if (!apiKey) {
-    $('mTitle').textContent = 'Claude API key required';
+    $('mTitle').textContent = brand === 'Grok' ? 'xAI API key required' : 'Claude API key required';
     $('mPub').textContent = '';
-    $('mBody').innerHTML = '<div style="padding:20px 0;">Add your Claude API key in the <strong>Settings</strong> tab to enable AI analysis.</div>';
+    $('mBody').innerHTML = brand === 'Grok'
+      ? '<div style="padding:20px 0;">Add your xAI API key in the <strong>Settings</strong> tab to enable Grok analysis.</div>'
+      : '<div style="padding:20px 0;">Add your Claude API key in the <strong>Settings</strong> tab to enable AI analysis.</div>';
     $('modal').classList.add('show');
     return;
   }
@@ -5307,7 +5389,7 @@ async function analyzeError(row, forceFresh = false) {
     }
   }
 
-  $('mBody').innerHTML = '<div style="padding:20px 0; color:var(--muted);">Analyzing with Claude…</div>';
+  $('mBody').innerHTML = `<div style="padding:20px 0; color:var(--muted);">Analyzing with ${brand}…</div>`;
 
   const prompt = `You are an Intune/MEM expert. Analyze this Windows app install failure and give a concise diagnosis plus remediation steps.
 
@@ -5327,7 +5409,7 @@ Respond in this format:
 Be specific to Intune. No preamble.`;
 
   try {
-    const { text, inputTokens, outputTokens } = await callModel({ apiKey, model: activeModel, maxTokens: 1024, prompt });
+    const { text, inputTokens, outputTokens } = await callModel({ apiKey, model: activeModel, maxTokens: 1024, prompt, provider });
     trackUsage(activeModel, inputTokens, outputTokens);
     setCachedAnalysis(errCode, activeModel, text);
     renderAnalysis(text, { cached: false });
@@ -5346,7 +5428,9 @@ const MODEL_PRICING = {
   'claude-fable-5':            { in: 10, out: 50 },
   // Legacy — keeps cost tracking working for previously saved settings
   'claude-sonnet-4-6':         { in: 3, out: 15 },
-  'claude-opus-4-7':           { in: 5, out: 25 }
+  'claude-opus-4-7':           { in: 5, out: 25 },
+  'grok-4.6':                  { in: 2, out: 6 },
+  'grok-4.3':                  { in: 1.25, out: 2.5 }
 };
 function estimateCost(model, inTok, outTok) {
   const p = MODEL_PRICING[model];
@@ -12289,14 +12373,16 @@ function buildLogPayload(charBudget, autoTrim) {
 }
 
 async function analyzeLogs() {
-  const { apiKey, model } = getSettings();
+  const { apiKey, model, provider, brand } = getActiveLlm();
   if (!apiKey) {
-    $('logStatus').textContent = 'Add your Claude API key in Settings first.';
+    $('logStatus').textContent = brand === 'Grok'
+      ? 'Add your xAI API key in Settings first.'
+      : 'Add your Claude API key in Settings first.';
     return;
   }
   if (!uploadedLogs.length) return;
 
-  const activeModel = model || 'claude-haiku-4-5-20251001';
+  const activeModel = model;
   const autoTrim = $('logAutoTrim').checked;
 
   // The API rejects prompts over 200k tokens. Dense logs (CMTrace, PSADT)
@@ -12311,7 +12397,7 @@ async function analyzeLogs() {
   $('logStatus').textContent = `Sending ${(processed.length / 1024).toFixed(1)} KB (~${approxTokens.toLocaleString()} tokens) to ${activeModel}…`
     + (truncated ? ' Log exceeded the model context — oldest entries were dropped, newest kept.' : '');
   $('logAnalysisResult').style.display = '';
-  $('logAnalysisResult').innerHTML = '<div style="color:var(--muted); font-size:13px;">Analyzing with Claude…</div>';
+  $('logAnalysisResult').innerHTML = `<div style="color:var(--muted); font-size:13px;">Analyzing with ${brand}…</div>`;
 
   const buildPrompt = logs => `You are an Intune/MEM expert analyzing log files from a Windows endpoint. The user is an experienced Intune administrator troubleshooting an app install failure.
 
@@ -12330,7 +12416,7 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
   try {
     let result;
     try {
-      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed) });
+      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed), provider });
     } catch (e) {
       // "prompt is too long: N tokens > M maximum" — our chars/token estimate
       // was too optimistic for this log. Use the API's actual count to compute
@@ -12341,7 +12427,7 @@ Be technical and specific. Assume the reader knows Intune internals. No preamble
       const retryBudget = Math.floor(Number(m[2]) * 0.9 * charsPerToken);
       ({ processed, truncated } = buildLogPayload(retryBudget, autoTrim));
       $('logStatus').textContent = `Log denser than estimated — retrying with ${(processed.length / 1024).toFixed(1)} KB…`;
-      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed) });
+      result = await callModel({ apiKey, model: activeModel, maxTokens: 2048, prompt: buildPrompt(processed), provider });
     }
     const { text, inputTokens, outputTokens } = result;
     trackUsage(activeModel, inputTokens, outputTokens);
