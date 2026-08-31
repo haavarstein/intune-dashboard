@@ -2128,7 +2128,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <input type="checkbox" id="logAutoTrim" checked>
           <span>Auto-trim to error-adjacent lines <span style="color:var(--muted); font-size:11px;">(recommended — cuts tokens ~80%)</span></span>
         </label>
-        <button class="btn" id="btnAnalyzeLogs" disabled>Analyze with Claude</button>
+        <button class="btn" id="btnAnalyzeLogs" disabled>Analyze</button>
         <span id="logStatus" style="font-size:12px; color:var(--muted);"></span>
       </div>
 
@@ -2902,7 +2902,6 @@ function switchTab(tab) {
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
-  if (tab === TAB_ANALYZE) syncAnalyzeButton();
   placeThemeToggle();
 }
 
@@ -5197,7 +5196,6 @@ function loadSettings() {
     if (s.xaiModel) $('xaiModel').value = s.xaiModel;
   } catch {}
   syncAnalyzeProviderUi();
-  syncAnalyzeButton();
 }
 function saveSettings() {
   const s = {
@@ -5209,7 +5207,6 @@ function saveSettings() {
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   saveScaleSettingsFromUi();
-  syncAnalyzeButton();
   $('settingsStatus').textContent = 'Saved.';
   setTimeout(() => $('settingsStatus').textContent = '', 2000);
 }
@@ -5229,10 +5226,6 @@ function syncAnalyzeProviderUi() {
   if ($('xaiModelBlock')) $('xaiModelBlock').style.display = isXai ? '' : 'none';
   if ($('claudeModelHelp')) $('claudeModelHelp').style.display = isXai ? 'none' : '';
   if ($('xaiModelHelp')) $('xaiModelHelp').style.display = isXai ? '' : 'none';
-}
-function syncAnalyzeButton() {
-  const btn = $('btnAnalyzeLogs');
-  if (btn) btn.textContent = getActiveLlm().brand === 'Grok' ? 'Analyze with Grok' : 'Analyze with Claude';
 }
 function getScaleSettings() {
   try { return JSON.parse(localStorage.getItem(SCALE_KEY) || '{}'); } catch { return {}; }
