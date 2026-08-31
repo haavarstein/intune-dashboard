@@ -2128,7 +2128,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
           <input type="checkbox" id="logAutoTrim" checked>
           <span>Auto-trim to error-adjacent lines <span style="color:var(--muted); font-size:11px;">(recommended — cuts tokens ~80%)</span></span>
         </label>
-        <button class="btn" id="btnAnalyzeLogs" disabled>Analyze with Claude</button>
+        <button class="btn" id="btnAnalyzeLogs" disabled>Analyze</button>
         <span id="logStatus" style="font-size:12px; color:var(--muted);"></span>
       </div>
 
@@ -2160,7 +2160,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Analyze provider</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Which API Analyze and error-code clicks use. Save after changing. Keys stay in this browser only — never sent to Microsoft Graph.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Which API Analyze and error-code clicks use. Switching provider or leaving a key field saves immediately — you do not have to hit Save first. An <code>xai-</code> key in either field uses Grok. Keys stay in this browser only — never sent to Microsoft Graph.</div>
         <select id="llmProvider" class="search" style="width:100%; cursor:pointer;">
           <option value="claude" selected>Claude — Anthropic or OpenRouter</option>
           <option value="xai">Grok — xAI</option>
@@ -2169,13 +2169,13 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Claude API key</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used when the Analyze provider is Claude. Accepts an Anthropic key (<code>sk-ant-…</code>, calls api.anthropic.com) or an OpenRouter key (<code>sk-or-…</code>, calls openrouter.ai with the same Claude models) — the provider is detected from the key prefix. Stored in your browser's localStorage — never sent anywhere else.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Anthropic (<code>sk-ant-…</code> → api.anthropic.com) or OpenRouter (<code>sk-or-…</code> → openrouter.ai, same Claude models). If you paste an <code>xai-…</code> key here, Analyze uses Grok instead. Stored in localStorage — never sent anywhere else.</div>
         <input type="password" class="search" id="claudeApiKey" placeholder="sk-ant-api03-… or sk-or-v1-…" style="width:100%; font-family:ui-monospace, monospace;">
       </div>
 
       <div>
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">xAI API key</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Used when the Analyze provider is Grok. Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> (xAI Grok API — not Twitter/X developer.x.com). Typical prefix <code>xai-…</code>. Calls <code>https://api.x.ai</code> from this browser. Stored in localStorage — never sent anywhere else.</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Grok key from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> — not Twitter/X developer.x.com. Typical prefix <code>xai-…</code>. This field stays visible; pasting here (or an <code>xai-</code> key in the Claude field) routes Analyze to <code>https://api.x.ai</code>. Stored in localStorage — never sent anywhere else.</div>
         <input type="password" class="search" id="xaiApiKey" placeholder="xai-…" style="width:100%; font-family:ui-monospace, monospace;">
       </div>
 
@@ -2902,7 +2902,7 @@ function switchTab(tab) {
   $('viewAnalyze').style.display = tab === TAB_ANALYZE ? '' : 'none';
   $('viewSettings').style.display = tab === TAB_SETTINGS ? '' : 'none';
   if (tab === TAB_INTUNE) initIntune();
-  if (tab === TAB_ANALYZE) syncAnalyzeButton();
+  persistLlmSettings({ announce: false });
   placeThemeToggle();
 }
 
@@ -5187,6 +5187,29 @@ const SETTINGS_KEY = 'intuneDash.claude';
 const SCALE_KEY = 'intuneDash.scale';
 const CLAUDE_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const XAI_DEFAULT_MODEL = 'grok-4.6';
+const XAI_KEY_HELP = 'This needs an <strong>xAI Grok</strong> API key from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> (typical prefix <code>xai-</code>). Twitter/X developer keys from developer.x.com will not work.';
+function looksLikeXaiKey(key) {
+  return /^xai-/i.test(String(key || '').trim());
+}
+function looksLikeClaudeKey(key) {
+  const k = String(key || '').trim();
+  return /^sk-ant-/i.test(k) || /^sk-or-/i.test(k);
+}
+function looksLikeTwitterDevKey(key) {
+  const k = String(key || '').trim();
+  if (!k || looksLikeXaiKey(k) || looksLikeClaudeKey(k)) return false;
+  return /^AAAA/i.test(k) || k.length >= 30;
+}
+function readLlmForm() {
+  if (!$('llmProvider')) return {};
+  return {
+    provider: $('llmProvider').value === 'xai' ? 'xai' : 'claude',
+    apiKey: ($('claudeApiKey').value || '').trim(),
+    model: $('claudeModel').value,
+    xaiApiKey: ($('xaiApiKey').value || '').trim(),
+    xaiModel: $('xaiModel').value
+  };
+}
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -5195,33 +5218,57 @@ function loadSettings() {
     if (s.model) $('claudeModel').value = s.model;
     if (s.xaiApiKey) $('xaiApiKey').value = s.xaiApiKey;
     if (s.xaiModel) $('xaiModel').value = s.xaiModel;
+    if (looksLikeXaiKey(s.xaiApiKey) || looksLikeXaiKey(s.apiKey) || s.provider === 'xai') {
+      $('llmProvider').value = 'xai';
+    }
   } catch {}
   syncAnalyzeProviderUi();
-  syncAnalyzeButton();
 }
-function saveSettings() {
-  const s = {
-    provider: $('llmProvider').value === 'xai' ? 'xai' : 'claude',
-    apiKey: $('claudeApiKey').value.trim(),
-    model: $('claudeModel').value,
-    xaiApiKey: $('xaiApiKey').value.trim(),
-    xaiModel: $('xaiModel').value
-  };
+function persistLlmSettings({ announce, fromPicker } = {}) {
+  if (!$('llmProvider')) return;
+  const s = readLlmForm();
+  if (looksLikeXaiKey(s.apiKey) && !s.xaiApiKey) {
+    s.xaiApiKey = s.apiKey;
+    $('xaiApiKey').value = s.apiKey;
+  }
+  if (!fromPicker && looksLikeXaiKey(s.xaiApiKey) && !looksLikeClaudeKey(s.apiKey)) {
+    s.provider = 'xai';
+    if ($('llmProvider').value !== 'xai') {
+      $('llmProvider').value = 'xai';
+      syncAnalyzeProviderUi();
+    }
+  }
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   saveScaleSettingsFromUi();
-  syncAnalyzeButton();
-  $('settingsStatus').textContent = 'Saved.';
-  setTimeout(() => $('settingsStatus').textContent = '', 2000);
+  if (announce && $('settingsStatus')) {
+    $('settingsStatus').textContent = 'Saved.';
+    setTimeout(() => { if ($('settingsStatus').textContent === 'Saved.') $('settingsStatus').textContent = ''; }, 2000);
+  }
+}
+function saveSettings() {
+  persistLlmSettings({ announce: true });
 }
 function getSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { return {}; }
 }
 function getActiveLlm() {
-  const s = getSettings();
-  if (s.provider === 'xai') {
-    return { provider: 'xai', apiKey: (s.xaiApiKey || '').trim(), model: s.xaiModel || XAI_DEFAULT_MODEL, brand: 'Grok' };
+  const stored = getSettings();
+  const form = readLlmForm();
+  const xaiKey = (form.xaiApiKey != null ? form.xaiApiKey : stored.xaiApiKey || '').trim();
+  const claudeKey = (form.apiKey != null ? form.apiKey : stored.apiKey || '').trim();
+  const picker = form.provider || stored.provider;
+  const xaiModel = form.xaiModel || stored.xaiModel || XAI_DEFAULT_MODEL;
+  const claudeModel = form.model || stored.model || CLAUDE_DEFAULT_MODEL;
+  if (picker === 'xai') {
+    return { provider: 'xai', apiKey: xaiKey, model: xaiModel, brand: 'Grok' };
   }
-  return { provider: 'claude', apiKey: (s.apiKey || '').trim(), model: s.model || CLAUDE_DEFAULT_MODEL, brand: 'Claude' };
+  if (looksLikeXaiKey(claudeKey)) {
+    return { provider: 'xai', apiKey: claudeKey, model: xaiModel, brand: 'Grok' };
+  }
+  if (looksLikeXaiKey(xaiKey) && !looksLikeClaudeKey(claudeKey)) {
+    return { provider: 'xai', apiKey: xaiKey, model: xaiModel, brand: 'Grok' };
+  }
+  return { provider: 'claude', apiKey: claudeKey, model: claudeModel, brand: 'Claude' };
 }
 function syncAnalyzeProviderUi() {
   const isXai = $('llmProvider') && $('llmProvider').value === 'xai';
@@ -5230,9 +5277,11 @@ function syncAnalyzeProviderUi() {
   if ($('claudeModelHelp')) $('claudeModelHelp').style.display = isXai ? 'none' : '';
   if ($('xaiModelHelp')) $('xaiModelHelp').style.display = isXai ? '' : 'none';
 }
-function syncAnalyzeButton() {
-  const btn = $('btnAnalyzeLogs');
-  if (btn) btn.textContent = getActiveLlm().brand === 'Grok' ? 'Analyze with Grok' : 'Analyze with Claude';
+function showXaiKeyHelp() {
+  $('mTitle').textContent = 'xAI API key required';
+  $('mPub').textContent = '';
+  $('mBody').innerHTML = `<div style="padding:20px 0; line-height:1.6;">${XAI_KEY_HELP}</div>`;
+  $('modal').classList.add('show');
 }
 function getScaleSettings() {
   try { return JSON.parse(localStorage.getItem(SCALE_KEY) || '{}'); } catch { return {}; }
@@ -5248,7 +5297,16 @@ function loadScaleSettingsUi() {
 loadSettings();
 loadScaleSettingsUi();
 $('btnSaveSettings').addEventListener('click', saveSettings);
-$('llmProvider').addEventListener('change', syncAnalyzeProviderUi);
+$('llmProvider').addEventListener('change', () => {
+  syncAnalyzeProviderUi();
+  persistLlmSettings({ announce: true, fromPicker: true });
+});
+['claudeApiKey', 'xaiApiKey', 'claudeModel', 'xaiModel'].forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('change', () => persistLlmSettings({ announce: true }));
+  el.addEventListener('blur', () => persistLlmSettings({ announce: false }));
+});
 if ($('scaleSkipHwRam')) {
   $('scaleSkipHwRam').addEventListener('change', () => {
     saveScaleSettingsFromUi();
@@ -5311,9 +5369,20 @@ const OPENROUTER_MODELS = {
   'claude-sonnet-4-6': 'anthropic/claude-sonnet-4.6',
   'claude-opus-4-7': 'anthropic/claude-opus-4.7'
 };
+async function readApiError(res) {
+  const raw = await res.text();
+  let detail = raw;
+  try {
+    const j = JSON.parse(raw);
+    if (typeof j.error === 'string') detail = j.error;
+    else if (j.error && typeof j.error.message === 'string') detail = j.error.message;
+    else if (typeof j.message === 'string') detail = j.message;
+  } catch {}
+  return `API ${res.status}: ${detail}`;
+}
 async function callModel({ apiKey, model, maxTokens, prompt, provider }) {
   const isXai = provider === 'xai';
-  const isOpenRouter = !isXai && apiKey.startsWith('sk-or-');
+  const isOpenRouter = !isXai && /^sk-or-/i.test(apiKey);
   const openaiCompat = isXai || isOpenRouter;
   const url = isXai
     ? 'https://api.x.ai/v1/chat/completions'
@@ -5338,14 +5407,24 @@ async function callModel({ apiKey, model, maxTokens, prompt, provider }) {
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true'
         };
-  const body = {
-    model: isOpenRouter ? (OPENROUTER_MODELS[model] || model) : model,
-    max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }]
-  };
-  if (isXai) body.max_completion_tokens = maxTokens;
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const body = isXai
+    ? {
+        model,
+        max_completion_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }]
+      }
+    : {
+        model: isOpenRouter ? (OPENROUTER_MODELS[model] || model) : model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }]
+      };
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch (e) {
+    throw new Error(`Network error calling ${url}: ${e.message || e}`);
+  }
+  if (!res.ok) throw new Error(await readApiError(res));
   const data = await res.json();
   const usage = data.usage || {};
   return openaiCompat
@@ -5362,15 +5441,21 @@ async function callModel({ apiKey, model, maxTokens, prompt, provider }) {
 }
 
 async function analyzeError(row, forceFresh = false) {
+  persistLlmSettings({ announce: false });
   const { apiKey, model, provider, brand } = getActiveLlm();
   const activeModel = model;
   if (!apiKey) {
-    $('mTitle').textContent = brand === 'Grok' ? 'xAI API key required' : 'Claude API key required';
-    $('mPub').textContent = '';
-    $('mBody').innerHTML = brand === 'Grok'
-      ? '<div style="padding:20px 0;">Add your xAI API key in the <strong>Settings</strong> tab to enable Grok analysis.</div>'
-      : '<div style="padding:20px 0;">Add your Claude API key in the <strong>Settings</strong> tab to enable AI analysis.</div>';
-    $('modal').classList.add('show');
+    if (brand === 'Grok') showXaiKeyHelp();
+    else {
+      $('mTitle').textContent = 'Claude API key required';
+      $('mPub').textContent = '';
+      $('mBody').innerHTML = '<div style="padding:20px 0;">Add your Claude API key in the <strong>Settings</strong> tab to enable AI analysis.</div>';
+      $('modal').classList.add('show');
+    }
+    return;
+  }
+  if (provider !== 'xai' && looksLikeTwitterDevKey(apiKey)) {
+    showXaiKeyHelp();
     return;
   }
   const errCode = row.ErrorCode;
@@ -12373,11 +12458,20 @@ function buildLogPayload(charBudget, autoTrim) {
 }
 
 async function analyzeLogs() {
+  persistLlmSettings({ announce: false });
   const { apiKey, model, provider, brand } = getActiveLlm();
   if (!apiKey) {
-    $('logStatus').textContent = brand === 'Grok'
-      ? 'Add your xAI API key in Settings first.'
-      : 'Add your Claude API key in Settings first.';
+    if (brand === 'Grok') {
+      $('logStatus').textContent = 'Add your xAI API key in Settings first.';
+      showXaiKeyHelp();
+    } else {
+      $('logStatus').textContent = 'Add your Claude API key in Settings first.';
+    }
+    return;
+  }
+  if (provider !== 'xai' && looksLikeTwitterDevKey(apiKey)) {
+    $('logStatus').textContent = 'Use an xAI key from console.x.ai — not Twitter developer.x.com.';
+    showXaiKeyHelp();
     return;
   }
   if (!uploadedLogs.length) return;

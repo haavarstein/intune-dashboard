@@ -421,7 +421,7 @@ After the switch the dashboard clears every sub-tab's cached state (`hwDevices`,
 
 If you add an API key under the **Settings** tab, error-code cells in the device table become clickable. Clicking sends the app + device + error context to the selected provider (Claude or Grok) and shows a structured diagnosis (what the error means, likely cause, remediation steps) in a modal.
 
-**Analyze provider.** Settings has a Claude vs Grok picker. Both keys can be stored; Analyze uses the selected provider after you Save.
+**Analyze provider.** Settings has a Claude vs Grok picker. Both key fields stay visible. Switching the picker or leaving a key field persists immediately (Save is still there). An `xai-` prefix in **either** key field routes Analyze to Grok even if the picker still says Claude. The Analyze tab button always reads **Analyze**.
 
 **Anthropic or OpenRouter (Claude).** The Claude key field accepts either an Anthropic key (`sk-ant-…`) or an [OpenRouter](https://openrouter.ai/) key (`sk-or-…`) — the Claude backend is auto-detected from the prefix, no separate setting. With an OpenRouter key the same Claude models are used (`anthropic/claude-haiku-4.5` etc.) and billed through your OpenRouter account, which is handy if you already fund multiple AI tools from one balance there.
 
