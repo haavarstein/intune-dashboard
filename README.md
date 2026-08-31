@@ -38,7 +38,7 @@ Highlights that fill portal gaps: failed-install session-noise verdicts, MAA que
 ### Analyze tab
 1. Settings → pick **Claude** or **Grok**, then paste the matching key (stored in browser `localStorage`; switching provider or leaving a key field saves immediately).
    - Claude: Anthropic (`sk-ant-…`) or OpenRouter (`sk-or-v1-…`). Prefer Haiku for cost/speed.
-   - Grok: xAI key from [console.x.ai](https://console.x.ai) (`xai-…`) — this is the Grok API at `api.x.ai`, not Twitter/X developer.x.com. Prefer Grok 4.6. An `xai-` key in either field uses Grok even if the picker still says Claude.
+   - Grok: xAI key from [console.x.ai](https://console.x.ai) (`xai-…`) — this is the Grok API at `api.x.ai`, not Twitter/X developer.x.com. Prefer Grok 4.3. An `xai-` key in either field uses Grok even if the picker still says Claude.
 2. Drop log files → **Analyze**.
 
 ### Local development
@@ -104,7 +104,7 @@ In **Settings → Customers**, add short codes (e.g. `ACME`), login email, optio
 
 ## Optional AI
 
-- **Claude (Anthropic or OpenRouter)** or **Grok (xAI)** in Settings; pick the provider, then the model. Haiku 4.5 is the Claude default; Grok 4.6 is the xAI default.
+- **Claude (Anthropic or OpenRouter)** or **Grok (xAI)** in Settings; pick the provider, then the model. Haiku 4.5 is the Claude default; Grok 4.3 is the xAI default (Grok 4.6 is the escalate option).
 - Used for error-code analysis and log triage; keys never sent to Microsoft Graph.
 - xAI keys: [console.x.ai](https://console.x.ai) → `https://api.x.ai` (not Twitter/X developer.x.com).
 - Prefer a **spend-capped** key. See [SECURITY.md](SECURITY.md).
