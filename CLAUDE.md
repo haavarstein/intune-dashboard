@@ -66,7 +66,7 @@ Analyze and click-to-explain error codes call a provider chosen in Settings. Key
 - **Grok:** xAI OpenAI-compatible chat completions (`xai-…` → `https://api.x.ai/v1/chat/completions`). Keys from [console.x.ai](https://console.x.ai). This is the xAI Grok API, **not** Twitter/X developer.x.com.
 - An `xai-` prefix in **either** Settings key field (or provider = Grok) must route Analyze to `api.x.ai`. Do not require a separate Save click before that takes effect; persist on provider/key change. The Analyze button label is always **Analyze**.
 
-Default models: Haiku 4.5 (Claude), Grok 4.6 (xAI).
+Default models: Haiku 4.5 (Claude), Grok 4.3 (xAI). Keep Grok 4.6 in the picker as the escalate option for deeper / stuck logs.
 
 ## Files to never commit
 

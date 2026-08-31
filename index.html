@@ -2194,8 +2194,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Model</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Pick a Grok model. Each error-code analysis uses roughly 500 input + 400 output tokens.</div>
         <select id="xaiModel" class="search" style="width:100%; cursor:pointer;">
-          <option value="grok-4.6" selected>Grok 4.6 — $2/$6 per MTok — ~$0.0034/click — recommended default</option>
-          <option value="grok-4.3">Grok 4.3 — $1.25/$2.50 per MTok — ~$0.0016/click — cheaper, 1M context</option>
+          <option value="grok-4.3" selected>Grok 4.3 — $1.25/$2.50 per MTok — ~$0.0016/click — recommended default</option>
+          <option value="grok-4.6">Grok 4.6 — $2/$6 per MTok — ~$0.0034/click — escalate for deeper / stuck logs</option>
         </select>
       </div>
 
@@ -2238,10 +2238,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <div id="xaiModelHelp" style="display:none; border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--row-hover);">
         <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Choosing a model</div>
         <div style="font-size:12px; color:var(--ink-2); line-height:1.55;">
-          <strong>Grok 4.6</strong> is the default — xAI's current generally available chat model, suited to error-code lookup and most MSI logs.
+          <strong>Grok 4.3</strong> is the default — cheaper and enough for error-code lookup and most MSI logs, same reason Claude defaults to Haiku.
           <ul style="margin:8px 0 0; padding-left:18px;">
-            <li><strong>Grok 4.6</strong> — default. Flagship chat/code model ($2 / $6 per MTok under 200k prompt tokens).</li>
-            <li><strong>Grok 4.3</strong> — cheaper per token ($1.25 / $2.50) with a 1M context window. Fine for routine error codes and trimmed logs.</li>
+            <li><strong>Grok 4.3</strong> — default. $1.25 / $2.50 per MTok, 1M context. Routine error codes and trimmed logs.</li>
+            <li><strong>Grok 4.6</strong> — escalate for deeper / stuck logs ($2 / $6 per MTok under 200k prompt tokens).</li>
           </ul>
           <div style="margin-top:8px;">Keys come from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a>. Biggest cost lever is still <strong>auto-trim logs before sending</strong>.</div>
         </div>
@@ -5186,7 +5186,7 @@ document.querySelectorAll('#installedView thead th').forEach(th => {
 const SETTINGS_KEY = 'intuneDash.claude';
 const SCALE_KEY = 'intuneDash.scale';
 const CLAUDE_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-const XAI_DEFAULT_MODEL = 'grok-4.6';
+const XAI_DEFAULT_MODEL = 'grok-4.3';
 const XAI_KEY_HELP = 'This needs an <strong>xAI Grok</strong> API key from <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer">console.x.ai</a> (typical prefix <code>xai-</code>). Twitter/X developer keys from developer.x.com will not work.';
 function looksLikeXaiKey(key) {
   return /^xai-/i.test(String(key || '').trim());
