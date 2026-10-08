@@ -855,14 +855,14 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         <div class="tab-hint">Autopilot reconciliation — find Autopilot device records still registered after their Intune device was retired or reimaged, devices in Autopilot that haven't been assigned a deployment profile, and duplicate Entra device objects pointing at the same Autopilot identity. Hybrid-by-design duplicates (one Entra-joined + one hybrid-joined record per device) are hidden by default.</div>
         <div class="tiles ap-tiles">
           <a class="tile ap-portal-tile" href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesBlade" target="_blank" rel="noopener noreferrer" title="Open classic Windows Autopilot devices in Intune">
-            <div class="tile-label">Intune</div>
-            <div class="tile-value">Autopilot v1 Devices</div>
-            <div class="tile-sub">Classic Windows Autopilot</div>
+            <div class="tile-label">Autopilot v1</div>
+            <div class="tile-value" id="apTileV1">0</div>
+            <div class="tile-sub">devices</div>
           </a>
           <a class="tile ap-portal-tile" href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesV2.ReactView/isReactView~/true" target="_blank" rel="noopener noreferrer" title="Open Autopilot device preparation devices in Intune">
-            <div class="tile-label">Intune</div>
-            <div class="tile-value">Autopilot v2 Devices</div>
-            <div class="tile-sub">Device preparation</div>
+            <div class="tile-label">Autopilot v2</div>
+            <div class="tile-value" id="apTileV2">—</div>
+            <div class="tile-sub">devices</div>
           </a>
           <div class="tile tile-bad" data-ap-tile="orphan" style="cursor:pointer;" title="Filter: orphaned (no Intune device)">
             <div class="tile-label">Orphan</div>
@@ -3341,6 +3341,7 @@ function resetTenantState() {
   const _ab = $('approvalsBadge'); if (_ab) _ab.style.display = 'none';
   // Autopilot
   autopilotLoaded = false; autopilotRows = [];
+  if (typeof autopilotV2Count !== 'undefined') autopilotV2Count = null;
   if (typeof autopilotSelected !== 'undefined') autopilotSelected.clear();
   deviceLinkDevices = [];
   if (typeof deviceLinkAbort !== 'undefined' && deviceLinkAbort) { try { deviceLinkAbort.abort(); } catch (_) {} }
@@ -10229,6 +10230,7 @@ document.querySelectorAll('#intuneSubDiskspace th[data-dsort]').forEach(th => {
 // ============================================================
 let autopilotLoaded = false;
 let autopilotRows = [];
+let autopilotV2Count = null;
 let autopilotSelected = new Set();
 let deviceLinkDevices = [];
 let deviceLinkAbort = null;
@@ -10259,13 +10261,15 @@ async function loadAutopilot(force = false) {
   $('autopilotContent').style.display = 'none';
   $('autopilotError').innerHTML = '';
   try {
-    const [apDevices, mdDevices, entraDevices] = await Promise.all([
+    const [apDevices, mdDevices, entraDevices, v2Count] = await Promise.all([
       graphGetAll('beta/deviceManagement/windowsAutopilotDeviceIdentities'),
       graphGetAll(`beta/deviceManagement/managedDevices?$select=id,serialNumber&$filter=${encodeURIComponent("operatingSystem eq 'Windows'")}`),
       // Entra fetch is best-effort — if the user denied Device.Read.All the
       // Duplicate-Entra tile silently shows 0 and the rest still works.
-      graphGetAll(`v1.0/devices?$select=id,displayName,trustType,physicalIds`).catch(() => [])
+      graphGetAll(`v1.0/devices?$select=id,displayName,trustType,physicalIds`).catch(() => []),
+      graphGetAll('beta/deviceManagement/tenantAssociatedDevices?$select=id').then(rows => rows.length).catch(() => null)
     ]);
+    autopilotV2Count = v2Count;
 
     const mdById = new Set(mdDevices.map(d => d.id));
 
@@ -10337,6 +10341,8 @@ function renderAutopilotTiles() {
     if (dup) duplicate++;
     if (!r.orphan && !r.noProfile && !dup) healthy++;
   }
+  $('apTileV1').textContent = String(total);
+  $('apTileV2').textContent = autopilotV2Count == null ? '—' : String(autopilotV2Count);
   $('apTileOrphan').textContent = orphan;
   $('apTileNoProfile').textContent = noProfile;
   $('apTileDuplicate').textContent = duplicate;
