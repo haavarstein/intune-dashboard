@@ -16,7 +16,7 @@ THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub
 - **Library:** MSAL.js public client application.
 - **Token cache:** `sessionStorage` (not `localStorage`). Closing the browser tab ends the MSAL session; refresh tokens are not persisted across browser restarts by design.
 - **Sign-in scopes:** read-oriented delegated scopes only (devices, apps, scripts, configuration, Autopilot, BitLocker key *metadata*, Entra devices/users as documented in the README).
-- **Write scopes:** requested **just-in-time** the first time you use a write action (app delete, MAA approve/complete, script auto-deploy, device wipe/delete, soft-delete restore, revoke/disable user, etc.). Read-only use never needs those scopes.
+- **Write scopes:** requested **just-in-time** the first time you use a write action (app delete, MAA approve/complete, script auto-deploy, device wipe/delete, Autopilot orphan delete, Device Link CSV upload, soft-delete restore, revoke/disable user, etc.). Read-only use never needs those scopes.
 - **App registration:** multi-tenant public client embedded in the page. Tenant admins may need to grant admin consent for some scopes.
 
 ## What is stored in the browser

@@ -19,7 +19,7 @@ Client-side Microsoft Intune / Entra ops dashboard for MSPs and admins. Runs in 
 
 **Intune sub-tabs (22):** Overview · Installed · Approvals · Failed Install · Required Install · Required Uninstall · Software Metering · Remediation · Hardware · Disk Space · App Versions · Autopilot · BitLocker · **Secure Boot** · Management Health · Assignments · Posture · Vulnerabilities (P2/E5) · Drift & Compliance (P2/E5) · Soft-Deleted · Stale Users (P1) · AI Agents (P2/E5)
 
-Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, Secure Boot on/off from DHA, BitLocker key-escrow gaps, compliance + Conditional Access posture audit, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot orphan reconciliation.
+Highlights that fill portal gaps: failed-install session-noise verdicts, MAA queue + email notifications, management-certificate health, Secure Boot on/off from DHA, BitLocker key-escrow gaps, compliance + Conditional Access posture audit, app version sprawl cleanup, software metering via Proactive Remediation, Autopilot v1/v2 counts, orphan delete, and Device Link CSV upload.
 
 ---
 
@@ -89,7 +89,8 @@ Requested only on first use of the matching action:
 | `Directory.AccessAsUser.All` | Restore soft-deleted Entra devices |
 | `User.RevokeSessions.All` / `User.EnableDisableAccount.All` | Stale users actions |
 | `DeviceManagementManagedDevices.PrivilegedOperations.All` | On-demand IME check-in |
-| `DeviceManagementManagedDevices.ReadWrite.All` | Device delete/wipe; complete device MAA |
+| `DeviceManagementManagedDevices.ReadWrite.All` | Device delete/wipe; complete device MAA; Autopilot Device Link collect-diagnostics |
+| `DeviceManagementServiceConfig.ReadWrite.All` | Delete orphan Autopilot registrations; upload a Device Link CSV to Autopilot v2 |
 | `DeviceManagementRBAC.ReadWrite.All` / `DeviceManagementConfiguration.ReadWrite.All` | Complete certain MAA create/update requests |
 
 Stricter tenants may need admin consent for write scopes. Full endpoint list and edge cases: [docs/FEATURES.md](docs/FEATURES.md#connecting-to-intune).
