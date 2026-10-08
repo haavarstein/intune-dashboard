@@ -348,6 +348,25 @@ tbody tr:last-child td { border-bottom: none; }
 /* Audit modal: 6 columns + long actor lines benefit from a wider footprint */
 #auditModal .modal { max-width: 1400px; }
 #deviceLinkModal .modal { max-width: 920px; }
+/* Autopilot: two portal tiles take the first row; the KPI tiles sit under them. */
+#intuneSubAutopilot .ap-tiles { grid-template-columns: repeat(4, 1fr); }
+#intuneSubAutopilot a.ap-portal-tile {
+  grid-column: span 2;
+  min-height: 148px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--accent-soft), var(--card) 72%);
+  border-color: var(--accent);
+}
+#intuneSubAutopilot a.ap-portal-tile .tile-value { font-size: 28px; color: var(--accent); letter-spacing: -0.03em; }
+@media (max-width: 1024px) {
+  #intuneSubAutopilot .ap-tiles { grid-template-columns: 1fr 1fr; }
+  #intuneSubAutopilot a.ap-portal-tile { grid-column: span 1; min-height: 120px; }
+}
 .modal-header { padding: 24px 28px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 .modal-header h3 { font-family: var(--font-display); margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
 .panel-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }

@@ -853,12 +853,17 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
 
       <div id="intuneSubAutopilot" style="display:none;">
         <div class="tab-hint">Autopilot reconciliation — find Autopilot device records still registered after their Intune device was retired or reimaged, devices in Autopilot that haven't been assigned a deployment profile, and duplicate Entra device objects pointing at the same Autopilot identity. Hybrid-by-design duplicates (one Entra-joined + one hybrid-joined record per device) are hidden by default.</div>
-        <div class="tiles">
-          <div class="tile" data-ap-tile="" style="cursor:pointer;" title="Show all Autopilot devices">
-            <div class="tile-label">Autopilot devices</div>
-            <div class="tile-value" id="apTileTotal">0</div>
-            <div class="tile-sub">in scope</div>
-          </div>
+        <div class="tiles ap-tiles">
+          <a class="tile ap-portal-tile" href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesBlade" target="_blank" rel="noopener noreferrer" title="Open classic Windows Autopilot devices in Intune">
+            <div class="tile-label">Intune</div>
+            <div class="tile-value">Autopilot v1 Devices</div>
+            <div class="tile-sub">Classic Windows Autopilot</div>
+          </a>
+          <a class="tile ap-portal-tile" href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesV2.ReactView/isReactView~/true" target="_blank" rel="noopener noreferrer" title="Open Autopilot device preparation devices in Intune">
+            <div class="tile-label">Intune</div>
+            <div class="tile-value">Autopilot v2 Devices</div>
+            <div class="tile-sub">Device preparation</div>
+          </a>
           <div class="tile tile-bad" data-ap-tile="orphan" style="cursor:pointer;" title="Filter: orphaned (no Intune device)">
             <div class="tile-label">Orphan</div>
             <div class="tile-value" id="apTileOrphan">0</div>
@@ -908,8 +913,6 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               </label>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotDeviceLink" title="Pull the DeviceLink CSV Intune needs before a device preparation name template can apply">Device Link CSV</span>
-              <a href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesBlade" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Classic Windows Autopilot devices">Autopilot v1 Devices</a>
-              <a href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesV2.ReactView/isReactView~/true" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Autopilot device preparation devices">Autopilot v2 Devices</a>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotSelectAll" title="Select every orphan shown in the table">Select all</span>
               <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnAutopilotDelete" title="Delete the selected Autopilot registrations. The managed device is already gone.">🗑 Delete selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotExport">⬇ Export CSV</span>
@@ -10334,7 +10337,6 @@ function renderAutopilotTiles() {
     if (dup) duplicate++;
     if (!r.orphan && !r.noProfile && !dup) healthy++;
   }
-  $('apTileTotal').textContent = total;
   $('apTileOrphan').textContent = orphan;
   $('apTileNoProfile').textContent = noProfile;
   $('apTileDuplicate').textContent = duplicate;
@@ -10360,7 +10362,6 @@ function applyAutopilotFilters(rows) {
 }
 
 const apTileMap = {
-  apTileTotal: '',
   apTileOrphan: 'orphan',
   apTileNoProfile: 'noProfile',
   apTileDuplicate: 'duplicate'
