@@ -908,6 +908,10 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               </label>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotDeviceLink" title="Pull the DeviceLink CSV Intune needs before a device preparation name template can apply">Device Link CSV</span>
+              <a href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesBlade" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Classic Windows Autopilot devices">Autopilot v1 Devices</a>
+              <a href="https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesV2.ReactView/isReactView~/true" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Autopilot device preparation devices">Autopilot v2 Devices</a>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotSelectAll" title="Select every orphan shown in the table">Select all</span>
+              <span style="cursor:pointer; color:#c0392b; font-weight:600; font-size:13px; display:none;" id="btnAutopilotDelete" title="Delete the selected Autopilot registrations. The managed device is already gone.">🗑 Delete selected</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotExport">⬇ Export CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotRefresh">↻ Refresh</span>
             </div>
@@ -918,6 +922,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
             <table>
               <thead>
                 <tr>
+                  <th id="apSelectCol" style="width:36px; display:none;"><input type="checkbox" id="autopilotSelectAll" title="Select all shown orphans" style="cursor:pointer;"></th>
                   <th data-apsort="serialNumber">Serial <span class="arrow">▼</span></th>
                   <th data-apsort="manufacturer">Manufacturer <span class="arrow">▼</span></th>
                   <th data-apsort="model">Model <span class="arrow">▼</span></th>
@@ -3333,6 +3338,7 @@ function resetTenantState() {
   const _ab = $('approvalsBadge'); if (_ab) _ab.style.display = 'none';
   // Autopilot
   autopilotLoaded = false; autopilotRows = [];
+  if (typeof autopilotSelected !== 'undefined') autopilotSelected.clear();
   deviceLinkDevices = [];
   if (typeof deviceLinkAbort !== 'undefined' && deviceLinkAbort) { try { deviceLinkAbort.abort(); } catch (_) {} }
   // BitLocker
@@ -10220,6 +10226,7 @@ document.querySelectorAll('#intuneSubDiskspace th[data-dsort]').forEach(th => {
 // ============================================================
 let autopilotLoaded = false;
 let autopilotRows = [];
+let autopilotSelected = new Set();
 let deviceLinkDevices = [];
 let deviceLinkAbort = null;
 let autopilotSortKey = 'lastContactedDateTime';
@@ -10374,7 +10381,12 @@ function syncAutopilotTileUi() {
 function renderAutopilotTable() {
   const stateActive = !!$('autopilotStateFilter').value;
   const searchActive = !!($('autopilotFilter').value || '').trim();
+  const orphanView = $('autopilotStateFilter').value === 'orphan';
+  if (!orphanView && autopilotSelected.size) autopilotSelected.clear();
   $('btnAutopilotClearKpi').style.display = (stateActive || searchActive) ? '' : 'none';
+  $('apSelectCol').style.display = orphanView ? '' : 'none';
+  $('btnAutopilotSelectAll').style.display = orphanView ? '' : 'none';
+  $('btnAutopilotDelete').style.display = orphanView ? '' : 'none';
   syncAutopilotTileUi();
   const hideHybrid = $('autopilotHideHybrid').checked;
   let rows = applyAutopilotFilters(autopilotRows);
@@ -10393,8 +10405,9 @@ function renderAutopilotTable() {
   });
 
   const body = $('autopilotRowsBody');
+  const cols = orphanView ? 9 : 8;
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No Autopilot devices match the current filters.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:var(--muted); padding:24px;">No Autopilot devices match the current filters.</td></tr>`;
   } else {
     body.innerHTML = rows.map(r => {
       const state = autopilotStateOf(r, hideHybrid);
@@ -10408,8 +10421,12 @@ function renderAutopilotTable() {
       const serialCell = r.serialNumber
         ? `<a href="${serialUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none;">${esc(r.serialNumber)}</a>`
         : '—';
+      const pick = orphanView
+        ? `<td><input type="checkbox" data-ap-select="${esc(r.id)}" ${autopilotSelected.has(r.id) ? 'checked' : ''} style="cursor:pointer;"></td>`
+        : '';
       return `
         <tr>
+          ${pick}
           <td>${serialCell}</td>
           <td>${esc(r.manufacturer) || '—'}</td>
           <td>${esc(r.model) || '—'}</td>
@@ -10423,6 +10440,99 @@ function renderAutopilotTable() {
     }).join('');
   }
   $('autopilotCount').textContent = rows.length;
+  if (orphanView) {
+    const selectedHere = rows.filter(r => autopilotSelected.has(r.id)).length;
+    const allOn = rows.length > 0 && selectedHere === rows.length;
+    const sa = $('autopilotSelectAll');
+    sa.checked = allOn;
+    sa.indeterminate = selectedHere > 0 && !allOn;
+    $('btnAutopilotSelectAll').textContent = allOn ? 'Clear selection' : 'Select all';
+    $('btnAutopilotDelete').textContent = selectedHere ? `🗑 Delete selected (${selectedHere})` : '🗑 Delete selected';
+  }
+}
+
+function autopilotOrphanTargets() {
+  if ($('autopilotStateFilter').value !== 'orphan') return [];
+  const visible = new Set(applyAutopilotFilters(autopilotRows).map(r => r.id));
+  return autopilotRows.filter(r => r.orphan && r.id && autopilotSelected.has(r.id) && visible.has(r.id));
+}
+
+function setVisibleAutopilotSelection(on) {
+  for (const r of applyAutopilotFilters(autopilotRows)) {
+    if (!r.id) continue;
+    if (on) autopilotSelected.add(r.id);
+    else autopilotSelected.delete(r.id);
+  }
+  renderAutopilotTable();
+}
+
+// Removes the Autopilot registration only. Orphan means the Intune managed
+// device is already gone, so this does not retire a live PC.
+async function deleteSelectedAutopilotOrphans() {
+  const targets = autopilotOrphanTargets();
+  if (!targets.length) return;
+  const names = targets.map(r => r.serialNumber || r.id);
+  const preview = names.slice(0, 10).map(n => '  • ' + n).join('\n');
+  const more = names.length > 10 ? `\n  …and ${names.length - 10} more` : '';
+  if (!confirm(`Delete ${names.length} Autopilot registration${names.length === 1 ? '' : 's'}?\n\n${preview}${more}\n\nThis removes the Autopilot device record. The PC has to be registered again before Autopilot can deploy it. This cannot be undone from the dashboard.`)) return;
+
+  const btn = $('btnAutopilotDelete');
+  btn.style.pointerEvents = 'none';
+  let token;
+  try {
+    token = await ensureScopeToken('DeviceManagementServiceConfig.ReadWrite.All');
+  } catch (e) {
+    $('autopilotError').innerHTML = `<div class="error-banner">Consent for Autopilot deletion was not granted: ${esc(e.message || String(e))}</div>`;
+    btn.style.pointerEvents = '';
+    return;
+  }
+
+  let maaJustB64 = null;
+  let cancelled = false;
+  const deleted = [], queued = [], failed = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = targets[i];
+    btn.textContent = `🗑 Deleting ${i + 1}/${targets.length}…`;
+    const attempt = (headers = {}) => graphDelete('beta/deviceManagement/windowsAutopilotDeviceIdentities/' + encodeURIComponent(r.id), { token, headers });
+    try {
+      await attempt(maaJustB64 ? { 'x-msft-approval-justification': maaJustB64 } : {});
+      deleted.push(r);
+    } catch (e) {
+      if (e.isMaa && !maaJustB64) {
+        const just = prompt(`Multi-Admin Approval is required in this tenant. Enter one justification for deleting ${targets.length === 1 ? 'this Autopilot registration' : `these ${targets.length} Autopilot registrations`} (recorded in the audit log; ≤ 1024 chars):`);
+        if (!just) { cancelled = true; break; }
+        maaJustB64 = btoa(String.fromCharCode(...new TextEncoder().encode(just)));
+        try {
+          await attempt({ 'x-msft-approval-justification': maaJustB64 });
+          deleted.push(r);
+        } catch (e2) {
+          if (e2.status === 412 || e2.status === 409) queued.push(r);
+          else failed.push({ r, error: e2.message || String(e2) });
+        }
+      } else if (e.status === 412 || e.status === 409) {
+        queued.push(r);
+      } else {
+        failed.push({ r, error: e.message || String(e) });
+      }
+    }
+  }
+
+  const deletedIds = new Set(deleted.map(r => r.id));
+  if (deletedIds.size) autopilotRows = autopilotRows.filter(r => !deletedIds.has(r.id));
+  deleted.forEach(r => autopilotSelected.delete(r.id));
+  queued.forEach(r => autopilotSelected.delete(r.id));
+
+  const skipped = targets.length - deleted.length - queued.length - failed.length;
+  const parts = [];
+  if (deleted.length) parts.push(`Deleted ${deleted.length}: ${deleted.map(r => r.serialNumber || r.id).join(', ')}`);
+  if (queued.length) parts.push(`${queued.length} submitted for Multi-Admin Approval — approve under Tenant administration → Multi Admin Approval: ${queued.map(r => r.serialNumber || r.id).join(', ')}`);
+  if (failed.length) parts.push(`${failed.length} failed: ${failed.map(f => `${f.r.serialNumber || f.r.id} (${f.error})`).join('; ')}`);
+  if (skipped > 0) parts.push(`${cancelled ? 'Justification cancelled — ' : ''}${skipped} not attempted.`);
+  const cls = (failed.length || cancelled) ? 'error-banner' : 'notice-banner';
+  $('autopilotError').innerHTML = parts.length ? `<div class="${cls}">${parts.map(p => esc(p)).join('<br>')}</div>` : '';
+  btn.style.pointerEvents = '';
+  renderAutopilotTiles();
+  renderAutopilotTable();
 }
 
 function exportAutopilotCsv() {
@@ -10448,6 +10558,20 @@ $('autopilotStateFilter').addEventListener('change', renderAutopilotTable);
 $('autopilotHideHybrid').addEventListener('change', () => { renderAutopilotTiles(); renderAutopilotTable(); });
 $('btnAutopilotRefresh').addEventListener('click', () => loadAutopilot(true));
 $('btnAutopilotExport').addEventListener('click', exportAutopilotCsv);
+$('btnAutopilotSelectAll').addEventListener('click', () => {
+  const rows = applyAutopilotFilters(autopilotRows);
+  const allOn = rows.length > 0 && rows.every(r => autopilotSelected.has(r.id));
+  setVisibleAutopilotSelection(!allOn);
+});
+$('autopilotSelectAll').addEventListener('change', e => setVisibleAutopilotSelection(e.target.checked));
+$('autopilotRowsBody').addEventListener('change', e => {
+  const id = e.target && e.target.dataset && e.target.dataset.apSelect;
+  if (!id) return;
+  if (e.target.checked) autopilotSelected.add(id);
+  else autopilotSelected.delete(id);
+  renderAutopilotTable();
+});
+$('btnAutopilotDelete').addEventListener('click', deleteSelectedAutopilotOrphans);
 $('btnAutopilotClearKpi').addEventListener('click', () => {
   $('autopilotStateFilter').value = '';
   $('autopilotFilter').value = '';
