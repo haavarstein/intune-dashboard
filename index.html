@@ -907,6 +907,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                 <input type="checkbox" id="autopilotHideHybrid" checked> Hide hybrid-by-design duplicates
               </label>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; display:none;" id="btnAutopilotClearKpi" title="Clear KPI selection">✕ Clear KPI</span>
+              <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotDeviceLink" title="Pull the DeviceLink CSV Intune needs before a device preparation name template can apply">Device Link CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotExport">⬇ Export CSV</span>
               <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAutopilotRefresh">↻ Refresh</span>
             </div>
@@ -2333,6 +2334,19 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
   </div>
 </div>
 
+<div class="modal-backdrop" id="deviceLinkModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3>Device Link CSV</h3>
+        <div class="panel-sub" style="margin-top: 4px;">Autopilot device preparation · name templates need a pre-associated device</div>
+      </div>
+      <button class="close-btn" onclick="closeDeviceLinkModal()">×</button>
+    </div>
+    <div class="modal-body" id="deviceLinkBody"></div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="auditModal">
   <div class="modal">
     <div class="modal-header">
@@ -3319,6 +3333,8 @@ function resetTenantState() {
   const _ab = $('approvalsBadge'); if (_ab) _ab.style.display = 'none';
   // Autopilot
   autopilotLoaded = false; autopilotRows = [];
+  deviceLinkDevices = [];
+  if (typeof deviceLinkAbort !== 'undefined' && deviceLinkAbort) { try { deviceLinkAbort.abort(); } catch (_) {} }
   // BitLocker
   bitlockerLoaded = false; bitlockerRows = [];
   // Secure Boot
@@ -10204,6 +10220,8 @@ document.querySelectorAll('#intuneSubDiskspace th[data-dsort]').forEach(th => {
 // ============================================================
 let autopilotLoaded = false;
 let autopilotRows = [];
+let deviceLinkDevices = [];
+let deviceLinkAbort = null;
 let autopilotSortKey = 'lastContactedDateTime';
 let autopilotSortDir = 'desc';
 
@@ -10454,6 +10472,635 @@ document.querySelectorAll('#intuneSubAutopilot th[data-apsort]').forEach(th => {
     renderAutopilotTable();
   });
 });
+
+// Device Link CSV — the file Intune device association imports so an
+// Autopilot device preparation policy can apply a device name template.
+// Graph does not return the TPM-signed package. It lives inside the
+// Collect diagnostics zip (one CSV per device, bytes kept unchanged).
+const DEVICE_LINK_DOC = 'https://learn.microsoft.com/en-us/autopilot/device-preparation/tutorial/user-driven/entra-join-device-association';
+const AUTOPILOT_V2_URL = 'https://intune.microsoft.com/#view/Microsoft_Intune_Enrollment/AutopilotDevicesV2.ReactView/isReactView~/true';
+const DEVICE_LINK_MAX = 25;
+const DEVICE_LINK_PS = [
+  '# Elevated PowerShell on the PC. Copies the DeviceLink CSV to the clipboard.',
+  '$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+  'if (-not $admin) { throw "Run this in an elevated PowerShell window." }',
+  '$dest = Join-Path $env:TEMP ("devicelink-" + [guid]::NewGuid().ToString("n"))',
+  'New-Item -ItemType Directory -Path $dest | Out-Null',
+  '$cab = Join-Path $dest "mdmlogs.cab"',
+  '& "$env:windir\\system32\\MdmDiagnosticsTool.exe" -area Autopilot -cab $cab',
+  'if (-not (Test-Path -LiteralPath $cab)) { throw "MdmDiagnosticsTool did not write a cabinet." }',
+  '$out = Join-Path $dest "expanded"',
+  'New-Item -ItemType Directory -Path $out | Out-Null',
+  'expand.exe $cab -F:* $out | Out-Null',
+  '$csv = Get-ChildItem -LiteralPath $out -Filter "*.devicelink.csv" | Select-Object -First 1',
+  'if (-not $csv) { throw "No .devicelink.csv in the cabinet. This Windows build does not write DeviceLink." }',
+  '$desktop = Join-Path ([Environment]::GetFolderPath("Desktop")) $csv.Name',
+  'Copy-Item -LiteralPath $csv.FullName -Destination $desktop -Force',
+  'Get-Content -LiteralPath $csv.FullName -Raw | Set-Clipboard',
+  'Write-Output "Copied $($csv.Name) to the clipboard and to $desktop. Paste it into THE Intune Dashboard."'
+].join('\n');
+
+function splitCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quoted) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cur += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseDeviceLinkPaste(text) {
+  const clean = String(text || '').replace(/^\uFEFF/, '').trim();
+  if (!clean) throw new Error('Paste the DeviceLink CSV first.');
+  const lines = clean.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length === 1 && !/serial/i.test(lines[0]) && lines[0].length > 80) {
+    return { serial: '', data: lines[0].trim() };
+  }
+  const header = splitCsvLine(lines[0]);
+  const dataIdx = header.findIndex(h => /^data$/i.test(String(h).trim()));
+  const serialIdx = header.findIndex(h => /serial/i.test(h));
+  if (dataIdx < 0) throw new Error('That paste has no Data column. Paste the .devicelink.csv from the script.');
+  if (lines.length < 2) throw new Error('The CSV has a header and no device row.');
+  const row = splitCsvLine(lines[1]);
+  const data = String(row[dataIdx] || '').trim();
+  if (!data) throw new Error('The Data column is empty.');
+  return { serial: serialIdx >= 0 ? String(row[serialIdx] || '').trim() : '', data };
+}
+
+function decodeDeviceLinkBytes(data) {
+  if (data.length >= 2 && data[0] === 0xFF && data[1] === 0xFE) return new TextDecoder('utf-16le').decode(data);
+  if (data.length >= 2 && data[0] === 0xFE && data[1] === 0xFF) return new TextDecoder('utf-16be').decode(data);
+  return new TextDecoder('utf-8').decode(data);
+}
+
+function closeDeviceLinkModal() {
+  $('deviceLinkModal').classList.remove('show');
+  if (deviceLinkAbort) { try { deviceLinkAbort.abort(); } catch (_) {} }
+}
+
+function deviceLinkOsReady(osVersion) {
+  const m = String(osVersion || '').match(/10\.0\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const build = +m[1];
+  const rev = +m[2];
+  if (build === 26100 || build === 26200) return rev >= 9278;
+  return build > 26200;
+}
+
+function crc32(data) {
+  if (!crc32.table) {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 8);
+      t[i] = c;
+    }
+    crc32.table = t;
+  }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) c = crc32.table[(c ^ data[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const centrals = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const v = new DataView(local.buffer);
+    v.setUint32(0, 0x04034b50, true);
+    v.setUint16(4, 20, true);
+    v.setUint32(14, crc, true);
+    v.setUint32(18, f.data.length, true);
+    v.setUint32(22, f.data.length, true);
+    v.setUint16(26, nameBytes.length, true);
+    local.set(nameBytes, 30);
+    parts.push(local, f.data);
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cd = new DataView(central.buffer);
+    cd.setUint32(0, 0x02014b50, true);
+    cd.setUint16(4, 20, true);
+    cd.setUint16(6, 20, true);
+    cd.setUint32(16, crc, true);
+    cd.setUint32(20, f.data.length, true);
+    cd.setUint32(24, f.data.length, true);
+    cd.setUint16(28, nameBytes.length, true);
+    cd.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centrals.push(central);
+    offset += local.length + f.data.length;
+  }
+  const centralSize = centrals.reduce((s, c) => s + c.length, 0);
+  const eocd = new Uint8Array(22);
+  const e = new DataView(eocd.buffer);
+  e.setUint32(0, 0x06054b50, true);
+  e.setUint16(8, files.length, true);
+  e.setUint16(10, files.length, true);
+  e.setUint32(12, centralSize, true);
+  e.setUint32(16, offset, true);
+  return new Blob([...parts, ...centrals, eocd], { type: 'application/zip' });
+}
+
+function downloadBytes(data, filename, type) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: type || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function findZipEocd(bytes) {
+  const min = Math.max(0, bytes.length - 22 - 65535);
+  for (let i = bytes.length - 22; i >= min; i--) {
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) return i;
+  }
+  return -1;
+}
+
+async function zipEntries(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const eocd = findZipEocd(bytes);
+  if (eocd < 0) throw new Error('Not a zip file');
+  const count = view.getUint16(eocd + 10, true);
+  let cdOff = view.getUint32(eocd + 16, true);
+  if (cdOff === 0xFFFFFFFF) throw new Error('ZIP64 diagnostics packages are not supported');
+  const out = [];
+  for (let n = 0; n < count; n++) {
+    if (cdOff + 46 > bytes.length || view.getUint32(cdOff, true) !== 0x02014b50) break;
+    const method = view.getUint16(cdOff + 10, true);
+    const compSize = view.getUint32(cdOff + 20, true);
+    const nameLen = view.getUint16(cdOff + 28, true);
+    const extraLen = view.getUint16(cdOff + 30, true);
+    const commentLen = view.getUint16(cdOff + 32, true);
+    const localOff = view.getUint32(cdOff + 42, true);
+    const name = new TextDecoder('utf-8').decode(bytes.subarray(cdOff + 46, cdOff + 46 + nameLen));
+    cdOff += 46 + nameLen + extraLen + commentLen;
+    if (!name || name.endsWith('/')) continue;
+    if (localOff + 30 > bytes.length) continue;
+    const localNameLen = view.getUint16(localOff + 26, true);
+    const localExtraLen = view.getUint16(localOff + 28, true);
+    const dataOff = localOff + 30 + localNameLen + localExtraLen;
+    const comp = bytes.subarray(dataOff, dataOff + compSize);
+    let data = null;
+    if (method === 0) data = comp.slice();
+    else if (method === 8 && typeof DecompressionStream !== 'undefined') {
+      try {
+        const stream = new Blob([comp]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        data = new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch (_) { data = null; }
+    }
+    if (data) out.push({ name, data });
+  }
+  return out;
+}
+
+function csvHeadText(data) {
+  const head = data.subarray(0, Math.min(data.length, 4096));
+  if (head.length >= 2 && head[0] === 0xFF && head[1] === 0xFE) return new TextDecoder('utf-16le').decode(head);
+  if (head.length >= 2 && head[0] === 0xFE && head[1] === 0xFF) return new TextDecoder('utf-16be').decode(head);
+  return new TextDecoder('utf-8', { fatal: false }).decode(head);
+}
+
+function isDeviceLinkCsv(name, data) {
+  if (/\.csv$/i.test(name) && /devicelink/i.test(name)) return true;
+  if (!/\.csv$/i.test(name)) return false;
+  const line = (csvHeadText(data).split(/\r?\n/)[0] || '');
+  return /(^|,)\s*Data\s*(,|$)/i.test(line) || /devicelink/i.test(line);
+}
+
+// Intune Collect diagnostics does not leave the DeviceLink CSV at the zip root.
+// MdmDiagnosticsTool writes it into an LZX cabinet, mdmlogs-*.cab.
+// The cabinet directory is uncompressed, so the filename can be read here.
+// The file bytes stay LZX-compressed; the page does not unpack those.
+function cabFileNames(data) {
+  if (!data || data.length < 36) return [];
+  if (data[0] !== 0x4D || data[1] !== 0x53 || data[2] !== 0x43 || data[3] !== 0x46) return [];
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const coffFiles = view.getUint32(16, true);
+  const cFiles = view.getUint16(28, true);
+  if (coffFiles < 36 || coffFiles >= data.length || cFiles < 1 || cFiles > 100000) return [];
+  const names = [];
+  let p = coffFiles;
+  const dec = new TextDecoder('utf-8');
+  for (let i = 0; i < cFiles && p + 17 < data.length; i++) {
+    p += 16;
+    let end = p;
+    while (end < data.length && data[end] !== 0) end++;
+    names.push(dec.decode(data.subarray(p, end)));
+    p = end + 1;
+  }
+  return names;
+}
+
+function deviceLinkNamesInCab(data) {
+  return cabFileNames(data).filter(n => /devicelink/i.test(n) && /\.csv$/i.test(n));
+}
+
+async function extractDeviceLinkFiles(arrayBuffer, label) {
+  const found = [];
+  const otherCsv = [];
+  const cabHits = [];
+  async function walk(buf, prefix) {
+    const entries = await zipEntries(buf);
+    for (const entry of entries) {
+      const base = entry.name.split(/[/\\]/).pop();
+      if (/\.zip$/i.test(base)) {
+        try { await walk(entry.data.buffer.slice(entry.data.byteOffset, entry.data.byteOffset + entry.data.byteLength), prefix + base + '/'); } catch (_) {}
+        continue;
+      }
+      if (/\.cab$/i.test(base)) {
+        const names = deviceLinkNamesInCab(entry.data);
+        if (names.length) cabHits.push(prefix + base + ' → ' + names.join(', '));
+        continue;
+      }
+      if (isDeviceLinkCsv(base, entry.data)) found.push({ name: base, data: entry.data, source: label });
+      else if (/\.csv$/i.test(base)) otherCsv.push(prefix + base);
+    }
+  }
+  await walk(arrayBuffer, '');
+  return { found, otherCsv, cabHits };
+}
+
+function deviceLinkMissNote(extracted, label) {
+  if (extracted.cabHits && extracted.cabHits.length) {
+    return `${label}: the DeviceLink CSV is inside a cabinet, not loose in the zip (${extracted.cabHits.join('; ')}). Open that .cab and drop the .devicelink.csv here.`;
+  }
+  const sample = (extracted.otherCsv || []).slice(0, 4).join(', ');
+  if (sample) return `${label} has no DeviceLink CSV. Other CSV files: ${sample}.`;
+  return `${label} has no DeviceLink CSV.`;
+}
+
+function safeFilePart(s) {
+  return String(s || 'device').replace(/[^\w.\-]+/g, '_').replace(/^\.+/, '').slice(0, 80) || 'device';
+}
+
+function renderDeviceLinkResults(files, note) {
+  const box = $('deviceLinkResults');
+  if (!box) return;
+  if (!files.length) {
+    box.innerHTML = `<div class="error-banner">${esc(note || 'No DeviceLink CSV in that package.')}</div>`;
+    return;
+  }
+  const rows = files.map((f, i) => `
+    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; padding:8px 0; border-bottom:1px solid var(--line);">
+      <div>
+        <div style="font-weight:600;">${esc(f.name)}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(f.source || '')} · ${(f.data.length / 1024).toFixed(1)} KB · unchanged</div>
+      </div>
+      <span data-dl-download="${i}" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; white-space:nowrap;">Download</span>
+    </div>`).join('');
+  const all = files.length > 1
+    ? `<div style="padding-top:10px;"><span id="deviceLinkDownloadAll" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;">Download all ${files.length} files</span></div>`
+    : '';
+  box.innerHTML = `
+    <div style="font-size:13px; margin:8px 0 4px;">${esc(note || 'Import each file on its own. Intune accepts one device per CSV.')}</div>
+    ${rows}${all}
+    <div style="font-size:12px; color:var(--muted); margin-top:10px;">Paste the CSV above and choose <strong>Upload to Autopilot v2</strong>. The record shows up on <a href="${AUTOPILOT_V2_URL}" target="_blank" rel="noopener noreferrer">Autopilot devices</a>. <a href="${DEVICE_LINK_DOC}" target="_blank" rel="noopener noreferrer">Microsoft’s steps</a>.</div>`;
+  box.querySelectorAll('[data-dl-download]').forEach(el => {
+    el.addEventListener('click', () => {
+      const f = files[+el.dataset.dlDownload];
+      const name = /devicelink/i.test(f.name) ? f.name : safeFilePart(f.name.replace(/\.csv$/i, '')) + '.devicelink.csv';
+      downloadBytes(f.data, name, 'text/csv');
+    });
+  });
+  const allBtn = $('deviceLinkDownloadAll');
+  if (allBtn) allBtn.addEventListener('click', () => {
+    const packed = files.map((f, i) => ({
+      name: /devicelink/i.test(f.name) ? f.name : (safeFilePart(f.source || f.name) + '-' + (i + 1) + '.devicelink.csv'),
+      data: f.data
+    }));
+    downloadBytes(zipStore(packed), 'devicelink-csv.zip', 'application/zip');
+  });
+}
+
+async function acceptDeviceLinkDrop(fileList) {
+  const box = $('deviceLinkResults');
+  const files = [...fileList];
+  if (!files.length) return;
+  if (box) box.innerHTML = `<div style="color:var(--muted); font-size:13px;">Reading ${files.length} file${files.length === 1 ? '' : 's'}…</div>`;
+  const found = [];
+  const notes = [];
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    if (/\.cab$/i.test(file.name) || (bytes.length >= 4 && bytes[0] === 0x4D && bytes[1] === 0x53 && bytes[2] === 0x43 && bytes[3] === 0x46)) {
+      const names = deviceLinkNamesInCab(bytes);
+      notes.push(names.length
+        ? `${file.name} contains ${names.join(', ')}. This cabinet is LZX-compressed, so open it and drop that CSV here.`
+        : `${file.name} is a cabinet and has no DeviceLink CSV in its file list.`);
+      continue;
+    }
+    if (/\.csv$/i.test(file.name) || isDeviceLinkCsv(file.name, bytes)) {
+      if (isDeviceLinkCsv(file.name.endsWith('.csv') ? file.name : file.name + '.csv', bytes) || /devicelink/i.test(file.name)) {
+        found.push({ name: file.name, data: bytes, source: file.name });
+      } else notes.push(`${file.name} is a CSV but not a DeviceLink file.`);
+      continue;
+    }
+    try {
+      const extracted = await extractDeviceLinkFiles(buf, file.name);
+      found.push(...extracted.found);
+      if (!extracted.found.length) notes.push(deviceLinkMissNote(extracted, file.name));
+    } catch (e) {
+      notes.push(`${file.name}: ${e.message || e}`);
+    }
+  }
+  if (found.length) {
+    const box = $('deviceLinkPaste');
+    if (box) box.value = decodeDeviceLinkBytes(found[0].data).replace(/^\uFEFF/, '');
+  }
+  renderDeviceLinkResults(found, notes.join(' '));
+}
+
+function deviceLinkFiltered() {
+  const q = ($('deviceLinkSearch') && $('deviceLinkSearch').value || '').toLowerCase().trim();
+  return deviceLinkDevices.filter(d => !q || `${d.deviceName} ${d.serialNumber} ${d.model} ${d.userPrincipalName}`.toLowerCase().includes(q));
+}
+
+function renderDeviceLinkDevices() {
+  const body = $('deviceLinkDeviceBody');
+  if (!body) return;
+  const rows = deviceLinkFiltered();
+  body.innerHTML = rows.map(d => {
+    const ready = deviceLinkOsReady(d.osVersion);
+    return `<tr>
+      <td><input type="checkbox" data-dl-id="${esc(d.id)}" ${d.selected ? 'checked' : ''}></td>
+      <td>${esc(d.deviceName) || '—'}</td>
+      <td>${esc(d.serialNumber) || '—'}</td>
+      <td>${esc(d.model) || '—'}</td>
+      <td class="date">${d.lastSyncDateTime ? new Date(d.lastSyncDateTime).toLocaleString() : '—'}</td>
+      <td style="font-size:12px; color:${ready ? 'var(--good, #1f7a3a)' : 'var(--muted)'};">${ready ? 'Ready' : 'Check build'}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6" style="padding:12px; color:var(--muted);">No Windows devices match.</td></tr>`;
+  const n = deviceLinkDevices.filter(d => d.selected).length;
+  const count = $('deviceLinkSelectedCount');
+  if (count) count.textContent = String(n);
+}
+
+async function loadDeviceLinkPolicies() {
+  const sel = $('deviceLinkPolicy');
+  if (!sel) return;
+  try {
+    const rows = await graphGetAll('beta/deviceManagement/configurationPolicies?$select=id,name,technologies&$filter=' + encodeURIComponent("platforms eq 'windows10' and technologies eq 'enrollment'"));
+    const policies = (rows || []).filter(p => p && p.id).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    for (const p of policies) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      sel.appendChild(opt);
+    }
+  } catch (_) { /* upload still works with no policy selected */ }
+}
+
+async function uploadDeviceLinkPaste() {
+  const status = $('deviceLinkUploadStatus');
+  if (status) status.textContent = 'Uploading…';
+  try {
+    const parsed = parseDeviceLinkPaste($('deviceLinkPaste').value);
+    const token = await ensureScopeToken('DeviceManagementServiceConfig.ReadWrite.All');
+    const policyId = ($('deviceLinkPolicy') && $('deviceLinkPolicy').value) || '';
+    let res;
+    let policyNote = '';
+    try {
+      const body = { deviceLink: parsed.data };
+      if (policyId) body.devicePreparationPolicyId = policyId;
+      res = await graphPost('beta/deviceManagement/tenantAssociatedDevices/importTenantAssociatedDevice', body, { token });
+    } catch (err) {
+      if (!policyId || !/Graph 400/.test(String(err && err.message))) throw err;
+      res = await graphPost('beta/deviceManagement/tenantAssociatedDevices/importTenantAssociatedDevice', { deviceLink: parsed.data }, { token });
+      policyNote = ' The policy was not attached on this call. Assign it on the Autopilot devices page.';
+    }
+    const serial = (res && res.serialNumber) || parsed.serial || 'device';
+    const state = (res && (res.associationState || res.status)) || 'imported';
+    if (status) status.innerHTML = `${esc(serial)} uploaded. State: ${esc(String(state))}.${esc(policyNote)} <a href="${AUTOPILOT_V2_URL}" target="_blank" rel="noopener noreferrer">Open Autopilot devices</a>`;
+  } catch (err) {
+    if (status) status.textContent = (err && err.message) || String(err);
+  }
+}
+
+async function openDeviceLinkModal() {
+  $('deviceLinkModal').classList.add('show');
+  $('deviceLinkBody').innerHTML = `
+    <div style="font-size:13px; line-height:1.45; margin-bottom:12px;">Run the script on the PC, paste the CSV here, and upload it straight to <a href="${AUTOPILOT_V2_URL}" target="_blank" rel="noopener noreferrer">Autopilot devices</a>. That pre-association is what lets a device preparation name template apply. One device per paste.</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:6px;">
+      <h4 style="margin:0; font-size:13px;">1. Create the file</h4>
+      <span id="btnDeviceLinkCopyPs" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;">Copy PowerShell</span>
+    </div>
+    <pre id="deviceLinkPs" style="margin:0 0 14px; max-height:140px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; font-size:11px; line-height:1.4; white-space:pre-wrap;"></pre>
+    <h4 style="margin:0 0 6px; font-size:13px;">2. Paste and upload</h4>
+    <textarea id="deviceLinkPaste" placeholder="Paste the .devicelink.csv here" style="width:100%; min-height:88px; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:11px; border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--card); color:var(--ink);"></textarea>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+      <label style="font-size:12px; color:var(--muted);">Device preparation policy
+        <select id="deviceLinkPolicy" class="filter-select" style="margin-left:6px; max-width:280px;">
+          <option value="">None — assign on the Autopilot devices page</option>
+        </select>
+      </label>
+      <span id="btnDeviceLinkUpload" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;">Upload to Autopilot v2</span>
+    </div>
+    <div id="deviceLinkUploadStatus" style="font-size:12px; margin-top:6px;"></div>
+    <div id="deviceLinkDrop" style="border:1.5px dashed var(--line); border-radius:10px; padding:14px; text-align:center; color:var(--muted); font-size:13px; margin:14px 0 8px;">
+      Drop a <strong>.devicelink.csv</strong>, a diagnostics <strong>.zip</strong>, or the <strong>.cab</strong>
+      <div style="margin-top:8px;"><input type="file" id="deviceLinkFile" accept=".zip,.csv,.cab" multiple style="font-size:12px;"></div>
+    </div>
+    <div id="deviceLinkResults"></div>
+    <h4 style="margin:18px 0 8px; font-size:13px;">Collect from enrolled Windows devices</h4>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">Up to ${DEVICE_LINK_MAX} at a time. The device has to be online. <strong>Ready</strong> means Windows 11 24H2/25H2 build 26100.9278 / 26200.9278 or later (KB5120998), which is the build that writes DeviceLink. First collect asks for <code>DeviceManagementManagedDevices.ReadWrite.All</code>.</div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+      <input type="text" class="search" id="deviceLinkSearch" placeholder="Search name, serial, model…" style="min-width:220px;">
+      <label style="font-size:12px; color:var(--muted); display:inline-flex; gap:6px; align-items:center;"><input type="checkbox" id="deviceLinkReuse" checked> Reuse a completed package when one is still available</label>
+    </div>
+    <div id="deviceLinkDeviceLoading" style="color:var(--muted); font-size:13px;">Loading Windows devices…</div>
+    <div id="deviceLinkDeviceError"></div>
+    <div id="deviceLinkDeviceWrap" style="display:none; max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:8px;">
+      <table>
+        <thead><tr>
+          <th style="width:36px;"><input type="checkbox" id="deviceLinkSelectVisible" title="Select shown devices"></th>
+          <th>Device</th><th>Serial</th><th>Model</th><th>Last check-in</th><th>DeviceLink OS</th>
+        </tr></thead>
+        <tbody id="deviceLinkDeviceBody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex; gap:14px; align-items:center; margin-top:10px;">
+      <span id="btnDeviceLinkCollect" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;">Collect diagnostics</span>
+      <span style="font-size:12px; color:var(--muted);"><span id="deviceLinkSelectedCount">0</span> selected</span>
+      <span id="btnDeviceLinkCancel" style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;">Cancel</span>
+    </div>
+    <div id="deviceLinkLog" style="font-size:12px; margin-top:8px;"></div>`;
+
+  $('deviceLinkPs').textContent = DEVICE_LINK_PS;
+  $('btnDeviceLinkCopyPs').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(DEVICE_LINK_PS);
+      $('btnDeviceLinkCopyPs').textContent = 'Copied';
+    } catch (_) {
+      $('btnDeviceLinkCopyPs').textContent = 'Select the script and copy it';
+    }
+  });
+  $('btnDeviceLinkUpload').addEventListener('click', uploadDeviceLinkPaste);
+  loadDeviceLinkPolicies();
+
+  const drop = $('deviceLinkDrop');
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; });
+  drop.addEventListener('dragleave', () => { drop.style.borderColor = 'var(--line)'; });
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.style.borderColor = 'var(--line)';
+    if (e.dataTransfer && e.dataTransfer.files) acceptDeviceLinkDrop(e.dataTransfer.files);
+  });
+  $('deviceLinkFile').addEventListener('change', e => acceptDeviceLinkDrop(e.target.files));
+  $('deviceLinkSearch').addEventListener('input', renderDeviceLinkDevices);
+  $('deviceLinkDeviceBody').addEventListener('change', e => {
+    const id = e.target && e.target.dataset && e.target.dataset.dlId;
+    if (!id) return;
+    const row = deviceLinkDevices.find(d => d.id === id);
+    if (row) row.selected = e.target.checked;
+    renderDeviceLinkDevices();
+  });
+  $('deviceLinkSelectVisible').addEventListener('change', e => {
+    const on = e.target.checked;
+    const visible = new Set(deviceLinkFiltered().map(d => d.id));
+    let selected = deviceLinkDevices.filter(d => d.selected).length;
+    for (const d of deviceLinkDevices) {
+      if (!visible.has(d.id)) continue;
+      if (on && !d.selected) {
+        if (selected >= DEVICE_LINK_MAX) break;
+        d.selected = true;
+        selected++;
+      } else if (!on) d.selected = false;
+    }
+    renderDeviceLinkDevices();
+  });
+  $('btnDeviceLinkCollect').addEventListener('click', collectDeviceLinkPackages);
+  $('btnDeviceLinkCancel').addEventListener('click', () => { if (deviceLinkAbort) deviceLinkAbort.abort(); });
+
+  try {
+    const devices = await graphGetAll(`beta/deviceManagement/managedDevices?$filter=${encodeURIComponent("operatingSystem eq 'Windows'")}&$select=id,deviceName,serialNumber,model,osVersion,lastSyncDateTime,userPrincipalName`);
+    deviceLinkDevices = devices.map(d => ({ ...d, selected: false }))
+      .sort((a, b) => String(a.deviceName || '').localeCompare(String(b.deviceName || '')));
+    $('deviceLinkDeviceLoading').style.display = 'none';
+    $('deviceLinkDeviceWrap').style.display = '';
+    renderDeviceLinkDevices();
+  } catch (e) {
+    $('deviceLinkDeviceLoading').style.display = 'none';
+    $('deviceLinkDeviceError').innerHTML = `<div class="error-banner">Could not list devices: ${esc(e.message || e)}. You can still drop a diagnostics zip above.</div>`;
+  }
+}
+
+function deviceLinkLog(html) {
+  const el = $('deviceLinkLog');
+  if (el) el.insertAdjacentHTML('beforeend', `<div>${html}</div>`);
+}
+
+async function latestDeviceLinkPackage(deviceId, token, signal) {
+  const rows = await graphGetAll(`beta/deviceManagement/managedDevices/${encodeURIComponent(deviceId)}/logCollectionRequests`, { token, signal });
+  const now = Date.now();
+  return rows
+    .filter(r => r && String(r.status).toLowerCase() === 'completed')
+    .filter(r => !r.expirationDateTimeUTC || Date.parse(r.expirationDateTimeUTC) > now)
+    .sort((a, b) => (Date.parse(b.receivedDateTimeUTC || b.requestedDateTimeUTC || 0) || 0) - (Date.parse(a.receivedDateTimeUTC || a.requestedDateTimeUTC || 0) || 0))[0] || null;
+}
+
+async function collectDeviceLinkPackages() {
+  const chosen = deviceLinkDevices.filter(d => d.selected).slice(0, DEVICE_LINK_MAX);
+  const log = $('deviceLinkLog');
+  if (log) log.innerHTML = '';
+  if (!chosen.length) {
+    deviceLinkLog(`<span style="color:var(--muted);">Select at least one device.</span>`);
+    return;
+  }
+  if (deviceLinkAbort) deviceLinkAbort.abort();
+  deviceLinkAbort = new AbortController();
+  const signal = deviceLinkAbort.signal;
+  const cancel = $('btnDeviceLinkCancel');
+  if (cancel) cancel.style.display = '';
+  try {
+    const token = await ensureScopeToken('DeviceManagementManagedDevices.ReadWrite.All');
+    const reuse = $('deviceLinkReuse') && $('deviceLinkReuse').checked;
+    const gathered = [];
+    for (const device of chosen) {
+      if (signal.aborted) break;
+      const label = esc(device.deviceName || device.serialNumber || device.id);
+      deviceLinkLog(`<span>${label} — requesting diagnostics…</span>`);
+      try {
+        let request = reuse ? await latestDeviceLinkPackage(device.id, token, signal) : null;
+        if (request) deviceLinkLog(`<span>${label} — using the completed package from ${esc(new Date(request.receivedDateTimeUTC || request.requestedDateTimeUTC).toLocaleString())}.</span>`);
+        if (!request) {
+          const created = await graphPost(
+            `beta/deviceManagement/managedDevices/${encodeURIComponent(device.id)}/createDeviceLogCollectionRequest`,
+            { templateType: { templateType: 'predefined' } },
+            { token, signal }
+          );
+          request = (created && created.id) ? created : (created && created.value) || created;
+          const deadline = Date.now() + 8 * 60 * 1000;
+          while (request && String(request.status).toLowerCase() !== 'completed') {
+            if (String(request.status).toLowerCase() === 'failed') throw new Error('Collection failed on the device');
+            if (Date.now() > deadline) throw new Error('Still pending after 8 minutes. Leave the device online and try again with “reuse” checked.');
+            await new Promise((resolve, reject) => {
+              const t = setTimeout(resolve, 15000);
+              signal.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })); }, { once: true });
+            });
+            request = await graphGet(
+              `beta/deviceManagement/managedDevices/${encodeURIComponent(device.id)}/logCollectionRequests/${encodeURIComponent(request.id)}`,
+              { token, signal }
+            );
+          }
+        }
+        const urlRes = await graphPost(
+          `beta/deviceManagement/managedDevices/${encodeURIComponent(device.id)}/logCollectionRequests/${encodeURIComponent(request.id)}/createDownloadUrl`,
+          undefined,
+          { token, signal }
+        );
+        const url = urlRes && (urlRes.value || urlRes);
+        if (!url || typeof url !== 'string') throw new Error('Graph did not return a download URL');
+        try {
+          const res = await fetch(url, { signal });
+          if (!res.ok) throw new Error('Download HTTP ' + res.status);
+          const extracted = await extractDeviceLinkFiles(await res.arrayBuffer(), device.deviceName || device.id);
+          if (extracted.found.length) {
+            extracted.found.forEach(f => { f.source = device.deviceName || f.source; });
+            gathered.push(...extracted.found);
+            const paste = $('deviceLinkPaste');
+            if (paste && gathered[0]) paste.value = decodeDeviceLinkBytes(gathered[0].data).replace(/^\uFEFF/, '');
+            renderDeviceLinkResults(gathered, 'Import each file on its own. Intune accepts one device per CSV.');
+            deviceLinkLog(`<span>${label} — DeviceLink CSV extracted above.</span>`);
+          } else {
+            deviceLinkLog(`<span>${label} — ${esc(deviceLinkMissNote(extracted, device.deviceName || 'package'))}</span>`);
+          }
+        } catch (fetchErr) {
+          if (fetchErr && fetchErr.name === 'AbortError') throw fetchErr;
+          deviceLinkLog(`<span>${label} — package is ready. The browser cannot read the download directly, so save the zip and drop it in the box above. <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Download diagnostics zip</a></span>`);
+        }
+      } catch (err) {
+        if (err && err.name === 'AbortError') throw err;
+        deviceLinkLog(`<span style="color:#a4262c;">${label} — ${esc(err.message || err)}</span>`);
+      }
+    }
+  } catch (err) {
+    if (!(err && err.name === 'AbortError')) deviceLinkLog(`<span style="color:#a4262c;">${esc(err.message || err)}</span>`);
+    else deviceLinkLog(`<span style="color:var(--muted);">Cancelled.</span>`);
+  } finally {
+    if (cancel) cancel.style.display = 'none';
+  }
+}
+
+$('btnAutopilotDeviceLink').addEventListener('click', openDeviceLinkModal);
 
 // ============================================================
 // Management health sub-tab — Intune management capability, derived
