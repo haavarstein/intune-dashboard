@@ -2008,7 +2008,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       </div><!-- /intuneSubMetering -->
 
       <div id="intuneSubAppversions" style="display:none;">
-        <div class="tab-hint">Version sprawl in your <strong>Intune app catalog</strong> (<code>deviceAppManagement/mobileApps</code>) — the app <em>packages</em> you've created/uploaded, <strong>assigned or not</strong>. Surfaces apps you hold many versions of (the classic "11 Notepad++ packages" mess, often from PatchMyPC publishing) so you can retire the superseded ones. <strong>Surplus</strong> = packages older than the newest version of that app; <strong>Unassigned</strong> packages target no group at all (safest to delete). Click 🗑 on any package to delete it from Intune (reuses the typed-confirm Delete flow, multi-admin-approval aware).</div>
+        <div class="tab-hint">Version sprawl in your <strong>Intune app catalog</strong> (<code>deviceAppManagement/mobileApps</code>) — the app <em>packages</em> you've created/uploaded, <strong>assigned or not</strong>. Surfaces apps you hold many versions of (the classic "11 Notepad++ packages" mess, often from PatchMyPC publishing) so you can retire the superseded ones. <strong>Surplus</strong> = packages older than the newest version of that app; <strong>Unassigned</strong> packages target no group at all (safest to delete). On a Win32 package, <strong>⬇ .intunewin</strong> downloads the file Intune stored (the admin center has no download). Click 🗑 on any package to delete it from Intune (reuses the typed-confirm Delete flow, multi-admin-approval aware).</div>
 
         <div id="appversionsLoading" style="color:var(--muted); font-size:13px; padding:12px;">Loading Intune app catalog…</div>
         <div id="appversionsError"></div>
@@ -2089,6 +2089,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div style="padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px;">
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDrillBack">← Back to apps</span>
                 <span style="font-weight:600;" id="appverDrillTitle"></span>
+                <span id="appverDownloadStatus" style="font-size:12px; color:var(--muted);"></span>
                 <span style="cursor:pointer; color:#8a2020; font-weight:600; font-size:13px; display:none; margin-left:auto;" id="btnAppverDeleteSel" title="Permanently delete the selected packages from Intune">🗑 Delete Selected</span>
               </div>
               <table>
@@ -7526,6 +7527,9 @@ async function loadAppversions(force = false) {
         assigned: assignments.length > 0,
         intents,
         created: app.createdDateTime || null,
+        odataType: app['@odata.type'] || '',
+        committedContentVersion: app.committedContentVersion || '',
+        fileName: app.fileName || '',
       });
     }
 
@@ -7662,6 +7666,8 @@ function openAppverDrilldown(key) {
   if (!a) return;
   appverSelectedApp = a;
   apvSelected.clear();
+  pendingIntunewinSas = null;
+  setAppverDlStatus('');
   $('appverAppsView').style.display = 'none';
   $('appverDrillView').style.display = '';
   $('appverDrillTitle').textContent = `${a.app} — ${a.versionCount} package${a.versionCount === 1 ? '' : 's'}, ${a.surplus} surplus, ${a.unassignedCount} unassigned`;
@@ -7672,6 +7678,8 @@ function openAppverDrilldown(key) {
 function showAppverAppsView() {
   appverSelectedApp = null;
   apvSelected.clear();
+  pendingIntunewinSas = null;
+  setAppverDlStatus('');
   $('appverDrillView').style.display = 'none';
   $('appverAppsView').style.display = '';
   $('appverTableTitle').textContent = 'Apps';
@@ -7701,6 +7709,9 @@ function renderAppverDrillRows() {
       ? `<td>${esc(p.intents.join(', ')) || 'Assigned'}</td>`
       : `<td style="color:#8a2020; font-weight:600;">Unassigned</td>`;
     const url = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(p.id)}`;
+    const dl = isWin32LobPackage(p)
+      ? `<span class="appver-dl" data-appver-pkg="${esc(p.id)}" title="Download the .intunewin Intune stored for this Win32 app" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px; margin-left:10px;">⬇ .intunewin</span>`
+      : '';
     return `<tr>
       <td><input type="checkbox" data-apv-select="${esc(p.id)}" ${apvSelected.has(p.id) ? 'checked' : ''}></td>
       ${verCell}
@@ -7708,6 +7719,7 @@ function renderAppverDrillRows() {
       <td class="date">${esc(fmtIntuneDate(p.created))}</td>
       <td style="white-space:nowrap;">
         <a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:12px;">Open ↗</a>
+        ${dl}
         <span class="appver-del" data-appver-pkg="${esc(p.id)}" title="Delete this package from Intune" style="cursor:pointer; color:#8a2020; font-weight:700; font-size:13px; margin-left:10px;">🗑</span>
       </td>
     </tr>`;
@@ -7783,7 +7795,137 @@ $('appverAppRows').addEventListener('click', e => {
   openAppverDrilldown(tr.dataset.appverKey);
 });
 
-$('appverDrillRows').addEventListener('click', e => {
+function isWin32LobPackage(pkg) {
+  return (pkg.odataType || '').toLowerCase().indexOf('win32lobapp') !== -1;
+}
+
+function intunewinDownloadName(pkg) {
+  const raw = (pkg.fileName || '').trim();
+  if (/\.intunewin$/i.test(raw)) return raw;
+  const base = (pkg.displayName || 'app').replace(/[<>:"/\\|?*]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'app';
+  const ver = pkg.version ? '-' + String(pkg.version).replace(/[<>:"/\\|?*]+/g, '') : '';
+  return base + ver + '.intunewin';
+}
+
+function contentSasUsable(file) {
+  const uri = file && file.azureStorageUri;
+  if (!uri || !/[?&]sig=/i.test(uri)) return false;
+  const exp = Date.parse(file.azureStorageUriExpirationDateTime || '');
+  if (!exp) return true;
+  return exp > Date.now() + 60000;
+}
+
+let pendingIntunewinSas = null;
+
+function setAppverDlStatus(text, withSave) {
+  const el = $('appverDownloadStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  if (!withSave || !pendingIntunewinSas) return;
+  const b = document.createElement('button');
+  b.className = 'btn';
+  b.type = 'button';
+  b.style.cssText = 'font-size:11px; padding:2px 8px; margin-left:8px;';
+  b.textContent = 'Save .intunewin';
+  b.addEventListener('click', () => {
+    if (!pendingIntunewinSas) return;
+    const a = document.createElement('a');
+    a.href = pendingIntunewinSas.uri;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  el.appendChild(document.createTextNode(' '));
+  el.appendChild(b);
+}
+
+function saveBlobAs(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+async function renewWin32ContentSas(filePath, token) {
+  const res = await fetch('https://graph.microsoft.com/' + filePath + '/renewUpload', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
+  });
+  if (!res.ok) throw graphHttpError(res, await res.text());
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 600 : 1500));
+    const file = await graphGet(filePath, { token });
+    const state = file.uploadState || '';
+    if (state === 'azureStorageUriRenewalFailed' || state === 'azureStorageUriRenewalTimedOut') {
+      throw new Error('Intune could not renew the package download link (' + state + ').');
+    }
+    if (contentSasUsable(file) || (state === 'azureStorageUriRenewalSuccess' && file.azureStorageUri)) return file;
+  }
+  throw new Error('Intune did not return a download link in time. Try again.');
+}
+
+async function downloadAppverIntunewin(pkg) {
+  if (!isWin32LobPackage(pkg)) return;
+  pendingIntunewinSas = null;
+  setAppverDlStatus('Preparing ' + (pkg.displayName || 'package') + '…');
+  const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
+  const base = 'beta/deviceAppManagement/mobileApps/' + encodeURIComponent(pkg.id) + '/microsoft.graph.win32LobApp/contentVersions';
+  let versionId = pkg.committedContentVersion;
+  if (!versionId) {
+    const vers = await graphGet(base, { token });
+    const ids = (vers.value || []).map(v => v.id).filter(Boolean);
+    if (!ids.length) throw new Error('This Win32 app has no uploaded content.');
+    versionId = ids[ids.length - 1];
+  }
+  const listed = await graphGet(base + '/' + encodeURIComponent(versionId) + '/files', { token });
+  const files = listed.value || [];
+  const main = files.filter(f => !f.isDependency && !f.isFrameworkFile);
+  const pool = (main.length ? main : files).filter(f => f.isCommitted);
+  const chosen = (pool.length ? pool : (main.length ? main : files))
+    .slice()
+    .sort((a, b) => (b.sizeEncrypted || b.size || 0) - (a.sizeEncrypted || a.size || 0))[0];
+  if (!chosen) throw new Error('This Win32 app has no content file to download.');
+  const filePath = base + '/' + encodeURIComponent(versionId) + '/files/' + encodeURIComponent(chosen.id);
+  let file = await graphGet(filePath, { token });
+  if (!contentSasUsable(file)) file = await renewWin32ContentSas(filePath, token);
+  if (!file.azureStorageUri) throw new Error('Intune did not return a storage link for this package.');
+  const filename = intunewinDownloadName(Object.assign({}, pkg, { fileName: file.name || pkg.fileName }));
+  try {
+    const blobRes = await fetch(file.azureStorageUri);
+    if (!blobRes.ok) throw new Error('Storage returned ' + blobRes.status);
+    saveBlobAs(await blobRes.blob(), filename);
+    setAppverDlStatus('Saved ' + filename + '.');
+  } catch (e) {
+    pendingIntunewinSas = { uri: file.azureStorageUri, filename };
+    setAppverDlStatus('The browser could not read the storage link directly (' + (e.message || e) + '). Save .intunewin downloads it; if the name ends in .intunewin.bin, rename it to .intunewin.', true);
+  }
+}
+
+$('appverDrillRows').addEventListener('click', async e => {
+  const dl = e.target.closest('.appver-dl');
+  if (dl && appverSelectedApp) {
+    const pkg = appverSelectedApp.packages.find(p => p.id === dl.dataset.appverPkg);
+    if (!pkg || dl.dataset.busy === '1') return;
+    dl.dataset.busy = '1';
+    const label = dl.textContent;
+    dl.textContent = '…';
+    try {
+      await downloadAppverIntunewin(pkg);
+    } catch (err) {
+      console.error('intunewin download failed', err);
+      pendingIntunewinSas = null;
+      setAppverDlStatus('Download failed: ' + String(err.message || err).slice(0, 280));
+    } finally {
+      dl.dataset.busy = '';
+      dl.textContent = label;
+    }
+    return;
+  }
   const del = e.target.closest('.appver-del');
   if (!del || !appverSelectedApp) return;
   const pkg = appverSelectedApp.packages.find(p => p.id === del.dataset.appverPkg);

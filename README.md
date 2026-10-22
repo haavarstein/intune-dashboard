@@ -83,7 +83,7 @@ Requested only on first use of the matching action:
 
 | Scope | Action |
 |-------|--------|
-| `DeviceManagementApps.ReadWrite.All` | Delete apps; MAA approve/reject/complete (apps) |
+| `DeviceManagementApps.ReadWrite.All` | Delete apps; download a Win32 `.intunewin`; MAA approve/reject/complete (apps) |
 | `Mail.Send` | MAA notification emails from your mailbox |
 | `DeviceManagementScripts.ReadWrite.All` | Auto-deploy metering / AI scan / IME check-in scripts |
 | `Directory.AccessAsUser.All` | Restore soft-deleted Entra devices |
