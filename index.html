@@ -2064,6 +2064,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <input type="checkbox" id="appverDupesOnly" checked> Only apps with duplicates
                 </label>
                 <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnAppverClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
+                <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Direct download. Install on each enrolled PC before recovering a committed .intunewin">Download IntuneWin Downloader</a>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="Committed packages need IntuneWin Downloader on each enrolled PC">⬇ .intunewin</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverExport">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverRefresh">↻ Refresh</span>
@@ -2312,7 +2313,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
     <div class="modal-header">
       <div>
         <h3>Download .intunewin</h3>
-        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no download link in this dashboard. Prerequisite: install <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public" target="_blank" rel="noopener noreferrer">IntuneWin Downloader</a> on each enrolled PC that should recover files. It only downloads Win32 apps assigned to that device or user. <a href="https://patchmypc.com/blog/download-intunewin-files-from-microsoft-intune/" target="_blank" rel="noopener noreferrer">How it works</a>.</div>
+        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no download link in this dashboard. Prerequisite: <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer">download IntuneWin Downloader 0.6.127</a> and install it on each enrolled PC. It only downloads Win32 apps assigned to that device or user. <a href="https://patchmypc.com/blog/download-intunewin-files-from-microsoft-intune/" target="_blank" rel="noopener noreferrer">How it works</a>.</div>
       </div>
       <button class="close-btn" type="button" onclick="closeIntunewinModal()">×</button>
     </div>
@@ -7857,14 +7858,14 @@ function setIntunewinStatus(el, text, withSave, withPrereq) {
   el.textContent = text || '';
   if (withPrereq) {
     if (el.textContent) el.appendChild(document.createTextNode(' '));
-    el.appendChild(document.createTextNode('Prerequisite: install '));
+    el.appendChild(document.createTextNode('Prerequisite: '));
     const link = document.createElement('a');
-    link.href = 'https://github.com/call4cloud-code/Intunewin-Downloader-Public';
+    link.href = 'https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip';
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.textContent = 'IntuneWin Downloader';
+    link.textContent = 'Download IntuneWin Downloader 0.6.127';
     el.appendChild(link);
-    el.appendChild(document.createTextNode(' on each enrolled PC. It only downloads Win32 apps assigned to that device or user.'));
+    el.appendChild(document.createTextNode(' and install it on each enrolled PC. It only downloads Win32 apps assigned to that device or user.'));
   }
   if (!withSave || !pendingIntunewinSas) return;
   const b = document.createElement('button');

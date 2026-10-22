@@ -16,7 +16,7 @@ THE Intune Dashboard is a **client-side only** web app (static HTML/JS on GitHub
 - **Library:** MSAL.js public client application.
 - **Token cache:** `sessionStorage` (not `localStorage`). Closing the browser tab ends the MSAL session; refresh tokens are not persisted across browser restarts by design.
 - **Sign-in scopes:** read-oriented delegated scopes only (devices, apps, scripts, configuration, Autopilot, BitLocker key *metadata*, Entra devices/users as documented in the README).
-- **Write scopes:** requested **just-in-time** the first time you use a write action (app delete, renewing an in-progress Win32 upload link, MAA approve/complete, script auto-deploy, device wipe/delete, Autopilot orphan delete, Device Link CSV upload, soft-delete restore, revoke/disable user, etc.). Reading a Win32 content file does not need a write scope. Recovering a committed `.intunewin` is not done in this site: each person installs IntuneWin Downloader on their own enrolled PC. Read-only use never needs those scopes.
+- **Write scopes:** requested **just-in-time** the first time you use a write action (app delete, renewing an in-progress Win32 upload link, MAA approve/complete, script auto-deploy, device wipe/delete, Autopilot orphan delete, Device Link CSV upload, soft-delete restore, revoke/disable user, etc.). Reading a Win32 content file does not need a write scope. Recovering a committed `.intunewin` is not done in this site: each person downloads IntuneWin Downloader 0.6.127 and installs it on their own enrolled PC. Read-only use never needs those scopes.
 - **App registration:** multi-tenant public client embedded in the page. Tenant admins may need to grant admin consent for some scopes.
 
 ## What is stored in the browser
