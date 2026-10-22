@@ -2312,7 +2312,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
     <div class="modal-header">
       <div>
         <h3>Download .intunewin</h3>
-        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. Intune does not offer this download.</div>
+        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no new download link.</div>
       </div>
       <button class="close-btn" type="button" onclick="closeIntunewinModal()">×</button>
     </div>
@@ -7898,30 +7898,75 @@ function saveBlobAs(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 
+// renewUpload is an in-progress upload action. Graph rejects it (400) once the
+// file has moved on, including the normal committed state commitFileSuccess.
+const WIN32_SAS_RENEW_STATES = {
+  azureStorageUriRequestSuccess: true,
+  azureStorageUriRenewalSuccess: true
+};
+const WIN32_SAS_WAIT_STATES = {
+  azureStorageUriRequestPending: true,
+  azureStorageUriRenewalPending: true
+};
+
+function intunewinLinkError(file) {
+  const state = (file && file.uploadState) || '';
+  if (state === 'commitFileSuccess' || (file && file.isCommitted)) {
+    return 'Intune will not issue a new download link once a Win32 package is committed'
+      + (state ? ' (' + state + ')' : '')
+      + '. The stored link has no signature, and renewUpload only refreshes an in-progress upload. The admin center has no .intunewin download.';
+  }
+  if (state) return 'Intune did not return a signed download link (upload state ' + state + ').';
+  return 'Intune did not return a signed download link for this package.';
+}
+
+function readableDownloadError(err) {
+  let text = String((err && (err.body || err.message)) || err || '');
+  text = text.replace(/^Graph \d+:\s*/, '');
+  try {
+    const outer = JSON.parse(text);
+    if (outer && outer.error && outer.error.message) text = String(outer.error.message);
+  } catch (_) { /* body was not a Graph error envelope */ }
+  try {
+    const inner = JSON.parse(text);
+    if (inner && inner.Message) text = String(inner.Message);
+  } catch (_) { /* message was plain text */ }
+  const op = text.indexOf(' - Operation ID');
+  if (op > 0) text = text.slice(0, op);
+  return text.replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+async function pollWin32ContentSas(filePath, token, setStatus) {
+  for (let i = 0; i < 20; i++) {
+    setStatus('Waiting for the download link…');
+    await new Promise(r => setTimeout(r, i === 0 ? 800 : 1500));
+    const file = await graphGet(filePath, { token });
+    const state = file.uploadState || '';
+    if (state === 'azureStorageUriRenewalFailed' || state === 'azureStorageUriRenewalTimedOut'
+        || state === 'azureStorageUriRequestFailed' || state === 'azureStorageUriRequestTimedOut') {
+      throw new Error('Intune could not renew the package download link (' + state + ').');
+    }
+    if (contentSasUsable(file)) return file;
+    if (!WIN32_SAS_WAIT_STATES[state] && !WIN32_SAS_RENEW_STATES[state]) return file;
+  }
+  throw new Error('Intune did not return a signed download link in time. Try again.');
+}
+
 async function renewWin32ContentSas(filePath, token, setStatus) {
+  setStatus('Renewing the upload link…');
   const res = await fetch('https://graph.microsoft.com/' + filePath + '/renewUpload', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
   });
   if (!res.ok) throw graphHttpError(res, await res.text());
-  for (let i = 0; i < 20; i++) {
-    setStatus('Renewing the download link…');
-    await new Promise(r => setTimeout(r, i === 0 ? 800 : 1500));
-    const file = await graphGet(filePath, { token });
-    const state = file.uploadState || '';
-    if (state === 'azureStorageUriRenewalFailed' || state === 'azureStorageUriRenewalTimedOut') {
-      throw new Error('Intune could not renew the package download link (' + state + ').');
-    }
-    if (contentSasUsable(file)) return file;
-  }
-  throw new Error('Intune did not return a signed download link in time. Try again.');
+  return pollWin32ContentSas(filePath, token, setStatus);
 }
 
 async function downloadWin32Package(pkg, setStatus) {
   if (!isWin32LobPackage(pkg)) throw new Error('Only Win32 apps have an .intunewin package.');
   pendingIntunewinSas = null;
   setStatus('Preparing ' + (pkg.displayName || 'package') + '…');
-  const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
+  const token = await getToken();
   const base = 'beta/deviceAppManagement/mobileApps/' + encodeURIComponent(pkg.id) + '/microsoft.graph.win32LobApp/contentVersions';
   let versionId = pkg.committedContentVersion;
   if (!versionId) {
@@ -7940,8 +7985,16 @@ async function downloadWin32Package(pkg, setStatus) {
   if (!chosen) throw new Error('This Win32 app has no content file to download.');
   const filePath = base + '/' + encodeURIComponent(versionId) + '/files/' + encodeURIComponent(chosen.id);
   let file = await graphGet(filePath, { token });
-  if (!contentSasUsable(file)) file = await renewWin32ContentSas(filePath, token, setStatus);
-  if (!contentSasUsable(file)) throw new Error('Intune did not return a signed download link for this package.');
+  if (!contentSasUsable(file)) {
+    const state = file.uploadState || '';
+    if (WIN32_SAS_WAIT_STATES[state]) {
+      file = await pollWin32ContentSas(filePath, token, setStatus);
+    } else if (WIN32_SAS_RENEW_STATES[state]) {
+      const writeToken = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
+      file = await renewWin32ContentSas(filePath, writeToken, setStatus);
+    }
+  }
+  if (!contentSasUsable(file)) throw new Error(intunewinLinkError(file));
   const filename = intunewinDownloadName(Object.assign({}, pkg, { fileName: file.name || pkg.fileName }));
   const sizeLabel = formatPackageBytes(file.sizeEncrypted || file.size);
   setStatus('Downloading ' + sizeLabel + '…');
@@ -8027,7 +8080,7 @@ $('intunewinPickerList').addEventListener('click', async e => {
     }
     console.error('intunewin download failed', err);
     pendingIntunewinSas = null;
-    setIntunewinStatus($('intunewinPickerStatus'), 'Download failed: ' + String(err.message || err).slice(0, 280));
+    setIntunewinStatus($('intunewinPickerStatus'), 'Download failed: ' + readableDownloadError(err));
   } finally {
     row.dataset.busy = '';
   }
@@ -8047,7 +8100,7 @@ $('btnDownloadIntunewin').addEventListener('click', async () => {
     }
     console.error('intunewin download failed', err);
     pendingIntunewinSas = null;
-    setIntunewinStatus($('intunewinDlStatus'), 'Download failed: ' + String(err.message || err).slice(0, 280));
+    setIntunewinStatus($('intunewinDlStatus'), 'Download failed: ' + readableDownloadError(err));
   } finally {
     btn.dataset.busy = '';
   }
@@ -8067,7 +8120,7 @@ $('appverDrillRows').addEventListener('click', async e => {
       if (!(err && err.name === 'AbortError')) {
         console.error('intunewin download failed', err);
         pendingIntunewinSas = null;
-        setAppverDlStatus('Download failed: ' + String(err.message || err).slice(0, 280));
+        setAppverDlStatus('Download failed: ' + readableDownloadError(err));
       }
     } finally {
       dl.dataset.busy = '';
