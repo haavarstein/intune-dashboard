@@ -495,7 +495,9 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="name" id="instAppName">—</div>
               <div class="meta" id="instAppMeta">—</div>
             </div>
-            <div style="display:flex; gap:8px;">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button class="btn btn-ghost" id="btnDownloadIntunewin" style="display:none;" title="Download the .intunewin Intune stored for this Win32 app">⬇ .intunewin</button>
+              <span id="intunewinDlStatus" style="font-size:12px; color:var(--muted);"></span>
               <button class="btn btn-ghost" id="btnDetectionRulesInstalled">🔍 Detection rule</button>
               <button class="btn btn-danger" id="btnDeleteApp">🗑 Delete from Intune</button>
               <button class="btn btn-ghost" id="btnChangeAppInstalled">← Change app</button>
@@ -2062,6 +2064,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <input type="checkbox" id="appverDupesOnly" checked> Only apps with duplicates
                 </label>
                 <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnAppverClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="Pick any Win32 package and download its .intunewin">⬇ .intunewin</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverExport">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverRefresh">↻ Refresh</span>
               </div>
@@ -2301,6 +2304,23 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
       <button class="close-btn" onclick="closeDetectionRulesModal()">×</button>
     </div>
     <div class="modal-body" id="detBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="intunewinModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3>Download .intunewin</h3>
+        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. Intune does not offer this download.</div>
+      </div>
+      <button class="close-btn" type="button" onclick="closeIntunewinModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="search" id="intunewinPickerFilter" placeholder="Search app or publisher…" style="width:100%; margin-bottom:10px;">
+      <div id="intunewinPickerList" style="max-height:50vh; overflow:auto;"></div>
+      <div id="intunewinPickerStatus" style="font-size:12px; color:var(--muted); margin-top:10px;"></div>
+    </div>
   </div>
 </div>
 
@@ -4478,6 +4498,7 @@ async function loadInstalledApps() {
         displayName: app.displayName,
         publisher: app.publisher,
         platform: platformFromOdataType(app['@odata.type']),
+        odataType: app['@odata.type'] || '',
         runAs: runAsFromApp(app),
         created: app.createdDateTime || null
       }))
@@ -4652,6 +4673,8 @@ function selectAppInstalled(app) {
   const bits = [app.publisher || '—', platformLabel(app.platform)];
   if (app.runAs) bits.push(app.runAs === 'system' ? 'SYSTEM' : app.runAs === 'user' ? 'USER' : app.runAs);
   $('instAppMeta').textContent = bits.filter(Boolean).join(' · ');
+  $('btnDownloadIntunewin').style.display = isWin32LobPackage(app) ? '' : 'none';
+  setIntunewinStatus($('intunewinDlStatus'), '');
   loadInstalledAssignments();
   loadInstalled();
 }
@@ -4661,6 +4684,10 @@ async function loadInstalledAssignments() {
   body.innerHTML = '<div class="loading">Loading assignments…</div>';
   try {
     const data = await graphGet(`beta/deviceAppManagement/mobileApps/${encodeURIComponent(selectedApp.id)}?$expand=assignments`);
+    selectedApp.odataType = data['@odata.type'] || selectedApp.odataType;
+    selectedApp.committedContentVersion = data.committedContentVersion || '';
+    selectedApp.fileName = data.fileName || '';
+    $('btnDownloadIntunewin').style.display = isWin32LobPackage(selectedApp) ? '' : 'none';
     const assignments = data.assignments || [];
     if (!assignments.length) {
       body.innerHTML = '<div class="meta">No assignments.</div>';
@@ -7807,6 +7834,14 @@ function intunewinDownloadName(pkg) {
   return base + ver + '.intunewin';
 }
 
+function formatPackageBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return v + ' B';
+  if (v < 1048576) return Math.round(v / 1024) + ' KB';
+  if (v < 1073741824) return (v / 1048576).toFixed(1) + ' MB';
+  return (v / 1073741824).toFixed(2) + ' GB';
+}
+
 function contentSasUsable(file) {
   const uri = file && file.azureStorageUri;
   if (!uri || !/[?&]sig=/i.test(uri)) return false;
@@ -7817,8 +7852,7 @@ function contentSasUsable(file) {
 
 let pendingIntunewinSas = null;
 
-function setAppverDlStatus(text, withSave) {
-  const el = $('appverDownloadStatus');
+function setIntunewinStatus(el, text, withSave) {
   if (!el) return;
   el.textContent = text || '';
   if (!withSave || !pendingIntunewinSas) return;
@@ -7840,6 +7874,19 @@ function setAppverDlStatus(text, withSave) {
   el.appendChild(b);
 }
 
+function setAppverDlStatus(text, withSave) {
+  setIntunewinStatus($('appverDownloadStatus'), text, withSave);
+}
+
+function openStorageDownload(uri) {
+  const a = document.createElement('a');
+  a.href = uri;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function saveBlobAs(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -7851,28 +7898,29 @@ function saveBlobAs(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 
-async function renewWin32ContentSas(filePath, token) {
+async function renewWin32ContentSas(filePath, token, setStatus) {
   const res = await fetch('https://graph.microsoft.com/' + filePath + '/renewUpload', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
   });
   if (!res.ok) throw graphHttpError(res, await res.text());
-  for (let i = 0; i < 8; i++) {
-    await new Promise(r => setTimeout(r, i === 0 ? 600 : 1500));
+  for (let i = 0; i < 20; i++) {
+    setStatus('Renewing the download link…');
+    await new Promise(r => setTimeout(r, i === 0 ? 800 : 1500));
     const file = await graphGet(filePath, { token });
     const state = file.uploadState || '';
     if (state === 'azureStorageUriRenewalFailed' || state === 'azureStorageUriRenewalTimedOut') {
       throw new Error('Intune could not renew the package download link (' + state + ').');
     }
-    if (contentSasUsable(file) || (state === 'azureStorageUriRenewalSuccess' && file.azureStorageUri)) return file;
+    if (contentSasUsable(file)) return file;
   }
-  throw new Error('Intune did not return a download link in time. Try again.');
+  throw new Error('Intune did not return a signed download link in time. Try again.');
 }
 
-async function downloadAppverIntunewin(pkg) {
-  if (!isWin32LobPackage(pkg)) return;
+async function downloadWin32Package(pkg, setStatus) {
+  if (!isWin32LobPackage(pkg)) throw new Error('Only Win32 apps have an .intunewin package.');
   pendingIntunewinSas = null;
-  setAppverDlStatus('Preparing ' + (pkg.displayName || 'package') + '…');
+  setStatus('Preparing ' + (pkg.displayName || 'package') + '…');
   const token = await ensureScopeToken('DeviceManagementApps.ReadWrite.All');
   const base = 'beta/deviceAppManagement/mobileApps/' + encodeURIComponent(pkg.id) + '/microsoft.graph.win32LobApp/contentVersions';
   let versionId = pkg.committedContentVersion;
@@ -7892,19 +7940,118 @@ async function downloadAppverIntunewin(pkg) {
   if (!chosen) throw new Error('This Win32 app has no content file to download.');
   const filePath = base + '/' + encodeURIComponent(versionId) + '/files/' + encodeURIComponent(chosen.id);
   let file = await graphGet(filePath, { token });
-  if (!contentSasUsable(file)) file = await renewWin32ContentSas(filePath, token);
-  if (!file.azureStorageUri) throw new Error('Intune did not return a storage link for this package.');
+  if (!contentSasUsable(file)) file = await renewWin32ContentSas(filePath, token, setStatus);
+  if (!contentSasUsable(file)) throw new Error('Intune did not return a signed download link for this package.');
   const filename = intunewinDownloadName(Object.assign({}, pkg, { fileName: file.name || pkg.fileName }));
+  const sizeLabel = formatPackageBytes(file.sizeEncrypted || file.size);
+  setStatus('Downloading ' + sizeLabel + '…');
   try {
     const blobRes = await fetch(file.azureStorageUri);
     if (!blobRes.ok) throw new Error('Storage returned ' + blobRes.status);
-    saveBlobAs(await blobRes.blob(), filename);
-    setAppverDlStatus('Saved ' + filename + '.');
+    const blob = await blobRes.blob();
+    const zip = blob.size >= 2 && new Uint8Array(await blob.slice(0, 2).arrayBuffer())[0] === 0x50;
+    saveBlobAs(blob, filename);
+    setStatus(zip
+      ? 'Saved ' + filename + ' (' + sizeLabel + ').'
+      : 'Saved ' + filename + ' (' + sizeLabel + '). This is the package Intune stored.');
   } catch (e) {
+    if (e && e.name === 'AbortError') throw e;
     pendingIntunewinSas = { uri: file.azureStorageUri, filename };
-    setAppverDlStatus('The browser could not read the storage link directly (' + (e.message || e) + '). Save .intunewin downloads it; if the name ends in .intunewin.bin, rename it to .intunewin.', true);
+    openStorageDownload(file.azureStorageUri);
+    setStatus('Browser saved the storage file (' + sizeLabel + '). If the name ends in .intunewin.bin, rename it to ' + filename + '.', true);
   }
 }
+
+function allWin32Packages() {
+  const rows = [];
+  for (const group of appverApps) {
+    for (const p of group.packages) {
+      if (isWin32LobPackage(p)) rows.push(p);
+    }
+  }
+  rows.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', undefined, { sensitivity: 'base' })
+    || String(b.version || '').localeCompare(String(a.version || ''), undefined, { numeric: true }));
+  return rows;
+}
+
+function renderIntunewinPicker() {
+  const q = ($('intunewinPickerFilter').value || '').toLowerCase().trim();
+  const rows = allWin32Packages().filter(p => {
+    if (!q) return true;
+    return (p.displayName || '').toLowerCase().includes(q) || (p.publisher || '').toLowerCase().includes(q);
+  });
+  const list = $('intunewinPickerList');
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty" style="padding:24px;">No Win32 packages match.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(p => `
+    <div class="app-row" data-intunewin-id="${esc(p.id)}" style="cursor:pointer;">
+      <div style="flex:1; min-width:0;">
+        <div class="name">${esc(p.displayName)}</div>
+        <div class="meta">${esc(p.publisher) || '—'} · ${esc(p.version) || 'no version'} · ${p.assigned ? 'Assigned' : 'Unassigned'}</div>
+      </div>
+      <div class="pub-small" style="color:var(--accent); font-weight:600;">⬇</div>
+    </div>`).join('');
+}
+
+function openIntunewinModal() {
+  $('intunewinPickerFilter').value = '';
+  setIntunewinStatus($('intunewinPickerStatus'), '');
+  renderIntunewinPicker();
+  $('intunewinModal').classList.add('show');
+  $('intunewinPickerFilter').focus();
+}
+
+function closeIntunewinModal() {
+  $('intunewinModal').classList.remove('show');
+}
+
+$('btnAppverDownload').addEventListener('click', openIntunewinModal);
+$('intunewinPickerFilter').addEventListener('input', renderIntunewinPicker);
+$('intunewinModal').addEventListener('click', e => {
+  if (e.target === $('intunewinModal')) closeIntunewinModal();
+});
+$('intunewinPickerList').addEventListener('click', async e => {
+  const row = e.target.closest('[data-intunewin-id]');
+  if (!row || row.dataset.busy === '1') return;
+  const pkg = allWin32Packages().find(p => p.id === row.dataset.intunewinId);
+  if (!pkg) return;
+  row.dataset.busy = '1';
+  try {
+    await downloadWin32Package(pkg, (text, withSave) => setIntunewinStatus($('intunewinPickerStatus'), text, withSave));
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      setIntunewinStatus($('intunewinPickerStatus'), '');
+      return;
+    }
+    console.error('intunewin download failed', err);
+    pendingIntunewinSas = null;
+    setIntunewinStatus($('intunewinPickerStatus'), 'Download failed: ' + String(err.message || err).slice(0, 280));
+  } finally {
+    row.dataset.busy = '';
+  }
+});
+
+$('btnDownloadIntunewin').addEventListener('click', async () => {
+  if (!selectedApp || !isWin32LobPackage(selectedApp)) return;
+  const btn = $('btnDownloadIntunewin');
+  if (btn.dataset.busy === '1') return;
+  btn.dataset.busy = '1';
+  try {
+    await downloadWin32Package(selectedApp, (text, withSave) => setIntunewinStatus($('intunewinDlStatus'), text, withSave));
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      setIntunewinStatus($('intunewinDlStatus'), '');
+      return;
+    }
+    console.error('intunewin download failed', err);
+    pendingIntunewinSas = null;
+    setIntunewinStatus($('intunewinDlStatus'), 'Download failed: ' + String(err.message || err).slice(0, 280));
+  } finally {
+    btn.dataset.busy = '';
+  }
+});
 
 $('appverDrillRows').addEventListener('click', async e => {
   const dl = e.target.closest('.appver-dl');
@@ -7915,11 +8062,13 @@ $('appverDrillRows').addEventListener('click', async e => {
     const label = dl.textContent;
     dl.textContent = '…';
     try {
-      await downloadAppverIntunewin(pkg);
+      await downloadWin32Package(pkg, setAppverDlStatus);
     } catch (err) {
-      console.error('intunewin download failed', err);
-      pendingIntunewinSas = null;
-      setAppverDlStatus('Download failed: ' + String(err.message || err).slice(0, 280));
+      if (!(err && err.name === 'AbortError')) {
+        console.error('intunewin download failed', err);
+        pendingIntunewinSas = null;
+        setAppverDlStatus('Download failed: ' + String(err.message || err).slice(0, 280));
+      }
     } finally {
       dl.dataset.busy = '';
       dl.textContent = label;
