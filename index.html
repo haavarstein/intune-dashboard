@@ -496,7 +496,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="meta" id="instAppMeta">—</div>
             </div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <button class="btn btn-ghost" id="btnDownloadIntunewin" style="display:none;" title="A committed package needs IntuneWin Downloader installed on this enrolled PC">⬇ .intunewin</button>
+              <button class="btn btn-ghost" id="btnDownloadIntunewin" style="display:none;" title="A committed package is recovered by unzipping IntuneWin Downloader and running it on this enrolled PC. The dashboard does not launch it.">⬇ .intunewin</button>
               <span id="intunewinDlStatus" style="font-size:12px; color:var(--muted);"></span>
               <button class="btn btn-ghost" id="btnDetectionRulesInstalled">🔍 Detection rule</button>
               <button class="btn btn-danger" id="btnDeleteApp">🗑 Delete from Intune</button>
@@ -2064,8 +2064,8 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <input type="checkbox" id="appverDupesOnly" checked> Only apps with duplicates
                 </label>
                 <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnAppverClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
-                <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Direct download. Install on each enrolled PC before recovering a committed .intunewin">Download IntuneWin Downloader</a>
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="Committed packages need IntuneWin Downloader on each enrolled PC">⬇ .intunewin</span>
+                <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer" style="color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;" title="Zip of the portable app. Unzip it and run IntuneWinDownloader.WinUI.exe. The dashboard does not launch it.">Download IntuneWin Downloader</a>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="A committed package is recovered by running IntuneWin Downloader on this enrolled PC. The dashboard does not launch it.">⬇ .intunewin</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverExport">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverRefresh">↻ Refresh</span>
               </div>
@@ -2313,7 +2313,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
     <div class="modal-header">
       <div>
         <h3>Download .intunewin</h3>
-        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no download link in this dashboard. Prerequisite: <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer">download IntuneWin Downloader 0.6.127</a> and install it on each enrolled PC. It only downloads Win32 apps assigned to that device or user. <a href="https://patchmypc.com/blog/download-intunewin-files-from-microsoft-intune/" target="_blank" rel="noopener noreferrer">How it works</a>.</div>
+        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no download link in this dashboard. Prerequisite: <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip" target="_blank" rel="noopener noreferrer">download IntuneWin Downloader 0.6.127</a>, unzip it anywhere, and run IntuneWinDownloader.WinUI.exe on this enrolled PC. The dashboard does not launch it. It only downloads Win32 apps assigned to that device or user. <a href="https://patchmypc.com/blog/download-intunewin-files-from-microsoft-intune/" target="_blank" rel="noopener noreferrer">How it works</a>.</div>
       </div>
       <button class="close-btn" type="button" onclick="closeIntunewinModal()">×</button>
     </div>
@@ -7738,7 +7738,7 @@ function renderAppverDrillRows() {
       : `<td style="color:#8a2020; font-weight:600;">Unassigned</td>`;
     const url = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(p.id)}`;
     const dl = isWin32LobPackage(p)
-      ? `<span class="appver-dl" data-appver-pkg="${esc(p.id)}" title="A committed package needs IntuneWin Downloader installed on this enrolled PC" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px; margin-left:10px;">⬇ .intunewin</span>`
+      ? `<span class="appver-dl" data-appver-pkg="${esc(p.id)}" title="A committed package is recovered by unzipping IntuneWin Downloader and running it on this enrolled PC. The dashboard does not launch it." style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px; margin-left:10px;">⬇ .intunewin</span>`
       : '';
     return `<tr>
       <td><input type="checkbox" data-apv-select="${esc(p.id)}" ${apvSelected.has(p.id) ? 'checked' : ''}></td>
@@ -7865,7 +7865,7 @@ function setIntunewinStatus(el, text, withSave, withPrereq) {
     link.rel = 'noopener noreferrer';
     link.textContent = 'Download IntuneWin Downloader 0.6.127';
     el.appendChild(link);
-    el.appendChild(document.createTextNode(' and install it on each enrolled PC. It only downloads Win32 apps assigned to that device or user.'));
+    el.appendChild(document.createTextNode('. Unzip it anywhere and run IntuneWinDownloader.WinUI.exe on this enrolled PC. The dashboard does not launch it.'));
   }
   if (!withSave || !pendingIntunewinSas) return;
   const b = document.createElement('button');
