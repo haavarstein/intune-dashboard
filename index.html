@@ -496,7 +496,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
               <div class="meta" id="instAppMeta">—</div>
             </div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <button class="btn btn-ghost" id="btnDownloadIntunewin" style="display:none;" title="Download the .intunewin Intune stored for this Win32 app">⬇ .intunewin</button>
+              <button class="btn btn-ghost" id="btnDownloadIntunewin" style="display:none;" title="A committed package needs IntuneWin Downloader installed on this enrolled PC">⬇ .intunewin</button>
               <span id="intunewinDlStatus" style="font-size:12px; color:var(--muted);"></span>
               <button class="btn btn-ghost" id="btnDetectionRulesInstalled">🔍 Detection rule</button>
               <button class="btn btn-danger" id="btnDeleteApp">🗑 Delete from Intune</button>
@@ -2064,7 +2064,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
                   <input type="checkbox" id="appverDupesOnly" checked> Only apps with duplicates
                 </label>
                 <span style="cursor:pointer; color:var(--muted); font-weight:600; font-size:13px; display:none;" id="btnAppverClearKpi" title="Clear KPI filter">✕ Clear KPI</span>
-                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="Pick any Win32 package and download its .intunewin">⬇ .intunewin</span>
+                <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverDownload" title="Committed packages need IntuneWin Downloader on each enrolled PC">⬇ .intunewin</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverExport">⬇ Export CSV</span>
                 <span style="cursor:pointer; color:var(--accent); font-weight:600; font-size:13px;" id="btnAppverRefresh">↻ Refresh</span>
               </div>
@@ -2312,7 +2312,7 @@ Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
     <div class="modal-header">
       <div>
         <h3>Download .intunewin</h3>
-        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no new download link.</div>
+        <div class="panel-sub" style="margin-top:4px;">Every Win32 package in the catalog, including single versions. A committed package has no download link in this dashboard. Prerequisite: install <a href="https://github.com/call4cloud-code/Intunewin-Downloader-Public" target="_blank" rel="noopener noreferrer">IntuneWin Downloader</a> on each enrolled PC that should recover files. It only downloads Win32 apps assigned to that device or user. <a href="https://patchmypc.com/blog/download-intunewin-files-from-microsoft-intune/" target="_blank" rel="noopener noreferrer">How it works</a>.</div>
       </div>
       <button class="close-btn" type="button" onclick="closeIntunewinModal()">×</button>
     </div>
@@ -4674,7 +4674,7 @@ function selectAppInstalled(app) {
   if (app.runAs) bits.push(app.runAs === 'system' ? 'SYSTEM' : app.runAs === 'user' ? 'USER' : app.runAs);
   $('instAppMeta').textContent = bits.filter(Boolean).join(' · ');
   $('btnDownloadIntunewin').style.display = isWin32LobPackage(app) ? '' : 'none';
-  setIntunewinStatus($('intunewinDlStatus'), '');
+  setIntunewinStatus($('intunewinDlStatus'), '', false, isWin32LobPackage(app));
   loadInstalledAssignments();
   loadInstalled();
 }
@@ -7737,7 +7737,7 @@ function renderAppverDrillRows() {
       : `<td style="color:#8a2020; font-weight:600;">Unassigned</td>`;
     const url = `https://intune.microsoft.com/#view/Microsoft_Intune_Apps/SettingsMenu/~/0/appId/${encodeURIComponent(p.id)}`;
     const dl = isWin32LobPackage(p)
-      ? `<span class="appver-dl" data-appver-pkg="${esc(p.id)}" title="Download the .intunewin Intune stored for this Win32 app" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px; margin-left:10px;">⬇ .intunewin</span>`
+      ? `<span class="appver-dl" data-appver-pkg="${esc(p.id)}" title="A committed package needs IntuneWin Downloader installed on this enrolled PC" style="cursor:pointer; color:var(--accent); font-weight:600; font-size:12px; margin-left:10px;">⬇ .intunewin</span>`
       : '';
     return `<tr>
       <td><input type="checkbox" data-apv-select="${esc(p.id)}" ${apvSelected.has(p.id) ? 'checked' : ''}></td>
@@ -7852,9 +7852,20 @@ function contentSasUsable(file) {
 
 let pendingIntunewinSas = null;
 
-function setIntunewinStatus(el, text, withSave) {
+function setIntunewinStatus(el, text, withSave, withPrereq) {
   if (!el) return;
   el.textContent = text || '';
+  if (withPrereq) {
+    if (el.textContent) el.appendChild(document.createTextNode(' '));
+    el.appendChild(document.createTextNode('Prerequisite: install '));
+    const link = document.createElement('a');
+    link.href = 'https://github.com/call4cloud-code/Intunewin-Downloader-Public';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'IntuneWin Downloader';
+    el.appendChild(link);
+    el.appendChild(document.createTextNode(' on each enrolled PC. It only downloads Win32 apps assigned to that device or user.'));
+  }
   if (!withSave || !pendingIntunewinSas) return;
   const b = document.createElement('button');
   b.className = 'btn';
@@ -7874,8 +7885,8 @@ function setIntunewinStatus(el, text, withSave) {
   el.appendChild(b);
 }
 
-function setAppverDlStatus(text, withSave) {
-  setIntunewinStatus($('appverDownloadStatus'), text, withSave);
+function setAppverDlStatus(text, withSave, withPrereq) {
+  setIntunewinStatus($('appverDownloadStatus'), text, withSave, withPrereq);
 }
 
 function openStorageDownload(uri) {
@@ -7912,9 +7923,9 @@ const WIN32_SAS_WAIT_STATES = {
 function intunewinLinkError(file) {
   const state = (file && file.uploadState) || '';
   if (state === 'commitFileSuccess' || (file && file.isCommitted)) {
-    return 'Intune will not issue a new download link once a Win32 package is committed'
+    return 'Intune will not issue a download link once a Win32 package is committed'
       + (state ? ' (' + state + ')' : '')
-      + '. The stored link has no signature, and renewUpload only refreshes an in-progress upload. The admin center has no .intunewin download.';
+      + '. This dashboard cannot recover it.';
   }
   if (state) return 'Intune did not return a signed download link (upload state ' + state + ').';
   return 'Intune did not return a signed download link for this package.';
@@ -8080,7 +8091,7 @@ $('intunewinPickerList').addEventListener('click', async e => {
     }
     console.error('intunewin download failed', err);
     pendingIntunewinSas = null;
-    setIntunewinStatus($('intunewinPickerStatus'), 'Download failed: ' + readableDownloadError(err));
+    setIntunewinStatus($('intunewinPickerStatus'), 'Download failed: ' + readableDownloadError(err), false, true);
   } finally {
     row.dataset.busy = '';
   }
@@ -8100,7 +8111,7 @@ $('btnDownloadIntunewin').addEventListener('click', async () => {
     }
     console.error('intunewin download failed', err);
     pendingIntunewinSas = null;
-    setIntunewinStatus($('intunewinDlStatus'), 'Download failed: ' + readableDownloadError(err));
+    setIntunewinStatus($('intunewinDlStatus'), 'Download failed: ' + readableDownloadError(err), false, true);
   } finally {
     btn.dataset.busy = '';
   }
@@ -8120,7 +8131,7 @@ $('appverDrillRows').addEventListener('click', async e => {
       if (!(err && err.name === 'AbortError')) {
         console.error('intunewin download failed', err);
         pendingIntunewinSas = null;
-        setAppverDlStatus('Download failed: ' + readableDownloadError(err));
+        setAppverDlStatus('Download failed: ' + readableDownloadError(err), false, true);
       }
     } finally {
       dl.dataset.busy = '';

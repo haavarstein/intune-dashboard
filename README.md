@@ -93,7 +93,7 @@ Requested only on first use of the matching action:
 | `DeviceManagementServiceConfig.ReadWrite.All` | Delete orphan Autopilot registrations; upload a Device Link CSV to Autopilot v2 |
 | `DeviceManagementRBAC.ReadWrite.All` / `DeviceManagementConfiguration.ReadWrite.All` | Complete certain MAA create/update requests |
 
-Stricter tenants may need admin consent for write scopes. Full endpoint list and edge cases: [docs/FEATURES.md](docs/FEATURES.md#connecting-to-intune).
+Stricter tenants may need admin consent for write scopes. A committed Win32 `.intunewin` is not downloaded here. Each person installs [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public) on their own enrolled PC first. Full endpoint list and edge cases: [docs/FEATURES.md](docs/FEATURES.md#connecting-to-intune).
 
 ---
 
