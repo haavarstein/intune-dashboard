@@ -83,7 +83,7 @@ Requested only on first use of the matching action:
 
 | Scope | Action |
 |-------|--------|
-| `DeviceManagementApps.ReadWrite.All` | Delete apps; renew an in-progress Win32 upload link (not a committed `.intunewin`); MAA approve/reject/complete (apps) |
+| `DeviceManagementApps.ReadWrite.All` | Delete apps; MAA approve/reject/complete (apps) |
 | `Mail.Send` | MAA notification emails from your mailbox |
 | `DeviceManagementScripts.ReadWrite.All` | Auto-deploy metering / AI scan / IME check-in scripts |
 | `Directory.AccessAsUser.All` | Restore soft-deleted Entra devices |
@@ -93,7 +93,7 @@ Requested only on first use of the matching action:
 | `DeviceManagementServiceConfig.ReadWrite.All` | Delete orphan Autopilot registrations; upload a Device Link CSV to Autopilot v2 |
 | `DeviceManagementRBAC.ReadWrite.All` / `DeviceManagementConfiguration.ReadWrite.All` | Complete certain MAA create/update requests |
 
-Stricter tenants may need admin consent for write scopes. A committed Win32 `.intunewin` is not downloaded here. Each person downloads [IntuneWin Downloader 0.6.127](https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip), unzips it anywhere, and runs `IntuneWinDownloader.WinUI.exe` on their own enrolled PC. This site does not launch it. Full endpoint list and edge cases: [docs/FEATURES.md](docs/FEATURES.md#connecting-to-intune).
+Stricter tenants may need admin consent for write scopes. This site does not download a Win32 `.intunewin`. App Versions links to [IntuneWin Downloader 0.6.127](https://github.com/call4cloud-code/Intunewin-Downloader-Public/raw/main/0.6.127.zip): unzip it anywhere and run `IntuneWinDownloader.WinUI.exe` on an enrolled PC. Full endpoint list and edge cases: [docs/FEATURES.md](docs/FEATURES.md#connecting-to-intune).
 
 ---
 
